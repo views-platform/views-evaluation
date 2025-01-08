@@ -1,12 +1,19 @@
 [tool.poetry]
 name = "views-evaluation"
-version = "0.1.0"
+version = "0.0.1"
 description = ""
-authors = ["Borbála Farkas <borbala.farkas@pcr.uu.se>"]
+authors = [
+    "Xiaolong Sun <xiaolong.sun@pcr.uu.se>",
+    "Borbála Farkas <borbala.farkas@pcr.uu.se>",
+    "Dylan Pinheiro <dylpin@prio.org>"
+    ]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
+scikit-learn = "^1.2.2"
+pandas = "^1.5.3"
+numpy = "^1.25.2"
 
 
 [build-system]

@@ -124,4 +124,5 @@ class EvaluationMetrics:
             >>> evaluation_df = EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
 
         """
-        return pd.DataFrame.from_dict(evaluation_dict, orient='index')
+        df = pd.DataFrame.from_dict(evaluation_dict, orient='index')
+        return df.loc[:, df.notna().any()]
