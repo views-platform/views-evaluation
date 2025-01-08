@@ -41,6 +41,17 @@ class MetricsCalculator:
     def time_series_wise_evaluation(
             self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
             ) -> pd.DataFrame:
+        """
+        Evaluates the predictions time series-wise and calculates the specified metrics.
+
+        Args:
+            actual (pd.DataFrame): The actual values.
+            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
+            target (str): The target column in the actual DataFrame.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the evaluation metrics.
+        """
         evaluation_dict = EvaluationMetrics.make_time_series_wise_evaluation_dict(len(predictions))
         
         for metric in self.metrics_list:
@@ -58,6 +69,18 @@ class MetricsCalculator:
     def step_wise_evaluation(
             self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str, steps: List[int]
             ) -> pd.DataFrame:
+        """
+        Evaluates the predictions step-wise and calculates the specified metrics.
+
+        Args:
+            actual (pd.DataFrame): The actual values.
+            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
+            target (str): The target column in the actual DataFrame.
+            steps (List[int]): The steps to evaluate.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the evaluation metrics.
+        """ 
         evaluation_dict = EvaluationMetrics.make_step_wise_evaluation_dict(steps=max(steps))
         step_metrics = {}
 
@@ -88,6 +111,17 @@ class MetricsCalculator:
     def month_wise_evaluation(
             self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
             ) -> pd.DataFrame:
+        """
+        Evaluates the predictions month-wise and calculates the specified metrics.
+
+        Args:
+            actual (pd.DataFrame): The actual values.
+            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
+            target (str): The target column in the actual DataFrame.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the evaluation metrics.
+        """
         pred_concat = pd.concat(predictions)
         pred_concat_target = pred_concat.columns[0]
         month_range = pred_concat.index.get_level_values(0).unique()
