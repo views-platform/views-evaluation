@@ -2,7 +2,7 @@ from typing import List, Dict, Tuple
 import logging
 import pandas as pd
 import numpy as np
-from metrics import EvaluationMetrics
+from views_evaluation.evaluation.metrics import EvaluationMetrics
 from sklearn.metrics import root_mean_squared_error, root_mean_squared_log_error, average_precision_score
 import properscoring as ps
 
@@ -37,139 +37,6 @@ class MetricsCalculator:
             "Pearson": self._calculate_pearson,
             "Variogram": self._calculate_variogram,
         }
-
-    def time_series_wise_evaluation(
-            self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
-            ) -> pd.DataFrame:
-        """
-        Evaluates the predictions time series-wise and calculates the specified metrics.
-
-        Args:
-            actual (pd.DataFrame): The actual values.
-            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            target (str): The target column in the actual DataFrame.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the evaluation metrics.
-        """
-        evaluation_dict = EvaluationMetrics.make_time_series_wise_evaluation_dict(len(predictions))
-        
-        for metric in self.metrics_list:
-            if metric in self.metric_functions:
-                for i, pred in enumerate(predictions):
-                    matched_actual, matched_pred = MetricsCalculator.match_actual_pred(actual, pred, target)
-                    evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
-                        metric, self.metric_functions[metric](matched_actual, matched_pred, target)
-                    )
-            else:
-                logger.warning(f"Metric {metric} is not a default metric, skipping...")
-
-        return EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)   
-
-    def step_wise_evaluation(
-            self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str, steps: List[int]
-            ) -> pd.DataFrame:
-        """
-        Evaluates the predictions step-wise and calculates the specified metrics.
-
-        Args:
-            actual (pd.DataFrame): The actual values.
-            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            target (str): The target column in the actual DataFrame.
-            steps (List[int]): The steps to evaluate.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the evaluation metrics.
-        """ 
-        evaluation_dict = EvaluationMetrics.make_step_wise_evaluation_dict(steps=max(steps))
-        step_metrics = {}
-
-        for pred in predictions:
-            for i, month in enumerate(pred.index.levels[0]):
-                step = i + 1
-                step_pred = pred.loc[pred.index.get_level_values(0) == month]
-                matched_actual, matched_pred = MetricsCalculator.match_actual_pred(actual, step_pred, target)
-                for metric in self.metrics_list:
-                    if metric in self.metric_functions:
-                        metric_value = self.metric_functions[metric](matched_actual, matched_pred, target)
-                        if step not in step_metrics:
-                            step_metrics[step] = {m: [] for m in self.metrics_list}
-                        step_metrics[step][metric].append(metric_value)
-                    
-        
-        for metric in self.metrics_list:
-            if metric in self.metric_functions:
-                for step in steps:
-                    evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
-                        metric, np.mean(step_metrics[step][metric])
-                    )
-            else:
-                logger.warning(f"Metric {metric} is not a default metric, skipping...")
-            
-        return EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
-    
-    def month_wise_evaluation(
-            self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
-            ) -> pd.DataFrame:
-        """
-        Evaluates the predictions month-wise and calculates the specified metrics.
-
-        Args:
-            actual (pd.DataFrame): The actual values.
-            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            target (str): The target column in the actual DataFrame.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the evaluation metrics.
-        """
-        pred_concat = pd.concat(predictions)
-        pred_concat_target = pred_concat.columns[0]
-        month_range = pred_concat.index.get_level_values(0).unique()
-        month_start = month_range.min()
-        month_end = month_range.max()
-        evaluation_dict = EvaluationMetrics.make_month_wise_evaluation_dict(month_start, month_end)
-
-        matched_actual, matched_pred = MetricsCalculator.match_actual_pred(actual, pred_concat, target)
-        matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
-
-        for metric in self.metrics_list:
-            if metric in self.metric_functions:
-                metric_by_month = matched_concat.groupby(level=matched_concat.index.names[0]).apply(
-                    lambda df: self.metric_functions[metric](
-                        df[[target]], df[[pred_concat_target]], target
-                    )
-                )
-
-                for month in month_range:
-                    evaluation_dict[f"month{str(month)}"].__setattr__(metric, metric_by_month.loc[month])
-            else:
-                logger.warning(f"Metric {metric} is not a default metric, skipping...")
-
-        return EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
-
-    @staticmethod
-    def match_actual_pred(actual: pd.DataFrame, pred: pd.DataFrame, target: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Matches the actual and predicted DataFrames based on the index and target column.
-
-        Parameters:
-        - actual: pd.DataFrame with a MultiIndex (e.g., month, level).
-        - pred: pd.DataFrame with a MultiIndex that may contain duplicated indices.
-        - target: str, the target column in actual.
-
-        Returns:
-        - matched_actual: pd.DataFrame aligned with pred.
-        - matched_pred: pd.DataFrame aligned with actual.
-        """
-        if target not in actual.columns:
-            raise ValueError(f"Target column '{target}' not found in actual DataFrame.")
-
-        actual_target = actual[[target]]
-        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")
-        matched_actual = aligned_actual.reindex(index=aligned_pred.index)
-        matched_actual[[target]] = actual_target
-
-        return matched_actual.sort_index(), pred.sort_index()
     
     @staticmethod
     def _calculate_rmsle(matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str) -> float:
@@ -219,3 +86,158 @@ class MetricsCalculator:
     def _calculate_variogram(matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str) -> float:
         pass
 
+    @staticmethod
+    def _match_actual_pred(actual: pd.DataFrame, pred: pd.DataFrame, target: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Matches the actual and predicted DataFrames based on the index and target column.
+
+        Parameters:
+        - actual: pd.DataFrame with a MultiIndex (e.g., month, level).
+        - pred: pd.DataFrame with a MultiIndex that may contain duplicated indices.
+        - target: str, the target column in actual.
+
+        Returns:
+        - matched_actual: pd.DataFrame aligned with pred.
+        - matched_pred: pd.DataFrame aligned with actual.
+        """
+        if target not in actual.columns:
+            raise ValueError(f"Target column '{target}' not found in actual DataFrame.")
+
+        actual_target = actual[[target]]
+        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")
+        matched_actual = aligned_actual.reindex(index=aligned_pred.index)
+        matched_actual[[target]] = actual_target
+
+        return matched_actual.sort_index(), pred.sort_index()
+
+    @staticmethod
+    def _split_dfs_by_step(dfs: list) -> list:
+        """¨
+        This function splits a list of DataFrames into a dictionary of DataFrames by step, where the key is the step.
+        For example, assume df0 has month_id from 100 to 102, df1 has month_id from 101 to 103, and df2 has month_id from 102 to 104.
+        This function returns three dataframes, with the first dataframe having month_id 100 from df0, month_id 101 from df1, and month_id 102 from df2.
+
+        Args:
+            dfs (list): List of DataFrames with overlapping time ranges.
+
+        Returns:
+            dict (list): A list of DataFrames where each contains one unique month_id from each input DataFrame.
+        """
+        time_id = dfs[0].index.names[0]
+        all_month_ids = [df.index.get_level_values(0).unique() for df in dfs]
+        
+        grouped_month_ids = list(zip(*all_month_ids))
+        
+        result_dfs = []
+        for i, group in enumerate(grouped_month_ids):
+            step = i + 1
+            combined = pd.concat(
+                [df.loc[month_id] for df, month_id in zip(dfs, group)],
+                keys=group, 
+                names=[time_id]
+            )
+            result_dfs.append(combined)
+        
+        return result_dfs
+
+    def step_wise_evaluation(
+            self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str, steps: List[int]
+            ) -> pd.DataFrame:
+        """
+        Evaluates the predictions step-wise and calculates the specified metrics.
+
+        Args:
+            actual (pd.DataFrame): The actual values.
+            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
+            target (str): The target column in the actual DataFrame.
+            steps (List[int]): The steps to evaluate.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the evaluation metrics.
+        """ 
+        evaluation_dict = EvaluationMetrics.make_step_wise_evaluation_dict(steps=max(steps))
+        step_metrics = {}
+
+        result_dfs = MetricsCalculator._split_dfs_by_step(predictions)
+        
+        for metric in self.metrics_list:
+            if metric in self.metric_functions:
+                for i, pred in enumerate(result_dfs):
+                    step = i + 1
+                    matched_actual, matched_pred = MetricsCalculator._match_actual_pred(actual, pred, target)
+                    evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
+                        metric, self.metric_functions[metric](matched_actual, matched_pred, target)
+                    )
+            else:
+                logger.warning(f"Metric {metric} is not a default metric, skipping...")
+            
+        return evaluation_dict, EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
+
+    def time_series_wise_evaluation(
+            self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
+            ) -> pd.DataFrame:
+        """
+        Evaluates the predictions time series-wise and calculates the specified metrics.
+
+        Args:
+            actual (pd.DataFrame): The actual values.
+            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
+            target (str): The target column in the actual DataFrame.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the evaluation metrics.
+        """
+        evaluation_dict = EvaluationMetrics.make_time_series_wise_evaluation_dict(len(predictions))
+        
+        for metric in self.metrics_list:
+            if metric in self.metric_functions:
+                for i, pred in enumerate(predictions):
+                    matched_actual, matched_pred = MetricsCalculator._match_actual_pred(actual, pred, target)
+                    evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
+                        metric, self.metric_functions[metric](matched_actual, matched_pred, target)
+                    )
+            else:
+                logger.warning(f"Metric {metric} is not a default metric, skipping...")
+
+        return evaluation_dict, EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)   
+    
+    def month_wise_evaluation(
+            self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
+            ) -> pd.DataFrame:
+        """
+        Evaluates the predictions month-wise and calculates the specified metrics.
+
+        Args:
+            actual (pd.DataFrame): The actual values.
+            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
+            target (str): The target column in the actual DataFrame.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the evaluation metrics.
+        """
+        pred_concat = pd.concat(predictions)
+        pred_concat_target = pred_concat.columns[0]
+        month_range = pred_concat.index.get_level_values(0).unique()
+        month_start = month_range.min()
+        month_end = month_range.max()
+        evaluation_dict = EvaluationMetrics.make_month_wise_evaluation_dict(month_start, month_end)
+
+        matched_actual, matched_pred = MetricsCalculator._match_actual_pred(actual, pred_concat, target)
+        matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
+
+        for metric in self.metrics_list:
+            if metric in self.metric_functions:
+                metric_by_month = matched_concat.groupby(level=matched_concat.index.names[0]).apply(
+                    lambda df: self.metric_functions[metric](
+                        df[[target]], df[[pred_concat_target]], target
+                    )
+                )
+
+                for month in month_range:
+                    evaluation_dict[f"month{str(month)}"].__setattr__(metric, metric_by_month.loc[month])
+            else:
+                logger.warning(f"Metric {metric} is not a default metric, skipping...")
+
+        return evaluation_dict, EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
+
+    
