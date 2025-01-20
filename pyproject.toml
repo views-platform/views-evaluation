@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "views-evaluation"
+name = "views_evaluation"
 version = "0.0.1"
 description = ""
 authors = [
