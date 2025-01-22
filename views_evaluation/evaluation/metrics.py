@@ -60,8 +60,8 @@ class EvaluationMetrics:
         Example:
             >>> from utils_evaluation_metrics import EvaluationMetrics
             >>> evaluation_dict = EvaluationMetrics.make_evaluation_dict(time_series_length=12)
-            >>> evaluation_dict['step01'].MSE = sklearn.metrics.mean_squared_error(ts01_y_true, ts01_y_pred)
-            >>> evaluation_dict['step02'].MSE = sklearn.metrics.mean_squared_error(ts02_y_true, ts02_y_pred)
+            >>> evaluation_dict['ts01'].MSE = sklearn.metrics.mean_squared_error(ts01_y_true, ts01_y_pred)
+            >>> evaluation_dict['ts02'].MSE = sklearn.metrics.mean_squared_error(ts02_y_true, ts02_y_pred)
             >>> ...
             
         """
