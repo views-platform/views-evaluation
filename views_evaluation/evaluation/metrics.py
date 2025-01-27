@@ -179,8 +179,13 @@ class MetricsManager:
         return ps.crps_ensemble(matched_actual, matched_pred).mean()
 
     @staticmethod
-    def _calculate_ap(matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str) -> float:
-        pass
+    def _calculate_ap(matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, threshold=0.01) -> float:
+        """
+        Calculate Average Precision (AP) for binary predictions with a threshold.
+        """
+        matched_pred_binary = (matched_pred >= threshold).astype(int)
+        matched_actual_binary = (matched_actual > 0).astype(int)
+        return average_precision_score(matched_actual_binary, matched_pred_binary)
 
     @staticmethod
     def _calculate_brier(matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str) -> float:
