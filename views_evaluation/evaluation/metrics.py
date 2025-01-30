@@ -6,7 +6,6 @@ import numpy as np
 import properscoring as ps
 from statistics import mean, stdev, median
 from sklearn.metrics import root_mean_squared_error, root_mean_squared_log_error, average_precision_score
-import properscoring as ps
 
 logger = logging.getLogger(__name__)
 
