@@ -1,3 +1,8 @@
+![GitHub License](https://img.shields.io/github/license/views-platform/views-evaluation)
+![GitHub branch check runs](https://img.shields.io/github/check-runs/views-platform/views-evaluation/main)
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/views-platform/views-evaluation)
+![GitHub Release](https://img.shields.io/github/v/release/views-platform/views-evaluation)
+
 <div style="width: 100%; max-width: 1500px; height: 400px; overflow: hidden; position: relative;">
   <img src="https://pbs.twimg.com/profile_banners/1237000633896652800/1717069203/1500x500" alt="VIEWS Twitter Header" style="position: absolute; top: -50px; width: 100%; height: auto;">
 </div>
@@ -132,7 +137,7 @@ We welcome contributions! Please follow the **[VIEWS Contribution Guidelines](ht
 
 ## 📜 **License**  
 
-This project is licensed under the **[MIT License](/LICENSE)**.  
+This project is licensed under the [LICENSE](/LICENSE) file. 
 
 ---
 
