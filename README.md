@@ -85,16 +85,7 @@ A **centralized evaluation engine** for computing metrics on time-series forecas
 ## ⚙️ **Installation**  
 
 ### **Prerequisites**  
-- Python **>= 3.8**  
-- Dependencies from **views-pipeline-core**  
-
-### **Setup**  
-
-```bash
-git clone https://github.com/views-platform/views-evaluation.git
-cd views-evaluation
-pip install -r requirements.txt
-```
+- Python **>= 3.11**  
 
 ---
 
@@ -125,7 +116,6 @@ views-evaluation/
 ├── views_evaluation/            # Main source code
 │   ├── evaluation/
 │   │   ├── metrics.py
-│   │   ├── test.py
 │   ├── __init__.py              # Package initialization
 ├── .gitignore                   # Git ignore rules
 ├── pyproject.toml               # Poetry project file
