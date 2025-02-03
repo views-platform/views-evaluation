@@ -232,9 +232,6 @@ class MetricsManager:
         - matched_actual: pd.DataFrame aligned with pred.
         - matched_pred: pd.DataFrame aligned with actual.
         """
-        if depvar not in actual.columns:
-            raise ValueError(f"Target column '{depvar}' not found in actual DataFrame.")
-
         actual_depvar = actual[[depvar]]
         aligned_actual, aligned_pred = actual_depvar.align(pred, join="inner")
         matched_actual = aligned_actual.reindex(index=aligned_pred.index)
@@ -356,13 +353,13 @@ class MetricsManager:
         evaluation_dict = EvaluationMetrics.make_month_wise_evaluation_dict(month_start, month_end)
 
         matched_actual, matched_pred = MetricsManager._match_actual_pred(actual, pred_concat, depvar)
-        matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
+        # matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
 
         for metric in self.metrics_list:
             if metric in self.metric_functions:
-                metric_by_month = matched_concat.groupby(level=matched_concat.index.names[0]).apply(
+                metric_by_month = matched_pred.groupby(level=matched_pred.index.names[0]).apply(
                     lambda df: self.metric_functions[metric](
-                        df[[depvar]], df[[pred_concat_depvar]], depvar
+                        matched_actual.loc[df.index, [depvar]], matched_pred.loc[df.index, [depvar]], depvar
                     )
                 )
 
@@ -373,4 +370,10 @@ class MetricsManager:
 
         return evaluation_dict, EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
 
+if __name__ == "__main__":
+    metric_manager = MetricsManager(["RMSLE", "CRPS"])
+    actual = pd.read_parquet("/Users/xiaolong/views-platform/views-evaluation/views_evaluation/evaluation/calibration_viewser_df.parquet")
+    predictions = [pd.read_parquet(f"/Users/xiaolong/views-platform/views-evaluation/views_evaluation/evaluation/predictions_calibration_20250122_103709_{str(i).zfill(2)}.parquet") for i in range(12)]
+    predictions = [df.rename(columns={"step_combined": "ln_ged_sb_dep"}) for df in predictions]
+    metric_manager.month_wise_evaluation(actual, predictions, "ln_ged_sb_dep")
     
