@@ -369,11 +369,4 @@ class MetricsManager:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
 
         return evaluation_dict, EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
-
-if __name__ == "__main__":
-    metric_manager = MetricsManager(["RMSLE", "CRPS"])
-    actual = pd.read_parquet("/Users/xiaolong/views-platform/views-evaluation/views_evaluation/evaluation/calibration_viewser_df.parquet")
-    predictions = [pd.read_parquet(f"/Users/xiaolong/views-platform/views-evaluation/views_evaluation/evaluation/predictions_calibration_20250122_103709_{str(i).zfill(2)}.parquet") for i in range(12)]
-    predictions = [df.rename(columns={"step_combined": "ln_ged_sb_dep"}) for df in predictions]
-    metric_manager.month_wise_evaluation(actual, predictions, "ln_ged_sb_dep")
     
