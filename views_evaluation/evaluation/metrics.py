@@ -346,7 +346,6 @@ class MetricsManager:
             pd.DataFrame: A DataFrame containing the evaluation metrics.
         """
         pred_concat = pd.concat(predictions)
-        pred_concat_depvar = pred_concat.columns[0]
         month_range = pred_concat.index.get_level_values(0).unique()
         month_start = month_range.min()
         month_end = month_range.max()
@@ -359,7 +358,7 @@ class MetricsManager:
             if metric in self.metric_functions:
                 metric_by_month = matched_pred.groupby(level=matched_pred.index.names[0]).apply(
                     lambda df: self.metric_functions[metric](
-                        matched_actual.loc[df.index, [depvar]], matched_pred.loc[df.index, [depvar]], depvar
+                        matched_actual.loc[df.index, [depvar]], matched_pred.loc[df.index, [f"pred_{depvar}"]], depvar
                     )
                 )
 
