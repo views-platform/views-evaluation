@@ -5,7 +5,7 @@
 |---------------------|--------------------|
 | Subject             | Evaluation Metrics |
 | ADR Number          | 001                |
-| Status              | Proposed           |
+| Status              | Accepted           |
 | Author              | Xiaolong           |
 | Date                | 12.09.2024         |
 
