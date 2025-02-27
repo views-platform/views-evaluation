@@ -10,8 +10,7 @@
 | Date                | 12.09.2024         |
 
 ## Context
-In the context of the VIEWS pipeline, it is necessary to evaluate the models using a robust set of metrics that account for the characteristics of conflict data, 
-such as right-skewness and zero-inflation in the outcome variable. This decision was made at the Evaluation Metrics Workshop on May 24, 2024. More details can be found in the [Evaluation Metrics Workshop notes](https://www.notion.so/Notes-37de5410f8b547de8e03dddeb70193a6).
+In the context of the VIEWS pipeline, it is necessary to evaluate the models using a robust set of metrics that account for the characteristics of conflict data, such as right-skewness and zero-inflation in the outcome variable. This decision was made at the Evaluation Metrics Workshop on May 24, 2024. 
 
 
 ## Decision
@@ -53,3 +52,4 @@ Using a mix of probabilistic and point-based metrics will allow us to:
 ### Considerations
 - **Skewed Data**: The distribution of fatalities is often zero-inflated and right-skewed, which makes evaluation more challenging. Metrics must account for this distribution to avoid favoring models that predict zeros too often.
 - **Onset Sensitivity**: The ability to detect onsets of conflict is particularly important, as these events are often of the most interest to decision-makers.
+

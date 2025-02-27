@@ -9,7 +9,7 @@
 | Date                | 31.10.2024 |
 
 ## Context
-A major challenge in VIEWS' forecasting system is the need for an evaluation framework that accurately reflects predictive performance across various time horizons. Traditional machine learning evaluation metrics do not directly translate to time-series forecasting. A well-defined and standardized approach to metric calculation is necessary to ensure reliability, interpretability, and comparability.
+A major challenge in VIEWS forecasting system is the need for an evaluation framework that accurately reflects predictive performance across various time horizons. Traditional machine learning evaluation metrics do not directly translate to time-series forecasting. A well-defined and standardized approach to metric calculation is necessary to ensure reliability, interpretability, and comparability.
 
 
 ## Decision
@@ -56,6 +56,7 @@ Given the nature of VIEWS forecasting, it is crucial to evaluate models in ways 
 
 ### Considerations
 - Balancing computational efficiency with evaluation granularity.
+- Deciding which evaluation schema should be used during calibration and validation (W&B).
 
 
 ## Feedback and Suggestions
