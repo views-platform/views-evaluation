@@ -101,32 +101,63 @@ def mock_uncertainty_predictions(mock_index):
     return [df1, df2]
 
 
-def test_check_dataframes_valid_type(mock_point_predictions):
+def test_validate_dataframes_valid_type(mock_point_predictions):
     with pytest.raises(TypeError):
-        EvaluationManager._check_dataframes(
+        EvaluationManager.validate_predictions(
             mock_point_predictions[0], "depvar", is_uncertainty=False
         )
 
 
-def test_check_dataframes_valid_columns(mock_point_predictions):
+def test_validate_dataframes_valid_columns(mock_point_predictions):
     with pytest.raises(ValueError):
-        EvaluationManager._check_dataframes(
+        EvaluationManager.validate_predictions(
             mock_point_predictions, "y", is_uncertainty=False
         )
 
 
-def test_check_dataframes_valid_point(mock_uncertainty_predictions):
+def test_validate_dataframes_valid_point(mock_uncertainty_predictions):
     with pytest.raises(ValueError):
-        EvaluationManager._check_dataframes(
+        EvaluationManager.validate_predictions(
             mock_uncertainty_predictions, "depvar", is_uncertainty=False
         )
 
 
-def test_check_dataframes_valid_uncertainty(mock_point_predictions):
+def test_validate_dataframes_valid_uncertainty(mock_point_predictions):
     with pytest.raises(ValueError):
-        EvaluationManager._check_dataframes(
+        EvaluationManager.validate_predictions(
             mock_point_predictions, "devpar", is_uncertainty=True
         )
+
+
+def test_get_evaluation_type():
+    # Test case 1: All DataFrames for uncertainty evaluation
+    predictions_uncertainty = [
+        pd.DataFrame({'pred_target': [[1, 2], [3, 4]]}),
+        pd.DataFrame({'pred_target': [[5, 6], [7, 8]]}),
+    ]
+    assert EvaluationManager.get_evaluation_type(predictions_uncertainty) == True
+
+    # Test case 2: All DataFrames for point evaluation
+    predictions_point = [
+        pd.DataFrame({'pred_target': [1.0, 2.0]}),
+        pd.DataFrame({'pred_target': [3.0, 4.0]}),
+    ]
+    assert EvaluationManager.get_evaluation_type(predictions_point) == False
+
+    # Test case 3: Mixed evaluation types
+    predictions_mixed = [
+        pd.DataFrame({'pred_target': [[1, 2], [3, 4]]}),
+        pd.DataFrame({'pred_target': [5.0, 6.0]}),
+    ]
+    with pytest.raises(ValueError):
+        EvaluationManager.get_evaluation_type(predictions_mixed)
+
+    # Test case 4: Single element lists
+    predictions_single_element = [
+        pd.DataFrame({'pred_target': [[1], [2]]}),
+        pd.DataFrame({'pred_target': [[3], [4]]}),
+    ]
+    assert EvaluationManager.get_evaluation_type(predictions_single_element) == False
 
 
 def test_match_actual_pred_point(
