@@ -38,7 +38,7 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
 ### **Pipeline Integration:**  
 1. **Model Predictions** →  
 2. **Evaluation Metrics Processing** →  
-3. **Metrics Computation (via MetricsManager)** →  
+3. **Metrics Computation (via EvaluationManager)** →  
 4. **Final Performance Reports**  
 
 ### **Integration with Other Repositories:**  
@@ -50,40 +50,19 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
 ---
 
 ## ✨ **Features**  
-
-### **1. EvaluationMetrics**  
-A **data class** for managing and storing evaluation metrics for time-series forecasting models.  
-
-🔹 **Key Capabilities:**  
-- **Handles conflict-specific data distributions**, including **skewness and zero-inflation**.  
-- **Three evaluation schemas**:  
-  1. **Time-series-wise**: Evaluates long-term forecasting behavior.  
-  2. **Step-wise**: Assesses performance at each forecasting step.  
-  3. **Month-wise**: Measures forecast accuracy on a rolling monthly basis.  
-- **Transforms evaluation metrics into structured DataFrames** for analysis.  
-
-📖 More details in the **[Evaluation Metrics Workshop Notes](https://www.notion.so/Notes-37de5410f8b547de8e03dddeb70193a6)**.  
-
----
-
-### **2. MetricsManager**  
-A **centralized evaluation engine** for computing metrics on time-series forecasts.  
-
-🔹 **Key Capabilities:**  
-- **Customizable metric lists** allow for flexible evaluation.  
-- **Ensures metric consistency** by warning about unrecognized metrics.  
-- **Implements all three evaluation schemas** (time-series, step-wise, month-wise).  
-- **Batch processing** for multiple models and forecasting targets.  
-
-📖 More details in **[schema.MD](https://github.com/prio-data/views_pipeline/blob/eval_docs/documentation/evaluation/schema.MD)**.  
-
----
-
-### **3. Roadmap & Upcoming Features** 🚧  
-✅ **Planned Enhancements:**  
-- **Multi-target evaluation** (e.g., assessing multiple dependent variables simultaneously).  
-- **Expanding metric calculations** beyond RMSLE, CRPS, and AP.  
-- **New visualization tools** for better interpretability of evaluation reports.  
+* **Comprehensive Evaluation Framework**: The `EvaluationManager` class provides structured methods to evaluate time series predictions based on **point** and **uncertainty** metrics.
+* **Multiple Evaluation Schemas**:
+  * **Step-wise evaluation**: groups and evaluates predictions by the respective steps from all models.
+  * **Time-series-wise evaluation**: evaluates predictions for each time-series.
+  * **Month-wise evaluation**: groups and evaluates predictions at a monthly level.
+* **Support for Mulyiple Metrics**
+  * **Point Evaluation Metrics**: RMSLE, CRPS, Average Precision (Brier Score, Jeffreys Divergence, Pearson Correlation, Sinkhorn/Earth-mover Distance & pEMDiv and Variogram to be added).
+  * **Uncertainty Evaluation Metrics**: CRPS (and more to be added in the future).
+* **Data Integrity Checks**: Ensures that input DataFrames conform to expected structures before evaluation based on point and uncertainty evaluation.
+* **Automatic Index Matching**: Aligns actual and predicted values based on MultiIndex structures.
+* **Planned Enhancements**: 
+  * **Expanding metric calculations** beyond RMSLE, CRPS, and AP.  
+  * **New visualization tools** for better interpretability of evaluation reports.  
 
 ---
 
@@ -92,8 +71,12 @@ A **centralized evaluation engine** for computing metrics on time-series forecas
 ### **Prerequisites**  
 - Python **>= 3.11**  
 
----
+### **From PyPI**
+```
+pip install views_evaluation
+```
 
+---
 ## 🏗 **Architecture**  
 
 ### **1. Evaluation Metrics Framework**  
