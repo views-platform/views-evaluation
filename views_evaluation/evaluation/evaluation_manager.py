@@ -50,23 +50,23 @@ class EvaluationManager:
 
     @staticmethod
     def _calculate_rmsle(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         return (
             root_mean_squared_error(matched_actual, matched_pred)
-            if depvar.startswith("ln")
+            if target.startswith("ln")
             else root_mean_squared_log_error(matched_actual, matched_pred)
         )
 
     @staticmethod
     def _calculate_crps(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         return np.mean(
             [
                 ps.crps_ensemble(actual, np.array(pred))
                 for actual, pred in zip(
-                    matched_actual[depvar], matched_pred[f"pred_{depvar}"]
+                    matched_actual[target], matched_pred[f"pred_{target}"]
                 )
             ]
         )
@@ -75,7 +75,7 @@ class EvaluationManager:
     def _calculate_ap(
         matched_actual: pd.DataFrame,
         matched_pred: pd.DataFrame,
-        depvar: str,
+        target: str,
         threshold=0.01,
     ) -> float:
         """
@@ -87,55 +87,93 @@ class EvaluationManager:
 
     @staticmethod
     def _calculate_brier(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
     def _calculate_jeffreys(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
     def _calculate_coverage(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
     def _calculate_emd(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
     def _calculate_sd(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
     def _calculate_pEMDiv(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
     def _calculate_pearson(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
     def _calculate_variogram(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, depvar: str
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
         pass
 
     @staticmethod
-    def _check_dataframes(
-        predictions: List[pd.DataFrame], depvar: str, is_uncertainty: bool
+    def get_evaluation_type(predictions: List[pd.DataFrame]) -> bool:
+        """
+        Validates the values in each DataFrame in the list.
+        The return value indicates whether all DataFrames are for uncertainty evaluation.
+
+        Args:
+            predictions (List[pd.DataFrame]): A list of DataFrames to check.
+
+        Returns:
+            bool: True if all DataFrames are for uncertainty evaluation,
+                  False if any DataFrame is suitable for point evaluation.
+
+        Raises:
+            ValueError: If there is a mix of results (some DataFrames for uncertainty and others for point evaluation).
+        """
+        all_uncertainty = True
+        all_point = True
+
+        for df in predictions:
+            if all(
+                isinstance(value, list) and len(value) >= 2
+                for value in df.values.flatten()
+            ):
+                all_point = False
+            else:
+                all_uncertainty = False
+
+        if all_uncertainty and not all_point:
+            return True
+        elif all_point and not all_uncertainty:
+            return False
+        else:
+            raise ValueError(
+                "Mix of evaluation types detected: some DataFrames are for uncertainty, others for point evaluation."
+                "Please ensure all DataFrames are consistent in their evaluation type"
+            )
+
+    @staticmethod
+    def validate_predictions(
+        predictions: List[pd.DataFrame], target: str, is_uncertainty: bool
     ):
         """
         Checks if the predictions are valid DataFrames.
@@ -145,16 +183,18 @@ class EvaluationManager:
 
         Args:
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            depvar (str): The depvar column in the actual DataFrame.
+            target (str): The target column in the actual DataFrame.
             is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
         """
-        pred_column_name = f"pred_{depvar}"
+        pred_column_name = f"pred_{target}"
         if not isinstance(predictions, list):
             raise TypeError("Predictions must be a list of DataFrames.")
 
         for i, df in enumerate(predictions):
             if not isinstance(df, pd.DataFrame):
                 raise TypeError(f"Predictions[{i}] must be a DataFrame.")
+            if df.empty:
+                raise ValueError(f"Predictions[{i}] must not be empty.")
             if df.columns.tolist() != [pred_column_name]:
                 raise ValueError(
                     f"Predictions[{i}] must contain only one column named '{pred_column_name}'."
@@ -172,24 +212,24 @@ class EvaluationManager:
 
     @staticmethod
     def _match_actual_pred(
-        actual: pd.DataFrame, pred: pd.DataFrame, depvar: str
+        actual: pd.DataFrame, pred: pd.DataFrame, target: str
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Matches the actual and predicted DataFrames based on the index and depvar column.
+        Matches the actual and predicted DataFrames based on the index and target column.
 
         Parameters:
         - actual: pd.DataFrame with a MultiIndex (e.g., month, level).
         - pred: pd.DataFrame with a MultiIndex that may contain duplicated indices.
-        - depvar: str, the depvar column in actual.
+        - target: str, the target column in actual.
 
         Returns:
         - matched_actual: pd.DataFrame aligned with pred.
         - matched_pred: pd.DataFrame aligned with actual.
         """
-        actual_depvar = actual[[depvar]]
-        aligned_actual, aligned_pred = actual_depvar.align(pred, join="inner")
+        actual_target = actual[[target]]
+        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")
         matched_actual = aligned_actual.reindex(index=aligned_pred.index)
-        matched_actual[[depvar]] = actual_depvar
+        matched_actual[[target]] = actual_target
 
         return matched_actual.sort_index(), pred.sort_index()
 
@@ -228,7 +268,7 @@ class EvaluationManager:
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
-        depvar: str,
+        target: str,
         steps: List[int],
         is_uncertainty: bool,
     ):
@@ -238,7 +278,7 @@ class EvaluationManager:
         Args:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            depvar (str): The depvar column in the actual DataFrame.
+            target (str): The target column in the actual DataFrame.
             steps (List[int]): The steps to evaluate.
             is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
 
@@ -266,11 +306,11 @@ class EvaluationManager:
                 for i, pred in enumerate(result_dfs):
                     step = i + 1
                     matched_actual, matched_pred = EvaluationManager._match_actual_pred(
-                        actual, pred, depvar
+                        actual, pred, target
                     )
                     evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, depvar),
+                        metric_functions[metric](matched_actual, matched_pred, target),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -284,7 +324,7 @@ class EvaluationManager:
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
-        depvar: str,
+        target: str,
         is_uncertainty: bool,
     ):
         """
@@ -293,7 +333,7 @@ class EvaluationManager:
         Args:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            depvar (str): The depvar column in the actual DataFrame.
+            target (str): The target column in the actual DataFrame.
             is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
 
         Returns:
@@ -318,11 +358,11 @@ class EvaluationManager:
             if metric in metric_functions:
                 for i, pred in enumerate(predictions):
                     matched_actual, matched_pred = EvaluationManager._match_actual_pred(
-                        actual, pred, depvar
+                        actual, pred, target
                     )
                     evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, depvar),
+                        metric_functions[metric](matched_actual, matched_pred, target),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -336,7 +376,7 @@ class EvaluationManager:
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
-        depvar: str,
+        target: str,
         is_uncertainty: bool,
     ):
         """
@@ -345,7 +385,7 @@ class EvaluationManager:
         Args:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            depvar (str): The depvar column in the actual DataFrame.
+            target (str): The target column in the actual DataFrame.
             is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
 
         Returns:
@@ -369,7 +409,7 @@ class EvaluationManager:
             metric_functions = self.point_metric_functions
 
         matched_actual, matched_pred = EvaluationManager._match_actual_pred(
-            actual, pred_concat, depvar
+            actual, pred_concat, target
         )
         # matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
 
@@ -379,9 +419,9 @@ class EvaluationManager:
                     level=matched_pred.index.names[0]
                 ).apply(
                     lambda df: metric_functions[metric](
-                        matched_actual.loc[df.index, [depvar]],
-                        matched_pred.loc[df.index, [f"pred_{depvar}"]],
-                        depvar,
+                        matched_actual.loc[df.index, [target]],
+                        matched_pred.loc[df.index, [f"pred_{target}"]],
+                        target,
                     )
                 )
 
@@ -401,9 +441,8 @@ class EvaluationManager:
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
-        depvar: str,
+        target: str,
         steps: List[int],
-        is_uncertainty: bool,
     ):
         """
         Evaluates the predictions and calculates the specified point metrics.
@@ -411,25 +450,22 @@ class EvaluationManager:
         Args:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            depvar (str): The depvar column in the actual DataFrame.
+            target (str): The target column in the actual DataFrame.
             steps (List[int]): The steps to evaluate.
 
         """
-        EvaluationManager._check_dataframes(predictions, depvar, is_uncertainty)
+        is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
+        EvaluationManager.validate_predictions(predictions, target, is_uncertainty)
 
         evaluation_results = {}
         evaluation_results["month"] = self._month_wise_evaluation(
-            actual, predictions, depvar, is_uncertainty=is_uncertainty
+            actual, predictions, target, is_uncertainty
         )
         evaluation_results["time_series"] = self._time_series_wise_evaluation(
-            actual, predictions, depvar, is_uncertainty=is_uncertainty
+            actual, predictions, target, is_uncertainty
         )
         evaluation_results["step"] = self._step_wise_evaluation(
-            actual,
-            predictions,
-            depvar,
-            steps,
-            is_uncertainty=is_uncertainty,
+            actual, predictions, target, steps, is_uncertainty,
         )
 
         return evaluation_results
