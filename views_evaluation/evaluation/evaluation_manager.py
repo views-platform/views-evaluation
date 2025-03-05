@@ -264,7 +264,7 @@ class EvaluationManager:
 
         return result_dfs
 
-    def _step_wise_evaluation(
+    def step_wise_evaluation(
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
@@ -320,7 +320,7 @@ class EvaluationManager:
             PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
         )
 
-    def _time_series_wise_evaluation(
+    def time_series_wise_evaluation(
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
@@ -372,7 +372,7 @@ class EvaluationManager:
             PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
         )
 
-    def _month_wise_evaluation(
+    def month_wise_evaluation(
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
@@ -395,6 +395,7 @@ class EvaluationManager:
         month_range = pred_concat.index.get_level_values(0).unique()
         month_start = month_range.min()
         month_end = month_range.max()
+        
         if is_uncertainty:
             evaluation_dict = (
                 UncertaintyEvaluationMetrics.make_month_wise_evaluation_dict(
@@ -458,13 +459,13 @@ class EvaluationManager:
         EvaluationManager.validate_predictions(predictions, target, is_uncertainty)
 
         evaluation_results = {}
-        evaluation_results["month"] = self._month_wise_evaluation(
+        evaluation_results["month"] = self.month_wise_evaluation(
             actual, predictions, target, is_uncertainty
         )
-        evaluation_results["time_series"] = self._time_series_wise_evaluation(
+        evaluation_results["time_series"] = self.time_series_wise_evaluation(
             actual, predictions, target, is_uncertainty
         )
-        evaluation_results["step"] = self._step_wise_evaluation(
+        evaluation_results["step"] = self.step_wise_evaluation(
             actual, predictions, target, steps, is_uncertainty,
         )
 
