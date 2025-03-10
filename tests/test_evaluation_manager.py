@@ -239,7 +239,7 @@ def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions)
 
 def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
-    evaluation_dict, df_evaluation = manager._step_wise_evaluation(
+    evaluation_dict, df_evaluation = manager.step_wise_evaluation(
         mock_actual, mock_point_predictions, "depvar", [1, 2, 3], False
     )
 
@@ -265,7 +265,7 @@ def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
 
 def test_step_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
-    evaluation_dict, df_evaluation = manager._step_wise_evaluation(
+    evaluation_dict, df_evaluation = manager.step_wise_evaluation(
         mock_actual, mock_uncertainty_predictions, "depvar", [1, 2, 3], True
     )
     actuals = [[1, 2, 2, 3], [2, 3, 3, 4], [3, 4, 4, 5]]
@@ -290,7 +290,7 @@ def test_step_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predicti
 
 def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
-    evaluation_dict, df_evaluation = manager._time_series_wise_evaluation(
+    evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
         mock_actual, mock_point_predictions, "depvar", False
     )
 
@@ -316,7 +316,7 @@ def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
 
 def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
-    evaluation_dict, df_evaluation = manager._time_series_wise_evaluation(
+    evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
         mock_actual, mock_uncertainty_predictions, "depvar", True
     )
 
@@ -341,7 +341,7 @@ def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_p
 
 def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
-    evaluation_dict, df_evaluation = manager._month_wise_evaluation(
+    evaluation_dict, df_evaluation = manager.month_wise_evaluation(
         mock_actual, mock_point_predictions, "depvar", False
     )
 
@@ -368,7 +368,7 @@ def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
 
 def test_month_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
-    evaluation_dict, df_evaluation = manager._month_wise_evaluation(
+    evaluation_dict, df_evaluation = manager.month_wise_evaluation(
         mock_actual, mock_uncertainty_predictions, "depvar", True
     )
 
