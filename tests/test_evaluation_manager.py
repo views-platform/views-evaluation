@@ -55,7 +55,7 @@ def mock_actual():
     )
     df = pd.DataFrame(
         {
-            "depvar": [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6],
+            "target": [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6],
             "covariate_1": [3, 2, 4, 5, 2, 6, 8, 5, 3, 2, 9, 4],
         },
         index=index,
@@ -65,8 +65,8 @@ def mock_actual():
 
 @pytest.fixture
 def mock_point_predictions(mock_index):
-    df1 = pd.DataFrame({"pred_depvar": [1, 3, 5, 7, 9, 7]}, index=mock_index[0])
-    df2 = pd.DataFrame({"pred_depvar": [2, 4, 6, 8, 10, 8]}, index=mock_index[1])
+    df1 = pd.DataFrame({"pred_target": [1, 3, 5, 7, 9, 7]}, index=mock_index[0])
+    df2 = pd.DataFrame({"pred_target": [2, 4, 6, 8, 10, 8]}, index=mock_index[1])
     return [df1, df2]
 
 
@@ -74,7 +74,7 @@ def mock_point_predictions(mock_index):
 def mock_uncertainty_predictions(mock_index):
     df1 = pd.DataFrame(
         {
-            "pred_depvar": [
+            "pred_target": [
                 [1, 2, 3],
                 [2, 3, 4],
                 [3, 4, 5],
@@ -87,7 +87,7 @@ def mock_uncertainty_predictions(mock_index):
     )
     df2 = pd.DataFrame(
         {
-            "pred_depvar": [
+            "pred_target": [
                 [4, 6, 8],
                 [5, 7, 9],
                 [6, 8, 10],
@@ -104,7 +104,7 @@ def mock_uncertainty_predictions(mock_index):
 def test_validate_dataframes_valid_type(mock_point_predictions):
     with pytest.raises(TypeError):
         EvaluationManager.validate_predictions(
-            mock_point_predictions[0], "depvar", is_uncertainty=False
+            mock_point_predictions[0], "target", is_uncertainty=False
         )
 
 
@@ -118,7 +118,7 @@ def test_validate_dataframes_valid_columns(mock_point_predictions):
 def test_validate_dataframes_valid_point(mock_uncertainty_predictions):
     with pytest.raises(ValueError):
         EvaluationManager.validate_predictions(
-            mock_uncertainty_predictions, "depvar", is_uncertainty=False
+            mock_uncertainty_predictions, "target", is_uncertainty=False
         )
 
 
@@ -164,18 +164,18 @@ def test_match_actual_pred_point(
     mock_actual, mock_point_predictions, mock_uncertainty_predictions, mock_index
 ):
     df_matched = [
-        pd.DataFrame({"depvar": [1, 2, 2, 3, 3, 4]}, index=mock_index[0]),
-        pd.DataFrame({"depvar": [2, 3, 3, 4, 4, 5]}, index=mock_index[1]),
+        pd.DataFrame({"target": [1, 2, 2, 3, 3, 4]}, index=mock_index[0]),
+        pd.DataFrame({"target": [2, 3, 3, 4, 4, 5]}, index=mock_index[1]),
     ]
     for i in range(len(df_matched)):
         df_matched_actual_point, df_matched_point = (
             EvaluationManager._match_actual_pred(
-                mock_actual, mock_point_predictions[i], "depvar"
+                mock_actual, mock_point_predictions[i], "target"
             )
         )
         df_matched_actual_uncertainty, df_matched_uncertainty = (
             EvaluationManager._match_actual_pred(
-                mock_actual, mock_uncertainty_predictions[i], "depvar"
+                mock_actual, mock_uncertainty_predictions[i], "target"
             )
         )
         assert df_matched[i].equals(df_matched_actual_point)
@@ -187,19 +187,19 @@ def test_match_actual_pred_point(
 def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions):
     df_splitted_point = [
         pd.DataFrame(
-            {"pred_depvar": [1, 3, 2, 4]},
+            {"pred_target": [1, 3, 2, 4]},
             index=pd.MultiIndex.from_tuples(
                 [(100, 1), (100, 2), (101, 1), (101, 2)], names=["month", "country"]
             ),
         ),
         pd.DataFrame(
-            {"pred_depvar": [5, 7, 6, 8]},
+            {"pred_target": [5, 7, 6, 8]},
             index=pd.MultiIndex.from_tuples(
                 [(101, 1), (101, 2), (102, 1), (102, 2)], names=["month", "country"]
             ),
         ),
         pd.DataFrame(
-            {"pred_depvar": [9, 7, 10, 8]},
+            {"pred_target": [9, 7, 10, 8]},
             index=pd.MultiIndex.from_tuples(
                 [(102, 1), (102, 2), (103, 1), (103, 2)], names=["month", "country"]
             ),
@@ -207,19 +207,19 @@ def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions)
     ]
     df_splitted_uncertainty = [
         pd.DataFrame(
-            {"pred_depvar": [[1, 2, 3], [2, 3, 4], [4, 6, 8], [5, 7, 9]]},
+            {"pred_target": [[1, 2, 3], [2, 3, 4], [4, 6, 8], [5, 7, 9]]},
             index=pd.MultiIndex.from_tuples(
                 [(100, 1), (100, 2), (101, 1), (101, 2)], names=["month", "country"]
             ),
         ),
         pd.DataFrame(
-            {"pred_depvar": [[3, 4, 5], [4, 5, 6], [6, 8, 10], [7, 9, 11]]},
+            {"pred_target": [[3, 4, 5], [4, 5, 6], [6, 8, 10], [7, 9, 11]]},
             index=pd.MultiIndex.from_tuples(
                 [(101, 1), (101, 2), (102, 1), (102, 2)], names=["month", "country"]
             ),
         ),
         pd.DataFrame(
-            {"pred_depvar": [[5, 6, 7], [6, 7, 8], [8, 10, 12], [9, 11, 13]]},
+            {"pred_target": [[5, 6, 7], [6, 7, 8], [8, 10, 12], [9, 11, 13]]},
             index=pd.MultiIndex.from_tuples(
                 [(102, 1), (102, 2), (103, 1), (103, 2)], names=["month", "country"]
             ),
@@ -240,7 +240,7 @@ def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions)
 def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
     evaluation_dict, df_evaluation = manager.step_wise_evaluation(
-        mock_actual, mock_point_predictions, "depvar", [1, 2, 3], False
+        mock_actual, mock_point_predictions, "target", [1, 2, 3], False
     )
 
     actuals = [[1, 2, 2, 3], [2, 3, 3, 4], [3, 4, 4, 5]]
@@ -266,7 +266,7 @@ def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
 def test_step_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
     evaluation_dict, df_evaluation = manager.step_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "depvar", [1, 2, 3], True
+        mock_actual, mock_uncertainty_predictions, "target", [1, 2, 3], True
     )
     actuals = [[1, 2, 2, 3], [2, 3, 3, 4], [3, 4, 4, 5]]
     preds = [
@@ -291,7 +291,7 @@ def test_step_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predicti
 def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
     evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
-        mock_actual, mock_point_predictions, "depvar", False
+        mock_actual, mock_point_predictions, "target", False
     )
 
     actuals = [[1, 2, 2, 3, 3, 4], [2, 3, 3, 4, 4, 5]]
@@ -317,7 +317,7 @@ def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
 def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
     evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "depvar", True
+        mock_actual, mock_uncertainty_predictions, "target", True
     )
 
     actuals = [[1, 2, 2, 3, 3, 4], [2, 3, 3, 4, 4, 5]]
@@ -342,7 +342,7 @@ def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_p
 def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
     evaluation_dict, df_evaluation = manager.month_wise_evaluation(
-        mock_actual, mock_point_predictions, "depvar", False
+        mock_actual, mock_point_predictions, "target", False
     )
 
     actuals = [[1, 2], [2, 3, 2, 3], [3, 4, 3, 4], [4, 5]]
@@ -369,7 +369,7 @@ def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
 def test_month_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
     manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
     evaluation_dict, df_evaluation = manager.month_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "depvar", True
+        mock_actual, mock_uncertainty_predictions, "target", True
     )
 
     actuals = [[1, 2], [2, 3, 2, 3], [3, 4, 3, 4], [4, 5]]
