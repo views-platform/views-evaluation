@@ -1,17 +1,18 @@
 from typing import List, Dict, Tuple, Optional
+import logging
 import pandas as pd
 import numpy as np
 import properscoring as ps
 from sklearn.metrics import (
-    root_mean_squared_error,
     root_mean_squared_log_error,
     average_precision_score,
 )
+from scipy.stats import wasserstein_distance, pearsonr
 from views_evaluation.evaluation.metrics import (
     PointEvaluationMetrics,
     UncertaintyEvaluationMetrics,
 )
-import logging
+from views_pipeline_core.data.handlers import _ViewsDataset
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +53,44 @@ class EvaluationManager:
     def _calculate_rmsle(
         matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
-        return (
-            root_mean_squared_error(matched_actual, matched_pred)
-            if target.startswith("ln")
-            else root_mean_squared_log_error(matched_actual, matched_pred)
-        )
+        """
+        Calculate Root Mean Squared Logarithmic Error (RMSLE) for each prediction.
+        
+        Args:
+            matched_actual (pd.DataFrame): DataFrame containing actual values
+            matched_pred (pd.DataFrame): DataFrame containing predictions
+            target (str): The target column name
+
+        Returns:
+            float: Average RMSLE score
+        """
+        actual_values = np.concatenate(matched_actual[target].values)
+        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+
+        actual_expanded = np.repeat(actual_values, 
+                              [len(x) for x in matched_pred[f'pred_{target}']])
+
+        return root_mean_squared_log_error(actual_expanded, pred_values)
+        
 
     @staticmethod
     def _calculate_crps(
         matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
+        """
+        Calculate Continuous Ranked Probability Score (CRPS) for each prediction.
+        
+        Args:
+            matched_actual (pd.DataFrame): DataFrame containing actual values
+            matched_pred (pd.DataFrame): DataFrame containing predictions
+            target (str): The target column name
+
+        Returns:
+            float: Average CRPS score
+        """
         return np.mean(
             [
-                ps.crps_ensemble(actual, np.array(pred))
+                ps.crps_ensemble(actual[0], np.array(pred))
                 for actual, pred in zip(
                     matched_actual[target], matched_pred[f"pred_{target}"]
                 )
@@ -73,17 +99,30 @@ class EvaluationManager:
 
     @staticmethod
     def _calculate_ap(
-        matched_actual: pd.DataFrame,
-        matched_pred: pd.DataFrame,
-        target: str,
-        threshold=0.01,
+        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, threshold=30
     ) -> float:
         """
         Calculate Average Precision (AP) for binary predictions with a threshold.
+        
+        Args:
+            matched_actual (pd.DataFrame): DataFrame containing actual values
+            matched_pred (pd.DataFrame): DataFrame containing predictions
+            target (str): The target column name
+            threshold (float): Threshold to convert predictions to binary values
+            
+        Returns:
+            float: Average Precision score
         """
-        matched_pred_binary = (matched_pred >= threshold).astype(int)
-        matched_actual_binary = (matched_actual > 0).astype(int)
-        return average_precision_score(matched_actual_binary, matched_pred_binary)
+        actual_values = np.concatenate(matched_actual[target].values)
+        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+
+        actual_expanded = np.repeat(actual_values, 
+                              [len(x) for x in matched_pred[f'pred_{target}']])
+
+        actual_binary = (actual_expanded > threshold).astype(int)
+        pred_binary = (pred_values >= threshold).astype(int)
+        
+        return average_precision_score(actual_binary, pred_binary)
 
     @staticmethod
     def _calculate_brier(
@@ -107,7 +146,28 @@ class EvaluationManager:
     def _calculate_emd(
         matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
-        pass
+        """
+        Calculate Earth Mover's Distance (EMD) between predicted and actual distributions.
+        EMD measures the minimum amount of work needed to transform one distribution into another.
+        
+        Args:
+            matched_actual (pd.DataFrame): DataFrame containing actual values
+            matched_pred (pd.DataFrame): DataFrame containing predictions
+            target (str): The target column name
+
+        Returns:
+            float: Average EMD score
+        """
+        actual_values = np.concatenate(matched_actual[target].values)
+        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+
+        actual_expanded = np.repeat(actual_values, 
+                              [len(x) for x in matched_pred[f'pred_{target}']])
+
+        # Calculate EMD (1D Wasserstein distance)
+        emd = wasserstein_distance(actual_expanded, pred_values)
+
+        return emd
 
     @staticmethod
     def _calculate_sd(
@@ -125,14 +185,81 @@ class EvaluationManager:
     def _calculate_pearson(
         matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
-        pass
+        """
+        Calculate Pearson correlation coefficient between actual and predicted values.
+        This measures the linear correlation between predictions and actual values.
+        
+        Args:
+            matched_actual (pd.DataFrame): DataFrame containing actual values
+            matched_pred (pd.DataFrame): DataFrame containing predictions
+            target (str): The target column name
+
+        Returns:
+            float: Pearson correlation coefficient
+        """
+        actual_values = np.concatenate(matched_actual[target].values)
+        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+
+        actual_expanded = np.repeat(actual_values, 
+                              [len(x) for x in matched_pred[f'pred_{target}']])
+
+        # Calculate Pearson correlation
+        correlation, _ = pearsonr(actual_expanded, pred_values)
+        return correlation
 
     @staticmethod
     def _calculate_variogram(
         matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
     ) -> float:
-        pass
+        """
+        Calculate the variogram score between actual and predicted values.
+        This measures the spatial/temporal correlation structure.
+        
+        Args:
+            matched_actual (pd.DataFrame): DataFrame containing actual values
+            matched_pred (pd.DataFrame): DataFrame containing predictions
+            target (str): The target column name
 
+        Returns:
+            float: Variogram score
+        """
+        actual_values = np.concatenate(matched_actual[target].values)
+        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+
+        actual_expanded = np.repeat(actual_values, 
+                              [len(x) for x in matched_pred[f'pred_{target}']])
+
+        # Calculate empirical variogram for actual values
+        n = len(actual_expanded)
+        actual_variogram = np.zeros(n-1)
+        for i in range(n-1):
+            actual_variogram[i] = np.mean((actual_expanded[i+1:] - actual_expanded[i])**2)
+
+        # Calculate empirical variogram for predicted values
+        pred_variogram = np.zeros(n-1)
+        for i in range(n-1):
+            pred_variogram[i] = np.mean((pred_values[i+1:] - pred_values[i])**2)
+
+        # Calculate mean squared difference between variograms
+        variogram_score = np.mean((actual_variogram - pred_variogram)**2)
+
+        return variogram_score
+
+    @staticmethod
+    def transform_data(df: pd.DataFrame, target: str) -> pd.DataFrame:
+        """
+        Transform the data to normal distribution.
+        """
+        if target.startswith("ln"):
+            df[target] = df[target].applymap(lambda x: np.exp(x) - 1 if isinstance(x, (list, np.ndarray)) else np.exp(x) - 1)
+        elif target.startswith("lx"):
+            df[target] = df[target].applymap(lambda x: np.exp(x) - np.exp(100) if isinstance(x, (list, np.ndarray)) else np.exp(x) - np.exp(100))
+        elif target.startswith("lr"):
+            df[target] = df[target].applymap(lambda x: x if isinstance(x, (list, np.ndarray)) else x)
+        else:
+            raise ValueError(f"Target {target} is not a valid target")
+        return df
+    
     @staticmethod
     def get_evaluation_type(predictions: List[pd.DataFrame]) -> bool:
         """
@@ -144,32 +271,43 @@ class EvaluationManager:
 
         Returns:
             bool: True if all DataFrames are for uncertainty evaluation,
-                  False if any DataFrame is suitable for point evaluation.
+                  False if all DataFrame are for point evaluation.
 
         Raises:
-            ValueError: If there is a mix of results (some DataFrames for uncertainty and others for point evaluation).
+            ValueError: If there is a mix of single and multiple values in the lists,
+                      or if uncertainty lists have different lengths.
         """
-        all_uncertainty = True
-        all_point = True
+        is_uncertainty = False
+        is_point = False
+        uncertainty_length = None
 
         for df in predictions:
-            if all(
-                isinstance(value, list) and len(value) >= 2
-                for value in df.values.flatten()
-            ):
-                all_point = False
-            else:
-                all_uncertainty = False
+            for value in df.values.flatten():
+                if not isinstance(value, list):
+                    raise ValueError("All values must be lists. Use _ViewsDataset to convert the data.")
+                
+                if len(value) > 1:
+                    is_uncertainty = True
+                    # For uncertainty evaluation, check that all lists have the same length
+                    if uncertainty_length is None:
+                        uncertainty_length = len(value)
+                    elif len(value) != uncertainty_length:
+                        raise ValueError(
+                            f"Inconsistent list lengths in uncertainty evaluation. "
+                            f"Found lengths {uncertainty_length} and {len(value)}"
+                        )
+                elif len(value) == 1:
+                    is_point = True
+                else:
+                    raise ValueError("Empty lists are not allowed")
 
-        if all_uncertainty and not all_point:
-            return True
-        elif all_point and not all_uncertainty:
-            return False
-        else:
+        if is_uncertainty and is_point:
             raise ValueError(
-                "Mix of evaluation types detected: some DataFrames are for uncertainty, others for point evaluation."
-                "Please ensure all DataFrames are consistent in their evaluation type"
+                "Mix of evaluation types detected: some rows contain single values, others contain multiple values. "
+                "Please ensure all rows are consistent in their evaluation type"
             )
+        
+        return is_uncertainty
 
     @staticmethod
     def validate_predictions(
@@ -199,16 +337,6 @@ class EvaluationManager:
                 raise ValueError(
                     f"Predictions[{i}] must contain only one column named '{pred_column_name}'."
                 )
-            if (
-                is_uncertainty
-                and not df.applymap(lambda x: isinstance(x, list)).all().all()
-            ):
-                raise ValueError("Each row in the predictions must be a list.")
-            if (
-                not is_uncertainty
-                and not df.applymap(lambda x: isinstance(x, (int, float))).all().all()
-            ):
-                raise ValueError("Each row in the predictions must be a float.")
 
     @staticmethod
     def _match_actual_pred(
@@ -457,6 +585,8 @@ class EvaluationManager:
         """
         is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
         EvaluationManager.validate_predictions(predictions, target, is_uncertainty)
+        actual = EvaluationManager.transform_data(_ViewsDataset(actual).dataframe, target)
+        predictions = [EvaluationManager.transform_data(_ViewsDataset(pred).dataframe, target) for pred in predictions]
 
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
