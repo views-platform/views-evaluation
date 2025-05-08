@@ -333,9 +333,9 @@ class EvaluationManager:
                 raise TypeError(f"Predictions[{i}] must be a DataFrame.")
             if df.empty:
                 raise ValueError(f"Predictions[{i}] must not be empty.")
-            if df.columns.tolist() != [pred_column_name]:
+            if pred_column_name not in df.columns:
                 raise ValueError(
-                    f"Predictions[{i}] must contain only one column named '{pred_column_name}'."
+                    f"Predictions[{i}] must contain the column named '{pred_column_name}'."
                 )
 
     @staticmethod
