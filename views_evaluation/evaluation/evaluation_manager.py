@@ -250,12 +250,12 @@ class EvaluationManager:
         """
         Transform the data to normal distribution.
         """
-        if target.startswith("ln"):
-            df[target] = df[target].applymap(lambda x: np.exp(x) - 1 if isinstance(x, (list, np.ndarray)) else np.exp(x) - 1)
-        elif target.startswith("lx"):
-            df[target] = df[target].applymap(lambda x: np.exp(x) - np.exp(100) if isinstance(x, (list, np.ndarray)) else np.exp(x) - np.exp(100))
-        elif target.startswith("lr"):
-            df[target] = df[target].applymap(lambda x: x if isinstance(x, (list, np.ndarray)) else x)
+        if target.startswith("ln") or target.startswith("pred_ln"):
+            df[[target]] = df[[target]].applymap(lambda x: np.exp(x) - 1 if isinstance(x, (list, np.ndarray)) else np.exp(x) - 1)
+        elif target.startswith("lx") or target.startswith("pred_lx"):
+            df[[target]] = df[[target]].applymap(lambda x: np.exp(x) - np.exp(100) if isinstance(x, (list, np.ndarray)) else np.exp(x) - np.exp(100))
+        elif target.startswith("lr") or target.startswith("pred_lr"):
+            df[[target]] = df[[target]].applymap(lambda x: x if isinstance(x, (list, np.ndarray)) else x)
         else:
             raise ValueError(f"Target {target} is not a valid target")
         return df
@@ -585,8 +585,8 @@ class EvaluationManager:
         """
         is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
         EvaluationManager.validate_predictions(predictions, target, is_uncertainty)
-        actual = EvaluationManager.transform_data(_ViewsDataset(actual).dataframe, target)
-        predictions = [EvaluationManager.transform_data(_ViewsDataset(pred).dataframe, target) for pred in predictions]
+        actual = EvaluationManager.transform_data(_ViewsDataset(actual, targets=[target]).dataframe, target)
+        predictions = [EvaluationManager.transform_data(_ViewsDataset(pred).dataframe, f"pred_{target}") for pred in predictions]
 
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
