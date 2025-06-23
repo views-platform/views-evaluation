@@ -283,8 +283,8 @@ class EvaluationManager:
 
         for df in predictions:
             for value in df.values.flatten():
-                if not isinstance(value, list):
-                    raise ValueError("All values must be lists. Use _ViewsDataset to convert the data.")
+                if not (isinstance(value, list) or isinstance(value, np.ndarray)):
+                    raise ValueError("All values must be lists or numpy arrays. Use _ViewsDataset to convert the data.")
                 
                 if len(value) > 1:
                     is_uncertainty = True
@@ -311,18 +311,15 @@ class EvaluationManager:
 
     @staticmethod
     def validate_predictions(
-        predictions: List[pd.DataFrame], target: str, is_uncertainty: bool
+        predictions: List[pd.DataFrame], target: str
     ):
         """
         Checks if the predictions are valid DataFrames.
         - Each DataFrame must have exactly one column named `pred_column_name`.
-        - If is_uncertainty is True, all elements in the column must be lists.
-        - If is_uncertainty is False, all elements in the column must be floats.
 
         Args:
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
-            is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
         """
         pred_column_name = f"pred_{target}"
         if not isinstance(predictions, list):
@@ -583,10 +580,11 @@ class EvaluationManager:
             steps (List[int]): The steps to evaluate.
 
         """
-        is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
-        EvaluationManager.validate_predictions(predictions, target, is_uncertainty)
+    
+        EvaluationManager.validate_predictions(predictions, target)
         actual = EvaluationManager.transform_data(_ViewsDataset(actual, targets=[target]).dataframe, target)
         predictions = [EvaluationManager.transform_data(_ViewsDataset(pred).dataframe, f"pred_{target}") for pred in predictions]
+        is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
 
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
