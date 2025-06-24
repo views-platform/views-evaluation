@@ -12,7 +12,6 @@ from views_evaluation.evaluation.metrics import (
     PointEvaluationMetrics,
     UncertaintyEvaluationMetrics,
 )
-from views_pipeline_core.data.handlers import _ViewsDataset
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class EvaluationManager:
     ) -> float:
         """
         Calculate Root Mean Squared Logarithmic Error (RMSLE) for each prediction.
-        
+
         Args:
             matched_actual (pd.DataFrame): DataFrame containing actual values
             matched_pred (pd.DataFrame): DataFrame containing predictions
@@ -65,13 +64,13 @@ class EvaluationManager:
             float: Average RMSLE score
         """
         actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
 
-        actual_expanded = np.repeat(actual_values, 
-                              [len(x) for x in matched_pred[f'pred_{target}']])
+        actual_expanded = np.repeat(
+            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+        )
 
         return root_mean_squared_log_error(actual_expanded, pred_values)
-        
 
     @staticmethod
     def _calculate_crps(
@@ -79,7 +78,7 @@ class EvaluationManager:
     ) -> float:
         """
         Calculate Continuous Ranked Probability Score (CRPS) for each prediction.
-        
+
         Args:
             matched_actual (pd.DataFrame): DataFrame containing actual values
             matched_pred (pd.DataFrame): DataFrame containing predictions
@@ -99,29 +98,33 @@ class EvaluationManager:
 
     @staticmethod
     def _calculate_ap(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, threshold=30
+        matched_actual: pd.DataFrame,
+        matched_pred: pd.DataFrame,
+        target: str,
+        threshold=30,
     ) -> float:
         """
         Calculate Average Precision (AP) for binary predictions with a threshold.
-        
+
         Args:
             matched_actual (pd.DataFrame): DataFrame containing actual values
             matched_pred (pd.DataFrame): DataFrame containing predictions
             target (str): The target column name
             threshold (float): Threshold to convert predictions to binary values
-            
+
         Returns:
             float: Average Precision score
         """
         actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
 
-        actual_expanded = np.repeat(actual_values, 
-                              [len(x) for x in matched_pred[f'pred_{target}']])
+        actual_expanded = np.repeat(
+            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+        )
 
         actual_binary = (actual_expanded > threshold).astype(int)
         pred_binary = (pred_values >= threshold).astype(int)
-        
+
         return average_precision_score(actual_binary, pred_binary)
 
     @staticmethod
@@ -149,7 +152,7 @@ class EvaluationManager:
         """
         Calculate Earth Mover's Distance (EMD) between predicted and actual distributions.
         EMD measures the minimum amount of work needed to transform one distribution into another.
-        
+
         Args:
             matched_actual (pd.DataFrame): DataFrame containing actual values
             matched_pred (pd.DataFrame): DataFrame containing predictions
@@ -159,10 +162,11 @@ class EvaluationManager:
             float: Average EMD score
         """
         actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
 
-        actual_expanded = np.repeat(actual_values, 
-                              [len(x) for x in matched_pred[f'pred_{target}']])
+        actual_expanded = np.repeat(
+            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+        )
 
         # Calculate EMD (1D Wasserstein distance)
         emd = wasserstein_distance(actual_expanded, pred_values)
@@ -188,7 +192,7 @@ class EvaluationManager:
         """
         Calculate Pearson correlation coefficient between actual and predicted values.
         This measures the linear correlation between predictions and actual values.
-        
+
         Args:
             matched_actual (pd.DataFrame): DataFrame containing actual values
             matched_pred (pd.DataFrame): DataFrame containing predictions
@@ -198,10 +202,11 @@ class EvaluationManager:
             float: Pearson correlation coefficient
         """
         actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
 
-        actual_expanded = np.repeat(actual_values, 
-                              [len(x) for x in matched_pred[f'pred_{target}']])
+        actual_expanded = np.repeat(
+            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+        )
 
         # Calculate Pearson correlation
         correlation, _ = pearsonr(actual_expanded, pred_values)
@@ -214,7 +219,7 @@ class EvaluationManager:
         """
         Calculate the variogram score between actual and predicted values.
         This measures the spatial/temporal correlation structure.
-        
+
         Args:
             matched_actual (pd.DataFrame): DataFrame containing actual values
             matched_pred (pd.DataFrame): DataFrame containing predictions
@@ -224,24 +229,27 @@ class EvaluationManager:
             float: Variogram score
         """
         actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f'pred_{target}'].values)
+        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
 
-        actual_expanded = np.repeat(actual_values, 
-                              [len(x) for x in matched_pred[f'pred_{target}']])
+        actual_expanded = np.repeat(
+            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+        )
 
         # Calculate empirical variogram for actual values
         n = len(actual_expanded)
-        actual_variogram = np.zeros(n-1)
-        for i in range(n-1):
-            actual_variogram[i] = np.mean((actual_expanded[i+1:] - actual_expanded[i])**2)
+        actual_variogram = np.zeros(n - 1)
+        for i in range(n - 1):
+            actual_variogram[i] = np.mean(
+                (actual_expanded[i + 1 :] - actual_expanded[i]) ** 2
+            )
 
         # Calculate empirical variogram for predicted values
-        pred_variogram = np.zeros(n-1)
-        for i in range(n-1):
-            pred_variogram[i] = np.mean((pred_values[i+1:] - pred_values[i])**2)
+        pred_variogram = np.zeros(n - 1)
+        for i in range(n - 1):
+            pred_variogram[i] = np.mean((pred_values[i + 1 :] - pred_values[i]) ** 2)
 
         # Calculate mean squared difference between variograms
-        variogram_score = np.mean((actual_variogram - pred_variogram)**2)
+        variogram_score = np.mean((actual_variogram - pred_variogram) ** 2)
 
         return variogram_score
 
@@ -251,15 +259,47 @@ class EvaluationManager:
         Transform the data to normal distribution.
         """
         if target.startswith("ln") or target.startswith("pred_ln"):
-            df[[target]] = df[[target]].applymap(lambda x: np.exp(x) - 1 if isinstance(x, (list, np.ndarray)) else np.exp(x) - 1)
+            df[[target]] = df[[target]].applymap(
+                lambda x: (
+                    np.exp(x) - 1
+                    if isinstance(x, (list, np.ndarray))
+                    else np.exp(x) - 1
+                )
+            )
         elif target.startswith("lx") or target.startswith("pred_lx"):
-            df[[target]] = df[[target]].applymap(lambda x: np.exp(x) - np.exp(100) if isinstance(x, (list, np.ndarray)) else np.exp(x) - np.exp(100))
+            df[[target]] = df[[target]].applymap(
+                lambda x: (
+                    np.exp(x) - np.exp(100)
+                    if isinstance(x, (list, np.ndarray))
+                    else np.exp(x) - np.exp(100)
+                )
+            )
         elif target.startswith("lr") or target.startswith("pred_lr"):
-            df[[target]] = df[[target]].applymap(lambda x: x if isinstance(x, (list, np.ndarray)) else x)
+            df[[target]] = df[[target]].applymap(
+                lambda x: x if isinstance(x, (list, np.ndarray)) else x
+            )
         else:
             raise ValueError(f"Target {target} is not a valid target")
         return df
-    
+
+    @staticmethod
+    def convert_to_arrays(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Convert columns in a DataFrame to numpy arrays.
+
+        Args:
+            df (pd.DataFrame): The input DataFrame with columns that may contain lists.
+
+        Returns:
+            pd.DataFrame: A new DataFrame with columns converted to numpy arrays.
+        """
+        converted = df.copy()
+        for col in converted.columns:
+            converted[col] = converted[col].apply(
+                lambda x: np.array(x) if isinstance(x, list) else np.array([x])
+            )
+        return converted
+
     @staticmethod
     def get_evaluation_type(predictions: List[pd.DataFrame]) -> bool:
         """
@@ -283,9 +323,11 @@ class EvaluationManager:
 
         for df in predictions:
             for value in df.values.flatten():
-                if not (isinstance(value, list) or isinstance(value, np.ndarray)):
-                    raise ValueError("All values must be lists or numpy arrays. Use _ViewsDataset to convert the data.")
-                
+                if not isinstance(value, np.ndarray):
+                    raise ValueError(
+                        "All values must be lists or numpy arrays. Use _ViewsDataset to convert the data."
+                    )
+
                 if len(value) > 1:
                     is_uncertainty = True
                     # For uncertainty evaluation, check that all lists have the same length
@@ -306,13 +348,11 @@ class EvaluationManager:
                 "Mix of evaluation types detected: some rows contain single values, others contain multiple values. "
                 "Please ensure all rows are consistent in their evaluation type"
             )
-        
+
         return is_uncertainty
 
     @staticmethod
-    def validate_predictions(
-        predictions: List[pd.DataFrame], target: str
-    ):
+    def validate_predictions(predictions: List[pd.DataFrame], target: str):
         """
         Checks if the predictions are valid DataFrames.
         - Each DataFrame must have exactly one column named `pred_column_name`.
@@ -520,7 +560,7 @@ class EvaluationManager:
         month_range = pred_concat.index.get_level_values(0).unique()
         month_start = month_range.min()
         month_end = month_range.max()
-        
+
         if is_uncertainty:
             evaluation_dict = (
                 UncertaintyEvaluationMetrics.make_month_wise_evaluation_dict(
@@ -580,10 +620,17 @@ class EvaluationManager:
             steps (List[int]): The steps to evaluate.
 
         """
-    
+
         EvaluationManager.validate_predictions(predictions, target)
-        actual = EvaluationManager.transform_data(_ViewsDataset(actual, targets=[target]).dataframe, target)
-        predictions = [EvaluationManager.transform_data(_ViewsDataset(pred).dataframe, f"pred_{target}") for pred in predictions]
+        actual = EvaluationManager.transform_data(
+            EvaluationManager.convert_to_arrays(actual), target
+        )
+        predictions = [
+            EvaluationManager.transform_data(
+                EvaluationManager.convert_to_arrays(pred), f"pred_{target}"
+            )
+            for pred in predictions
+        ]
         is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
 
         evaluation_results = {}
@@ -594,7 +641,11 @@ class EvaluationManager:
             actual, predictions, target, is_uncertainty
         )
         evaluation_results["step"] = self.step_wise_evaluation(
-            actual, predictions, target, steps, is_uncertainty,
+            actual,
+            predictions,
+            target,
+            steps,
+            is_uncertainty,
         )
 
         return evaluation_results
