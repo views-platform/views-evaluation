@@ -323,11 +323,11 @@ class EvaluationManager:
 
         for df in predictions:
             for value in df.values.flatten():
-                if not isinstance(value, np.ndarray):
+                if not (isinstance(value, np.ndarray) or isinstance(value, list)):
                     raise ValueError(
-                        "All values must be lists or numpy arrays. Use _ViewsDataset to convert the data."
+                        "All values must be lists or numpy arrays. Convert the data."
                     )
-
+                
                 if len(value) > 1:
                     is_uncertainty = True
                     # For uncertainty evaluation, check that all lists have the same length

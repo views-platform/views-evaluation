@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch, mock_open
 from sklearn.metrics import root_mean_squared_log_error
 import properscoring as ps
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
-from views_pipeline_core.data.handlers import _ViewsDataset
 
 
 @pytest.fixture
@@ -61,14 +60,14 @@ def mock_actual():
         },
         index=index,
     )
-    return _ViewsDataset(df, targets=["target"]).dataframe
+    return EvaluationManager.convert_to_arrays(df)
 
 
 @pytest.fixture
 def mock_point_predictions(mock_index):
     df1 = pd.DataFrame({"pred_target": [1.0, 3.0, 5.0, 7.0, 9.0, 7.0]}, index=mock_index[0])
     df2 = pd.DataFrame({"pred_target": [2.0, 4.0, 6.0, 8.0, 10.0, 8.0]}, index=mock_index[1])
-    return [_ViewsDataset(df1).dataframe, _ViewsDataset(df2).dataframe]
+    return [EvaluationManager.convert_to_arrays(df1), EvaluationManager.convert_to_arrays(df2)]
 
 
 @pytest.fixture
@@ -99,29 +98,21 @@ def mock_uncertainty_predictions(mock_index):
         },
         index=mock_index[1],
     )
-    return [_ViewsDataset(df1).dataframe, _ViewsDataset(df2).dataframe]
+    return [EvaluationManager.convert_to_arrays(df1), EvaluationManager.convert_to_arrays(df2)]
 
 
 def test_validate_dataframes_valid_type(mock_point_predictions):
     with pytest.raises(TypeError):
         EvaluationManager.validate_predictions(
-            mock_point_predictions[0], "target", is_uncertainty=False
+            mock_point_predictions[0], "target"
         )
 
 
 def test_validate_dataframes_valid_columns(mock_point_predictions):
     with pytest.raises(ValueError):
         EvaluationManager.validate_predictions(
-            mock_point_predictions, "y", is_uncertainty=False
+            mock_point_predictions, "y"
         )
-
-
-def test_validate_dataframes_valid_uncertainty(mock_point_predictions):
-    with pytest.raises(ValueError):
-        EvaluationManager.validate_predictions(
-            mock_point_predictions, "devpar", is_uncertainty=True
-        )
-
 
 def test_get_evaluation_type():
     # Test case 1: All DataFrames for uncertainty evaluation
@@ -180,44 +171,44 @@ def test_match_actual_pred_point(
 
 def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions):
     df_splitted_point = [
-        _ViewsDataset(pd.DataFrame(
+        EvaluationManager.convert_to_arrays(pd.DataFrame(
             {"pred_target": [[1.0], [3.0], [2.0], [4.0]]},
             index=pd.MultiIndex.from_tuples(
                 [(100, 1), (100, 2), (101, 1), (101, 2)], names=["month", "country"]
             ),
-        )).dataframe,
-        _ViewsDataset(pd.DataFrame(
+        )),
+        EvaluationManager.convert_to_arrays(pd.DataFrame(
             {"pred_target": [[5.0], [7.0], [6.0], [8.0]]},
             index=pd.MultiIndex.from_tuples(
                 [(101, 1), (101, 2), (102, 1), (102, 2)], names=["month", "country"]
             ),
-        )).dataframe,
-        _ViewsDataset(pd.DataFrame(
+        )),
+        EvaluationManager.convert_to_arrays(pd.DataFrame(
             {"pred_target": [[9.0], [7.0], [10.0], [8.0]]},
             index=pd.MultiIndex.from_tuples(
                 [(102, 1), (102, 2), (103, 1), (103, 2)], names=["month", "country"]
             ),
-        )).dataframe,
+        )),
     ]
     df_splitted_uncertainty = [
-        _ViewsDataset(pd.DataFrame(
+        EvaluationManager.convert_to_arrays(pd.DataFrame(
             {"pred_target": [[1.0, 2.0, 3.0], [2.0, 3.0, 4.0], [4.0, 6.0, 8.0], [5.0, 7.0, 9.0]]},
             index=pd.MultiIndex.from_tuples(
                 [(100, 1), (100, 2), (101, 1), (101, 2)], names=["month", "country"]
             ),
-        )).dataframe,
-        _ViewsDataset(pd.DataFrame(
+        )),
+        EvaluationManager.convert_to_arrays(pd.DataFrame(
             {"pred_target": [[3.0, 4.0, 5.0], [4.0, 5.0, 6.0], [6.0, 8.0, 10.0], [7.0, 9.0, 11.0]]},
             index=pd.MultiIndex.from_tuples(
                 [(101, 1), (101, 2), (102, 1), (102, 2)], names=["month", "country"]
             ),
-        )).dataframe,
-        _ViewsDataset(pd.DataFrame(
+        )),
+        EvaluationManager.convert_to_arrays(pd.DataFrame(
             {"pred_target": [[5.0, 6.0, 7.0], [6.0, 7.0, 8.0], [8.0, 10.0, 12.0], [9.0, 11.0, 13.0]]},
             index=pd.MultiIndex.from_tuples(
                 [(102, 1), (102, 2), (103, 1), (103, 2)], names=["month", "country"]
             ),
-        )).dataframe,
+        )),
     ]
     df_splitted_point_test = EvaluationManager._split_dfs_by_step(
         mock_point_predictions
