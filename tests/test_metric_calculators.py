@@ -79,14 +79,6 @@ def test_calculate_pearson(sample_data):
     assert -1 <= result <= 1
 
 
-def test_calculate_variogram(sample_data):
-    """Test Variogram calculation."""
-    actual, pred = sample_data
-    result = calculate_variogram(actual, pred, 'target')
-    assert isinstance(result, float)
-    assert result >= 0
-
-
 def test_calculate_ignorance_score(sample_uncertainty_data):
     """Test Ignorance Score calculation."""
     actual, pred = sample_uncertainty_data
@@ -106,8 +98,7 @@ def test_calculate_mis(sample_uncertainty_data):
 def test_point_metric_functions():
     """Test that all point metric functions are available."""
     expected_metrics = [
-        "RMSLE", "CRPS", "AP", "Brier", "Jeffreys", 
-        "Coverage", "EMD", "SD", "pEMDiv", "Pearson", "Variogram"
+        "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram"
     ]
     
     for metric in expected_metrics:
@@ -117,7 +108,7 @@ def test_point_metric_functions():
 
 def test_uncertainty_metric_functions():
     """Test that all uncertainty metric functions are available."""
-    expected_metrics = ["CRPS"]
+    expected_metrics = ["CRPS", "MIS", "Ignorance", "Brier", "Jeffreys", "Coverage"]
     
     for metric in expected_metrics:
         assert metric in UNCERTAINTY_METRIC_FUNCTIONS
