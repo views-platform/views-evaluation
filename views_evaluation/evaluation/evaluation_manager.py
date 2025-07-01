@@ -2,15 +2,13 @@ from typing import List, Dict, Tuple, Optional
 import logging
 import pandas as pd
 import numpy as np
-import properscoring as ps
-from sklearn.metrics import (
-    root_mean_squared_log_error,
-    average_precision_score,
-)
-from scipy.stats import wasserstein_distance, pearsonr
 from views_evaluation.evaluation.metrics import (
     PointEvaluationMetrics,
     UncertaintyEvaluationMetrics,
+)
+from views_evaluation.evaluation.metric_calculators import (
+    POINT_METRIC_FUNCTIONS,
+    UNCERTAINTY_METRIC_FUNCTIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,227 +29,8 @@ class EvaluationManager:
         """
 
         self.metrics_list = metrics_list
-        self.point_metric_functions = {
-            "RMSLE": self._calculate_rmsle,
-            "CRPS": self._calculate_crps,
-            "AP": self._calculate_ap,
-            "Brier": self._calculate_brier,
-            "Jeffreys": self._calculate_jeffreys,
-            "Coverage": self._calculate_coverage,
-            "EMD": self._calculate_emd,
-            "SD": self._calculate_sd,
-            "pEMDiv": self._calculate_pEMDiv,
-            "Pearson": self._calculate_pearson,
-            "Variogram": self._calculate_variogram,
-        }
-        self.uncertainty_metric_functions = {
-            "CRPS": self._calculate_crps,
-        }
-
-    @staticmethod
-    def _calculate_rmsle(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        """
-        Calculate Root Mean Squared Logarithmic Error (RMSLE) for each prediction.
-
-        Args:
-            matched_actual (pd.DataFrame): DataFrame containing actual values
-            matched_pred (pd.DataFrame): DataFrame containing predictions
-            target (str): The target column name
-
-        Returns:
-            float: Average RMSLE score
-        """
-        actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
-
-        actual_expanded = np.repeat(
-            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
-        )
-
-        return root_mean_squared_log_error(actual_expanded, pred_values)
-
-    @staticmethod
-    def _calculate_crps(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        """
-        Calculate Continuous Ranked Probability Score (CRPS) for each prediction.
-
-        Args:
-            matched_actual (pd.DataFrame): DataFrame containing actual values
-            matched_pred (pd.DataFrame): DataFrame containing predictions
-            target (str): The target column name
-
-        Returns:
-            float: Average CRPS score
-        """
-        return np.mean(
-            [
-                ps.crps_ensemble(actual[0], np.array(pred))
-                for actual, pred in zip(
-                    matched_actual[target], matched_pred[f"pred_{target}"]
-                )
-            ]
-        )
-
-    @staticmethod
-    def _calculate_ap(
-        matched_actual: pd.DataFrame,
-        matched_pred: pd.DataFrame,
-        target: str,
-        threshold=30,
-    ) -> float:
-        """
-        Calculate Average Precision (AP) for binary predictions with a threshold.
-
-        Args:
-            matched_actual (pd.DataFrame): DataFrame containing actual values
-            matched_pred (pd.DataFrame): DataFrame containing predictions
-            target (str): The target column name
-            threshold (float): Threshold to convert predictions to binary values
-
-        Returns:
-            float: Average Precision score
-        """
-        actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
-
-        actual_expanded = np.repeat(
-            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
-        )
-
-        actual_binary = (actual_expanded > threshold).astype(int)
-        pred_binary = (pred_values >= threshold).astype(int)
-
-        return average_precision_score(actual_binary, pred_binary)
-
-    @staticmethod
-    def _calculate_brier(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_jeffreys(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_coverage(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_emd(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        """
-        Calculate Earth Mover's Distance (EMD) between predicted and actual distributions.
-        EMD measures the minimum amount of work needed to transform one distribution into another.
-
-        Args:
-            matched_actual (pd.DataFrame): DataFrame containing actual values
-            matched_pred (pd.DataFrame): DataFrame containing predictions
-            target (str): The target column name
-
-        Returns:
-            float: Average EMD score
-        """
-        actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
-
-        actual_expanded = np.repeat(
-            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
-        )
-
-        # Calculate EMD (1D Wasserstein distance)
-        emd = wasserstein_distance(actual_expanded, pred_values)
-
-        return emd
-
-    @staticmethod
-    def _calculate_sd(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_pEMDiv(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_pearson(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        """
-        Calculate Pearson correlation coefficient between actual and predicted values.
-        This measures the linear correlation between predictions and actual values.
-
-        Args:
-            matched_actual (pd.DataFrame): DataFrame containing actual values
-            matched_pred (pd.DataFrame): DataFrame containing predictions
-            target (str): The target column name
-
-        Returns:
-            float: Pearson correlation coefficient
-        """
-        actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
-
-        actual_expanded = np.repeat(
-            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
-        )
-
-        # Calculate Pearson correlation
-        correlation, _ = pearsonr(actual_expanded, pred_values)
-        return correlation
-
-    @staticmethod
-    def _calculate_variogram(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        """
-        Calculate the variogram score between actual and predicted values.
-        This measures the spatial/temporal correlation structure.
-
-        Args:
-            matched_actual (pd.DataFrame): DataFrame containing actual values
-            matched_pred (pd.DataFrame): DataFrame containing predictions
-            target (str): The target column name
-
-        Returns:
-            float: Variogram score
-        """
-        actual_values = np.concatenate(matched_actual[target].values)
-        pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
-
-        actual_expanded = np.repeat(
-            actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
-        )
-
-        # Calculate empirical variogram for actual values
-        n = len(actual_expanded)
-        actual_variogram = np.zeros(n - 1)
-        for i in range(n - 1):
-            actual_variogram[i] = np.mean(
-                (actual_expanded[i + 1 :] - actual_expanded[i]) ** 2
-            )
-
-        # Calculate empirical variogram for predicted values
-        pred_variogram = np.zeros(n - 1)
-        for i in range(n - 1):
-            pred_variogram[i] = np.mean((pred_values[i + 1 :] - pred_values[i]) ** 2)
-
-        # Calculate mean squared difference between variograms
-        variogram_score = np.mean((actual_variogram - pred_variogram) ** 2)
-
-        return variogram_score
+        self.point_metric_functions = POINT_METRIC_FUNCTIONS
+        self.uncertainty_metric_functions = UNCERTAINTY_METRIC_FUNCTIONS
 
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str) -> pd.DataFrame:
@@ -436,6 +215,7 @@ class EvaluationManager:
         target: str,
         steps: List[int],
         is_uncertainty: bool,
+        **kwargs,
     ):
         """
         Evaluates the predictions step-wise and calculates the specified metrics.
@@ -463,7 +243,6 @@ class EvaluationManager:
             )
             metric_functions = self.point_metric_functions
 
-        step_metrics = {}
         result_dfs = EvaluationManager._split_dfs_by_step(predictions)
 
         for metric in self.metrics_list:
@@ -475,7 +254,7 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target),
+                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -491,6 +270,7 @@ class EvaluationManager:
         predictions: List[pd.DataFrame],
         target: str,
         is_uncertainty: bool,
+        **kwargs,
     ):
         """
         Evaluates the predictions time series-wise and calculates the specified metrics.
@@ -527,7 +307,7 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target),
+                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -543,6 +323,7 @@ class EvaluationManager:
         predictions: List[pd.DataFrame],
         target: str,
         is_uncertainty: bool,
+        **kwargs,
     ):
         """
         Evaluates the predictions month-wise and calculates the specified metrics.
@@ -588,6 +369,7 @@ class EvaluationManager:
                         matched_actual.loc[df.index, [target]],
                         matched_pred.loc[df.index, [f"pred_{target}"]],
                         target,
+                        **kwargs,
                     )
                 )
 
@@ -609,6 +391,7 @@ class EvaluationManager:
         predictions: List[pd.DataFrame],
         target: str,
         steps: List[int],
+        **kwargs,
     ):
         """
         Evaluates the predictions and calculates the specified point metrics.
@@ -635,10 +418,10 @@ class EvaluationManager:
 
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
-            actual, predictions, target, is_uncertainty
+            actual, predictions, target, is_uncertainty, **kwargs
         )
         evaluation_results["time_series"] = self.time_series_wise_evaluation(
-            actual, predictions, target, is_uncertainty
+            actual, predictions, target, is_uncertainty, **kwargs
         )
         evaluation_results["step"] = self.step_wise_evaluation(
             actual,
@@ -646,6 +429,7 @@ class EvaluationManager:
             target,
             steps,
             is_uncertainty,
+            **kwargs,
         )
 
         return evaluation_results
