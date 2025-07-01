@@ -388,7 +388,8 @@ def test_calculate_ap_point_predictions():
     matched_actual = pd.DataFrame(actual_data)
     matched_pred = pd.DataFrame(pred_data)
     
-    ap_score = EvaluationManager._calculate_ap(matched_actual, matched_pred, 'target', threshold)
+    from views_evaluation.evaluation.metric_calculators import calculate_ap
+    ap_score = calculate_ap(matched_actual, matched_pred, 'target', threshold)
     
     actual_binary = [1, 0, 1, 0]  # 40>30, 20<30, 35>30, 25<30
     pred_binary = [1, 1, 0, 0]    # 35>30, 30=30, 20<30, 15<30
@@ -412,7 +413,8 @@ def test_calculate_ap_uncertainty_predictions():
     matched_actual = pd.DataFrame(actual_data)
     matched_pred = pd.DataFrame(pred_data)
     
-    ap_score = EvaluationManager._calculate_ap(matched_actual, matched_pred, 'target', threshold)
+    from views_evaluation.evaluation.metric_calculators import calculate_ap
+    ap_score = calculate_ap(matched_actual, matched_pred, 'target', threshold)
     
     pred_values = [35, 40, 45, 30, 35, 40, 20, 25, 30, 15, 20, 25]
     actual_values = [40, 40, 40, 20, 20, 20, 35, 35, 35, 25, 25, 25]
