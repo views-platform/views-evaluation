@@ -104,16 +104,12 @@ def calculate_emd(
     Returns:
         float: Average EMD score
     """
-    actual_values = np.concatenate(matched_actual[target].values)
-    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
-
-    actual_expanded = np.repeat(
-        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
-    )
-
-    emd = wasserstein_distance(actual_expanded, pred_values)
-
-    return emd
+    emd_list = []
+    for actual, preds in zip(matched_actual[target], matched_pred[f"pred_{target}"]):
+        actual_val = np.asarray(actual)
+        preds_arr = np.asarray(preds)
+        emd_list.append(wasserstein_distance(preds_arr, actual_val))
+    return np.mean(emd_list)
 
 
 def calculate_sd(
@@ -241,7 +237,7 @@ def calculate_jeffreys(
 
 
 def calculate_coverage(
-    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, alpha=0.1
 ) -> float:
     """
     Calculate Coverage (Histograms) for probabilistic predictions.
@@ -252,11 +248,23 @@ def calculate_coverage(
         matched_actual (pd.DataFrame): DataFrame containing actual values
         matched_pred (pd.DataFrame): DataFrame containing predictions
         target (str): The target column name
-
+        alpha (float): Significance level for the interval (default: 0.1)
     Returns:
         float: Coverage score
     """
-    raise NotImplementedError("Coverage calculation not yet implemented")
+    y_true = matched_actual[target].values
+    y_pred_samples = matched_pred[f"pred_{target}"].values
+    
+    lower_q = alpha / 2
+    upper_q = 1 - alpha / 2
+    
+    covered = []
+    for yt, pred_list in zip(y_true, y_pred_samples):
+        lower = np.quantile(pred_list, lower_q)
+        upper = np.quantile(pred_list, upper_q)
+        covered.append(lower <= yt <= upper)
+        
+    return np.mean(covered)
 
 
 def calculate_mean_interval_score(
@@ -283,7 +291,7 @@ def calculate_mean_interval_score(
     upper = np.array(
         [np.quantile(row, q=1 - (alpha / 2)) for row in matched_pred[f"pred_{target}"]]
     )
-    actuals = np.array(
+    actuals = np. array(
         [
             row[0] if isinstance(row, (np.ndarray, list)) else row
             for row in matched_actual[target]
