@@ -36,17 +36,19 @@ Normally, it is up to the modeller whether the model performs *expanding window*
 
 For **live** evaluation, we suggest doing this in the same way as has been done for VIEWS2020/FCDO (_confirm with HH and/or Mike_), i.e. predict to k=12, resulting in *12* time series over a prediction window of *48* months. We call this the evaluation partition end $H_{e,live}$. This gives a prediction horizon of 48 months, thus $H_{47}$ in our notation.
 
+Note that this is **not** the final version of online evaluation.
+
 #### Offline evaluation
 
-For **offline** model evaluation, we suggest doing this in a way that simulates production over a longer time-span. For this, a new model is trained at every six months interval, thus resetting $H_0$ at months $H_{0+0}, H_{0+6}, H_{0+12}, \dots H_{0+6r}$ where $6r=H_e$.
+For **offline** model evaluation, we suggest doing this in a way that simulates production over a longer time-span. For this, a new model is trained at every **twelve** months interval, thus resetting $H_0$ at months $H_{0+0}, H_{0+12}, H_{0+24}, \dots H_{0+12r}$ where $12r=H_e$.
 
-We propose the following practical approaches:
+The default way is to set $H_{e_eval}$ to 48 months, meaning we only train the model once at $H_0$. This will result in **12** time series. We call it **standard** evaluation.
 
-1. A **standard** evaluation will be the default we set $H_{e_eval}$ to 48 months, meaning there will be *2* retrainings, at $H_0, H_6$ and *12* predicted time-series.
+We also propose the following practical approaches:
 
-2. A **long** evaluation where we set  $H_{e_eval}$ to 72 months, meaning there will be *6* retrainings, at $H_0, H_6, H_{12}, H_{18}, H_{24}, H_{30}$. This will result in *36* predicted time-series.
+1. A **long** evaluation where we set $H_{e_eval}$ to 72 months. This will result in *36* predicted time-series.
    
-3. Finally, we propose a **complete** evaluation system, the longest one, where we set $H_0$ at 36 months of data (157 for models depending on UCDP GED), and iterate until the end of data (currently, the final $H_0$ will be 529).
+2. A **complete** evaluation system, the longest one, where we set $H_0$ at 36 months of data (157 for models depending on UCDP GED), and iterate until the end of data (currently, the final $H_0$ will be 529).
 
 For comparability and abstraction of seasonality (which is inherent in both the DGP as well as the conflict data we rely on, due to their definition), $H_0$ should always be December or June (this also adds convenience).
 
