@@ -1,17 +1,15 @@
 from typing import List, Dict, Tuple, Optional
+import logging
 import pandas as pd
 import numpy as np
-import properscoring as ps
-from sklearn.metrics import (
-    root_mean_squared_error,
-    root_mean_squared_log_error,
-    average_precision_score,
-)
 from views_evaluation.evaluation.metrics import (
     PointEvaluationMetrics,
     UncertaintyEvaluationMetrics,
 )
-import logging
+from views_evaluation.evaluation.metric_calculators import (
+    POINT_METRIC_FUNCTIONS,
+    UNCERTAINTY_METRIC_FUNCTIONS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,107 +29,55 @@ class EvaluationManager:
         """
 
         self.metrics_list = metrics_list
-        self.point_metric_functions = {
-            "RMSLE": self._calculate_rmsle,
-            "CRPS": self._calculate_crps,
-            "AP": self._calculate_ap,
-            "Brier": self._calculate_brier,
-            "Jeffreys": self._calculate_jeffreys,
-            "Coverage": self._calculate_coverage,
-            "EMD": self._calculate_emd,
-            "SD": self._calculate_sd,
-            "pEMDiv": self._calculate_pEMDiv,
-            "Pearson": self._calculate_pearson,
-            "Variogram": self._calculate_variogram,
-        }
-        self.uncertainty_metric_functions = {
-            "CRPS": self._calculate_crps,
-        }
+        self.point_metric_functions = POINT_METRIC_FUNCTIONS
+        self.uncertainty_metric_functions = UNCERTAINTY_METRIC_FUNCTIONS
 
     @staticmethod
-    def _calculate_rmsle(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        return (
-            root_mean_squared_error(matched_actual, matched_pred)
-            if target.startswith("ln")
-            else root_mean_squared_log_error(matched_actual, matched_pred)
-        )
-
-    @staticmethod
-    def _calculate_crps(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        return np.mean(
-            [
-                ps.crps_ensemble(actual, np.array(pred))
-                for actual, pred in zip(
-                    matched_actual[target], matched_pred[f"pred_{target}"]
+    def transform_data(df: pd.DataFrame, target: str) -> pd.DataFrame:
+        """
+        Transform the data to normal distribution.
+        """
+        if target.startswith("ln") or target.startswith("pred_ln"):
+            df[[target]] = df[[target]].applymap(
+                lambda x: (
+                    np.exp(x) - 1
+                    if isinstance(x, (list, np.ndarray))
+                    else np.exp(x) - 1
                 )
-            ]
-        )
+            )
+        elif target.startswith("lx") or target.startswith("pred_lx"):
+            df[[target]] = df[[target]].applymap(
+                lambda x: (
+                    np.exp(x) - np.exp(100)
+                    if isinstance(x, (list, np.ndarray))
+                    else np.exp(x) - np.exp(100)
+                )
+            )
+        elif target.startswith("lr") or target.startswith("pred_lr"):
+            df[[target]] = df[[target]].applymap(
+                lambda x: x if isinstance(x, (list, np.ndarray)) else x
+            )
+        else:
+            raise ValueError(f"Target {target} is not a valid target")
+        return df
 
     @staticmethod
-    def _calculate_ap(
-        matched_actual: pd.DataFrame,
-        matched_pred: pd.DataFrame,
-        target: str,
-        threshold=0.01,
-    ) -> float:
+    def convert_to_arrays(df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculate Average Precision (AP) for binary predictions with a threshold.
+        Convert columns in a DataFrame to numpy arrays.
+
+        Args:
+            df (pd.DataFrame): The input DataFrame with columns that may contain lists.
+
+        Returns:
+            pd.DataFrame: A new DataFrame with columns converted to numpy arrays.
         """
-        matched_pred_binary = (matched_pred >= threshold).astype(int)
-        matched_actual_binary = (matched_actual > 0).astype(int)
-        return average_precision_score(matched_actual_binary, matched_pred_binary)
-
-    @staticmethod
-    def _calculate_brier(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_jeffreys(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_coverage(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_emd(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_sd(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_pEMDiv(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_pearson(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
-
-    @staticmethod
-    def _calculate_variogram(
-        matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-    ) -> float:
-        pass
+        converted = df.copy()
+        for col in converted.columns:
+            converted[col] = converted[col].apply(
+                lambda x: np.array(x) if isinstance(x, list) else np.array([x])
+            )
+        return converted
 
     @staticmethod
     def get_evaluation_type(predictions: List[pd.DataFrame]) -> bool:
@@ -144,47 +90,55 @@ class EvaluationManager:
 
         Returns:
             bool: True if all DataFrames are for uncertainty evaluation,
-                  False if any DataFrame is suitable for point evaluation.
+                  False if all DataFrame are for point evaluation.
 
         Raises:
-            ValueError: If there is a mix of results (some DataFrames for uncertainty and others for point evaluation).
+            ValueError: If there is a mix of single and multiple values in the lists,
+                      or if uncertainty lists have different lengths.
         """
-        all_uncertainty = True
-        all_point = True
+        is_uncertainty = False
+        is_point = False
+        uncertainty_length = None
 
         for df in predictions:
-            if all(
-                isinstance(value, list) and len(value) >= 2
-                for value in df.values.flatten()
-            ):
-                all_point = False
-            else:
-                all_uncertainty = False
+            for value in df.values.flatten():
+                if not (isinstance(value, np.ndarray) or isinstance(value, list)):
+                    raise ValueError(
+                        "All values must be lists or numpy arrays. Convert the data."
+                    )
+                
+                if len(value) > 1:
+                    is_uncertainty = True
+                    # For uncertainty evaluation, check that all lists have the same length
+                    if uncertainty_length is None:
+                        uncertainty_length = len(value)
+                    elif len(value) != uncertainty_length:
+                        raise ValueError(
+                            f"Inconsistent list lengths in uncertainty evaluation. "
+                            f"Found lengths {uncertainty_length} and {len(value)}"
+                        )
+                elif len(value) == 1:
+                    is_point = True
+                else:
+                    raise ValueError("Empty lists are not allowed")
 
-        if all_uncertainty and not all_point:
-            return True
-        elif all_point and not all_uncertainty:
-            return False
-        else:
+        if is_uncertainty and is_point:
             raise ValueError(
-                "Mix of evaluation types detected: some DataFrames are for uncertainty, others for point evaluation."
-                "Please ensure all DataFrames are consistent in their evaluation type"
+                "Mix of evaluation types detected: some rows contain single values, others contain multiple values. "
+                "Please ensure all rows are consistent in their evaluation type"
             )
 
+        return is_uncertainty
+
     @staticmethod
-    def validate_predictions(
-        predictions: List[pd.DataFrame], target: str, is_uncertainty: bool
-    ):
+    def validate_predictions(predictions: List[pd.DataFrame], target: str):
         """
         Checks if the predictions are valid DataFrames.
         - Each DataFrame must have exactly one column named `pred_column_name`.
-        - If is_uncertainty is True, all elements in the column must be lists.
-        - If is_uncertainty is False, all elements in the column must be floats.
 
         Args:
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
-            is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
         """
         pred_column_name = f"pred_{target}"
         if not isinstance(predictions, list):
@@ -195,20 +149,10 @@ class EvaluationManager:
                 raise TypeError(f"Predictions[{i}] must be a DataFrame.")
             if df.empty:
                 raise ValueError(f"Predictions[{i}] must not be empty.")
-            if df.columns.tolist() != [pred_column_name]:
+            if pred_column_name not in df.columns:
                 raise ValueError(
-                    f"Predictions[{i}] must contain only one column named '{pred_column_name}'."
+                    f"Predictions[{i}] must contain the column named '{pred_column_name}'."
                 )
-            if (
-                is_uncertainty
-                and not df.applymap(lambda x: isinstance(x, list)).all().all()
-            ):
-                raise ValueError("Each row in the predictions must be a list.")
-            if (
-                not is_uncertainty
-                and not df.applymap(lambda x: isinstance(x, (int, float))).all().all()
-            ):
-                raise ValueError("Each row in the predictions must be a float.")
 
     @staticmethod
     def _match_actual_pred(
@@ -271,6 +215,7 @@ class EvaluationManager:
         target: str,
         steps: List[int],
         is_uncertainty: bool,
+        **kwargs,
     ):
         """
         Evaluates the predictions step-wise and calculates the specified metrics.
@@ -298,7 +243,6 @@ class EvaluationManager:
             )
             metric_functions = self.point_metric_functions
 
-        step_metrics = {}
         result_dfs = EvaluationManager._split_dfs_by_step(predictions)
 
         for metric in self.metrics_list:
@@ -310,7 +254,7 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target),
+                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -326,6 +270,7 @@ class EvaluationManager:
         predictions: List[pd.DataFrame],
         target: str,
         is_uncertainty: bool,
+        **kwargs,
     ):
         """
         Evaluates the predictions time series-wise and calculates the specified metrics.
@@ -362,7 +307,7 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target),
+                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -378,6 +323,7 @@ class EvaluationManager:
         predictions: List[pd.DataFrame],
         target: str,
         is_uncertainty: bool,
+        **kwargs,
     ):
         """
         Evaluates the predictions month-wise and calculates the specified metrics.
@@ -395,7 +341,7 @@ class EvaluationManager:
         month_range = pred_concat.index.get_level_values(0).unique()
         month_start = month_range.min()
         month_end = month_range.max()
-        
+
         if is_uncertainty:
             evaluation_dict = (
                 UncertaintyEvaluationMetrics.make_month_wise_evaluation_dict(
@@ -423,6 +369,7 @@ class EvaluationManager:
                         matched_actual.loc[df.index, [target]],
                         matched_pred.loc[df.index, [f"pred_{target}"]],
                         target,
+                        **kwargs,
                     )
                 )
 
@@ -444,6 +391,7 @@ class EvaluationManager:
         predictions: List[pd.DataFrame],
         target: str,
         steps: List[int],
+        **kwargs,
     ):
         """
         Evaluates the predictions and calculates the specified point metrics.
@@ -455,18 +403,33 @@ class EvaluationManager:
             steps (List[int]): The steps to evaluate.
 
         """
+
+        EvaluationManager.validate_predictions(predictions, target)
+        actual = EvaluationManager.transform_data(
+            EvaluationManager.convert_to_arrays(actual), target
+        )
+        predictions = [
+            EvaluationManager.transform_data(
+                EvaluationManager.convert_to_arrays(pred), f"pred_{target}"
+            )
+            for pred in predictions
+        ]
         is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
-        EvaluationManager.validate_predictions(predictions, target, is_uncertainty)
 
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
-            actual, predictions, target, is_uncertainty
+            actual, predictions, target, is_uncertainty, **kwargs
         )
         evaluation_results["time_series"] = self.time_series_wise_evaluation(
-            actual, predictions, target, is_uncertainty
+            actual, predictions, target, is_uncertainty, **kwargs
         )
         evaluation_results["step"] = self.step_wise_evaluation(
-            actual, predictions, target, steps, is_uncertainty,
+            actual,
+            predictions,
+            target,
+            steps,
+            is_uncertainty,
+            **kwargs,
         )
 
         return evaluation_results
