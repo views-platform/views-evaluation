@@ -7,7 +7,7 @@ from views_evaluation.evaluation.metric_calculators import (
     calculate_ap,
     calculate_emd,
     calculate_pearson,
-    calculate_variogram,
+    calculate_coverage,
     calculate_ignorance_score,
     calculate_mean_interval_score,
     POINT_METRIC_FUNCTIONS,
@@ -79,6 +79,14 @@ def test_calculate_pearson(sample_data):
     assert -1 <= result <= 1
 
 
+def test_calculate_coverage(sample_uncertainty_data):
+    """Test Coverage calculation."""
+    actual, pred = sample_uncertainty_data
+    result = calculate_coverage(actual, pred, 'target')
+    assert isinstance(result, float)
+    assert 0 <= result <= 1
+
+
 def test_calculate_ignorance_score(sample_uncertainty_data):
     """Test Ignorance Score calculation."""
     actual, pred = sample_uncertainty_data
@@ -123,17 +131,17 @@ def test_not_implemented_metrics():
     from views_evaluation.evaluation.metric_calculators import (
         calculate_brier,
         calculate_jeffreys,
-        calculate_coverage,
         calculate_sd,
         calculate_pEMDiv,
+        calculate_variogram,
     )
     
     unimplemented_functions = [
         calculate_brier,
         calculate_jeffreys,
-        calculate_coverage,
         calculate_sd,
         calculate_pEMDiv,
+        calculate_variogram,
     ]
     
     for func in unimplemented_functions:
