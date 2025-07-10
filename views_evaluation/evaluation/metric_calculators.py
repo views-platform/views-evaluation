@@ -34,11 +34,35 @@ def calculate_rmsle(
     return root_mean_squared_log_error(actual_expanded, pred_values)
 
 
+# def calculate_crps(
+#     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+# ) -> float:
+#     """
+#     Calculate Continuous Ranked Probability Score (CRPS) for each prediction.
+
+#     Args:
+#         matched_actual (pd.DataFrame): DataFrame containing actual values
+#         matched_pred (pd.DataFrame): DataFrame containing predictions
+#         target (str): The target column name
+
+#     Returns:
+#         float: Average CRPS score
+#     """
+#     return np.mean(
+#         [
+#             ps.crps_ensemble(actual[0], np.array(pred))
+#             for actual, pred in zip(
+#                 matched_actual[target], matched_pred[f"pred_{target}"]
+#             )
+#         ]
+#     )
+
+# Tried to fix this bug: ValueError: observations and forecasts must have matching shapes or matching shapes except along axis=-1
 def calculate_crps(
     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
 ) -> float:
     """
-    Calculate Continuous Ranked Probability Score (CRPS) for each prediction.
+    Calculate Continuous Ranked Probability Score (CRPS) for predictions.
 
     Args:
         matched_actual (pd.DataFrame): DataFrame containing actual values
@@ -48,14 +72,16 @@ def calculate_crps(
     Returns:
         float: Average CRPS score
     """
-    return np.mean(
-        [
-            ps.crps_ensemble(actual[0], np.array(pred))
-            for actual, pred in zip(
-                matched_actual[target], matched_pred[f"pred_{target}"]
-            )
-        ]
-    )
+    # Extract actual values as 1D array
+    actuals = matched_actual[target].to_numpy()
+    
+    # Convert predictions to 2D array (n_observations, n_samples)
+    forecasts = np.vstack(matched_pred[f"pred_{target}"].to_numpy())
+    
+    # Calculate CRPS scores for all observations
+    scores = ps.crps_ensemble(actuals, forecasts)
+    
+    return np.mean(scores)
 
 
 def calculate_ap(
