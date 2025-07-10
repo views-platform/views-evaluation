@@ -62,7 +62,7 @@ class EvaluationManager:
         return df
 
     @staticmethod
-    def convert_to_arrays(df: pd.DataFrame) -> pd.DataFrame:
+    def convert_to_array(df: pd.DataFrame, target: str) -> pd.DataFrame:
         """
         Convert columns in a DataFrame to numpy arrays.
 
@@ -73,12 +73,22 @@ class EvaluationManager:
             pd.DataFrame: A new DataFrame with columns converted to numpy arrays.
         """
         converted = df.copy()
-        for col in converted.columns:
-            converted[col] = converted[col].apply(
-                lambda x: np.array(x) if isinstance(x, list) else np.array([x])
-            )
+        converted[target] = converted[target].apply(
+            lambda x: x if isinstance(x, np.ndarray) else (np.array(x) if isinstance(x, list) else np.array([x]))
+        )
         return converted
 
+    @staticmethod
+    def convert_to_scalar(df: pd.DataFrame, target: str) -> pd.DataFrame:
+        """
+        Convert columns in a DataFrame to scalar values by taking the mean of the list.
+        """
+        converted = df.copy()
+        converted[target] = converted[target].apply(
+            lambda x: np.mean(x) if isinstance(x, (list, np.ndarray)) else x
+        )
+        return converted
+        
     @staticmethod
     def get_evaluation_type(predictions: List[pd.DataFrame]) -> bool:
         """
@@ -106,7 +116,7 @@ class EvaluationManager:
                     raise ValueError(
                         "All values must be lists or numpy arrays. Convert the data."
                     )
-                
+
                 if len(value) > 1:
                     is_uncertainty = True
                     # For uncertainty evaluation, check that all lists have the same length
@@ -254,7 +264,9 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
+                        metric_functions[metric](
+                            matched_actual, matched_pred, target, **kwargs
+                        ),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -307,7 +319,9 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
+                        metric_functions[metric](
+                            matched_actual, matched_pred, target, **kwargs
+                        ),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -359,6 +373,8 @@ class EvaluationManager:
             actual, pred_concat, target
         )
         # matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
+        print(matched_actual.head())
+        print(matched_pred.head())
 
         for metric in self.metrics_list:
             if metric in metric_functions:
@@ -406,11 +422,11 @@ class EvaluationManager:
 
         EvaluationManager.validate_predictions(predictions, target)
         actual = EvaluationManager.transform_data(
-            EvaluationManager.convert_to_arrays(actual), target
+            EvaluationManager.convert_to_array(actual, target), target
         )
         predictions = [
             EvaluationManager.transform_data(
-                EvaluationManager.convert_to_arrays(pred), f"pred_{target}"
+                EvaluationManager.convert_to_array(pred, f"pred_{target}"), f"pred_{target}"
             )
             for pred in predictions
         ]
