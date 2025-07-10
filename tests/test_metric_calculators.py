@@ -39,15 +39,22 @@ def sample_uncertainty_data():
     return actual, pred
 
 
-def test_calculate_rmsle(sample_data):
+def test_calculate_rmsle_point(sample_data):
     """Test RMSLE calculation."""
     actual, pred = sample_data
     result = calculate_rmsle(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
+def test_calculate_crps_point(sample_data):
+    """Test CRPS calculation."""
+    actual, pred = sample_data
+    result = calculate_crps(actual, pred, 'target')
+    assert isinstance(result, float)
+    assert result >= 0
 
-def test_calculate_crps(sample_uncertainty_data):
+
+def test_calculate_crps_uncertainty(sample_uncertainty_data):
     """Test CRPS calculation."""
     actual, pred = sample_uncertainty_data
     result = calculate_crps(actual, pred, 'target')
@@ -79,7 +86,7 @@ def test_calculate_pearson(sample_data):
     assert -1 <= result <= 1
 
 
-def test_calculate_coverage(sample_uncertainty_data):
+def test_calculate_coverage_uncertainty(sample_uncertainty_data):
     """Test Coverage calculation."""
     actual, pred = sample_uncertainty_data
     result = calculate_coverage(actual, pred, 'target')
@@ -87,7 +94,7 @@ def test_calculate_coverage(sample_uncertainty_data):
     assert 0 <= result <= 1
 
 
-def test_calculate_ignorance_score(sample_uncertainty_data):
+def test_calculate_ignorance_score_uncertainty(sample_uncertainty_data):
     """Test Ignorance Score calculation."""
     actual, pred = sample_uncertainty_data
     result = calculate_ignorance_score(actual, pred, 'target')
@@ -95,7 +102,7 @@ def test_calculate_ignorance_score(sample_uncertainty_data):
     assert result >= 0
 
 
-def test_calculate_mis(sample_uncertainty_data):
+def test_calculate_mis_uncertainty(sample_uncertainty_data):
     """Test Mean Interval Score calculation."""
     actual, pred = sample_uncertainty_data
     result = calculate_mean_interval_score(actual, pred, 'target')
