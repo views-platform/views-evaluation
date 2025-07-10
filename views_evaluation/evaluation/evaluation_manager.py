@@ -373,8 +373,6 @@ class EvaluationManager:
             actual, pred_concat, target
         )
         # matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
-        print(matched_actual.head())
-        print(matched_pred.head())
 
         for metric in self.metrics_list:
             if metric in metric_functions:
