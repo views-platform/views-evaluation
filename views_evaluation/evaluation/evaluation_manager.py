@@ -33,36 +33,39 @@ class EvaluationManager:
         self.uncertainty_metric_functions = UNCERTAINTY_METRIC_FUNCTIONS
 
     @staticmethod
-    def transform_data(df: pd.DataFrame, target: str) -> pd.DataFrame:
+    def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
         Transform the data to normal distribution.
         """
-        if target.startswith("ln") or target.startswith("pred_ln"):
-            df[[target]] = df[[target]].applymap(
+        if isinstance(target, str):
+            target = [target]
+        for t in target:
+            if t.startswith("ln") or t.startswith("pred_ln"):
+                df[[t]] = df[[t]].applymap(
                 lambda x: (
                     np.exp(x) - 1
                     if isinstance(x, (list, np.ndarray))
                     else np.exp(x) - 1
                 )
             )
-        elif target.startswith("lx") or target.startswith("pred_lx"):
-            df[[target]] = df[[target]].applymap(
+            elif t.startswith("lx") or t.startswith("pred_lx"):
+                df[[t]] = df[[t]].applymap(
                 lambda x: (
                     np.exp(x) - np.exp(100)
                     if isinstance(x, (list, np.ndarray))
                     else np.exp(x) - np.exp(100)
                 )
             )
-        elif target.startswith("lr") or target.startswith("pred_lr"):
-            df[[target]] = df[[target]].applymap(
-                lambda x: x if isinstance(x, (list, np.ndarray)) else x
-            )
-        else:
-            raise ValueError(f"Target {target} is not a valid target")
+            elif t.startswith("lr") or t.startswith("pred_lr"):
+                df[[t]] = df[[t]].applymap(
+                    lambda x: x if isinstance(x, (list, np.ndarray)) else x
+                )
+            else:
+                raise ValueError(f"Target {t} is not a valid target")
         return df
 
     @staticmethod
-    def convert_to_array(df: pd.DataFrame, target: str) -> pd.DataFrame:
+    def convert_to_array(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
         Convert columns in a DataFrame to numpy arrays.
 
@@ -73,20 +76,27 @@ class EvaluationManager:
             pd.DataFrame: A new DataFrame with columns converted to numpy arrays.
         """
         converted = df.copy()
-        converted[target] = converted[target].apply(
-            lambda x: x if isinstance(x, np.ndarray) else (np.array(x) if isinstance(x, list) else np.array([x]))
-        )
+        if isinstance(target, str):
+            target = [target]
+            
+        for t in target:
+            converted[t] = converted[t].apply(
+                lambda x: x if isinstance(x, np.ndarray) else (np.array(x) if isinstance(x, list) else np.array([x]))
+            )
         return converted
 
     @staticmethod
-    def convert_to_scalar(df: pd.DataFrame, target: str) -> pd.DataFrame:
+    def convert_to_scalar(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
         Convert columns in a DataFrame to scalar values by taking the mean of the list.
         """
         converted = df.copy()
-        converted[target] = converted[target].apply(
-            lambda x: np.mean(x) if isinstance(x, (list, np.ndarray)) else x
-        )
+        if isinstance(target, str):
+            target = [target]
+        for t in target:
+            converted[t] = converted[t].apply(
+                lambda x: np.mean(x) if isinstance(x, (list, np.ndarray)) else x
+            )
         return converted
         
     @staticmethod
@@ -181,7 +191,7 @@ class EvaluationManager:
         - matched_pred: pd.DataFrame aligned with actual.
         """
         actual_target = actual[[target]]
-        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")
+        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")  # type: ignore
         matched_actual = aligned_actual.reindex(index=aligned_pred.index)
         matched_actual[[target]] = actual_target
 
@@ -353,8 +363,8 @@ class EvaluationManager:
         """
         pred_concat = pd.concat(predictions)
         month_range = pred_concat.index.get_level_values(0).unique()
-        month_start = month_range.min()
-        month_end = month_range.max()
+        month_start = int(month_range.min())  # type: ignore
+        month_end = int(month_range.max())    # type: ignore
 
         if is_uncertainty:
             evaluation_dict = (
