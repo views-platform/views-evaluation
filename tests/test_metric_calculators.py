@@ -2,6 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from views_evaluation.evaluation.metric_calculators import (
+    calculate_mse,
     calculate_rmsle,
     calculate_crps,
     calculate_ap,
@@ -38,6 +39,13 @@ def sample_uncertainty_data():
     })
     return actual, pred
 
+
+def test_calculate_mse(sample_data):
+    """Test MSE calculation."""
+    actual, pred = sample_data
+    result = calculate_mse(actual, pred, 'target')
+    assert isinstance(result, float)
+    assert result >= 0
 
 def test_calculate_rmsle_point(sample_data):
     """Test RMSLE calculation."""
