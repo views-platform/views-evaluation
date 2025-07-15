@@ -191,7 +191,7 @@ class EvaluationManager:
         - matched_pred: pd.DataFrame aligned with actual.
         """
         actual_target = actual[[target]]
-        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")  # type: ignore
+        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")  
         matched_actual = aligned_actual.reindex(index=aligned_pred.index)
         matched_actual[[target]] = actual_target
 
