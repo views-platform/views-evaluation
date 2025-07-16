@@ -118,8 +118,8 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
         Variogram (Optional[float]): Variogram.
     """
 
-    RMSLE: Optional[float] = None
     MSE: Optional[float] = None
+    RMSLE: Optional[float] = None
     CRPS: Optional[float] = None
     AP: Optional[float] = None
     EMD: Optional[float] = None
@@ -141,7 +141,9 @@ class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
     CRPS: Optional[float] = None
     MIS: Optional[float] = None
     Ignorance: Optional[float] = None
+    Coverage: Optional[float] = None
+    pEMDiv: Optional[float] = None
     Brier: Optional[float] = None
     Jeffreys: Optional[float] = None
-    Coverage: Optional[float] = None
+    
     
