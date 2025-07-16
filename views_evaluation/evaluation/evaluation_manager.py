@@ -363,8 +363,8 @@ class EvaluationManager:
         """
         pred_concat = pd.concat(predictions)
         month_range = pred_concat.index.get_level_values(0).unique()
-        month_start = int(month_range.min())  # type: ignore
-        month_end = int(month_range.max())    # type: ignore
+        month_start = int(month_range.min())  
+        month_end = int(month_range.max())
 
         if is_uncertainty:
             evaluation_dict = (
@@ -408,7 +408,7 @@ class EvaluationManager:
             evaluation_dict,
             PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
         )
-
+    
     def evaluate(
         self,
         actual: pd.DataFrame,
