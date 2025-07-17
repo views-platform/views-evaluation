@@ -120,14 +120,14 @@ def test_get_evaluation_type():
         pd.DataFrame({'pred_target': [[1.0, 2.0], [3.0, 4.0]]}),
         pd.DataFrame({'pred_target': [[5.0, 6.0], [7.0, 8.0]]}),
     ]
-    assert EvaluationManager.get_evaluation_type(predictions_uncertainty) == True
+    assert EvaluationManager.get_evaluation_type(predictions_uncertainty, "pred_target") == True
 
     # Test case 2: All DataFrames for point evaluation
     predictions_point = [
         pd.DataFrame({'pred_target': [[1.0], [2.0]]}),
         pd.DataFrame({'pred_target': [[3.0], [4.0]]}),
     ]
-    assert EvaluationManager.get_evaluation_type(predictions_point) == False
+    assert EvaluationManager.get_evaluation_type(predictions_point, "pred_target") == False
 
     # Test case 3: Mixed evaluation types
     predictions_mixed = [
@@ -135,14 +135,14 @@ def test_get_evaluation_type():
         pd.DataFrame({'pred_target': [[5.0], [6.0]]}),
     ]
     with pytest.raises(ValueError):
-        EvaluationManager.get_evaluation_type(predictions_mixed)
+        EvaluationManager.get_evaluation_type(predictions_mixed, "pred_target")
 
     # Test case 4: Single element lists
     predictions_single_element = [
         pd.DataFrame({'pred_target': [[1.0], [2.0]]}),
         pd.DataFrame({'pred_target': [[3.0], [4.0]]}),
     ]
-    assert EvaluationManager.get_evaluation_type(predictions_single_element) == False
+    assert EvaluationManager.get_evaluation_type(predictions_single_element, "pred_target") == False
 
 
 def test_match_actual_pred_point(

@@ -386,6 +386,7 @@ def calculate_ignorance_score(
 
 
 POINT_METRIC_FUNCTIONS = {
+    "MSE": calculate_mse,
     "RMSLE": calculate_rmsle,
     "CRPS": calculate_crps,
     "AP": calculate_ap,
@@ -403,4 +404,5 @@ UNCERTAINTY_METRIC_FUNCTIONS = {
     "Brier": calculate_brier,
     "Jeffreys": calculate_jeffreys,
     "Coverage": calculate_coverage,
+    "pEMDiv": calculate_pEMDiv,
 }

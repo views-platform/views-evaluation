@@ -100,7 +100,7 @@ class EvaluationManager:
         return converted
         
     @staticmethod
-    def get_evaluation_type(predictions: List[pd.DataFrame]) -> bool:
+    def get_evaluation_type(predictions: List[pd.DataFrame], target: str) -> bool:
         """
         Validates the values in each DataFrame in the list.
         The return value indicates whether all DataFrames are for uncertainty evaluation.
@@ -120,8 +120,9 @@ class EvaluationManager:
         is_point = False
         uncertainty_length = None
 
+
         for df in predictions:
-            for value in df.values.flatten():
+            for value in df[target].values.flatten():
                 if not (isinstance(value, np.ndarray) or isinstance(value, list)):
                     raise ValueError(
                         "All values must be lists or numpy arrays. Convert the data."
@@ -414,7 +415,7 @@ class EvaluationManager:
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
         target: str,
-        steps: List[int],
+        config: dict,
         **kwargs,
     ):
         """
@@ -424,10 +425,8 @@ class EvaluationManager:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
-            steps (List[int]): The steps to evaluate.
-
+            config (dict): The configuration dictionary.
         """
-
         EvaluationManager.validate_predictions(predictions, target)
         actual = EvaluationManager.transform_data(
             EvaluationManager.convert_to_array(actual, target), target
@@ -438,22 +437,23 @@ class EvaluationManager:
             )
             for pred in predictions
         ]
-        is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
+        self.is_uncertainty = EvaluationManager.get_evaluation_type(predictions, f"pred_{target}")
 
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
-            actual, predictions, target, is_uncertainty, **kwargs
+            actual, predictions, target, self.is_uncertainty, **kwargs
         )
         evaluation_results["time_series"] = self.time_series_wise_evaluation(
-            actual, predictions, target, is_uncertainty, **kwargs
+            actual, predictions, target, self.is_uncertainty, **kwargs
         )
         evaluation_results["step"] = self.step_wise_evaluation(
             actual,
             predictions,
             target,
-            steps,
-            is_uncertainty,
+            config["steps"],
+            self.is_uncertainty,
             **kwargs,
         )
 
         return evaluation_results
+
