@@ -9,7 +9,7 @@
 | Date                | 16.06.2025     |
 
 ## Context
-In our modeling pipeline, a consistent and flexible evaluation framework is essential to compare model performance across different runs, time steps, and geographic units.
+In our modeling pipeline, a consistent and flexible evaluation framework is essential to compare model performance.
 
 
 ## Decision
@@ -17,11 +17,10 @@ In our modeling pipeline, a consistent and flexible evaluation framework is esse
 We adopt the `views-evaluation` package to standardize the evaluation of model predictions. The core component of this package is the `EvaluationManager` class, which is initialized with a **list of evaluation metrics**.
 
 The `evaluate` method accepts the following inputs:
-
 1. A DataFrame of actual values,  
 2. A list of prediction DataFrames,  
 3. The target variable name,  
-4. The forecast steps to evaluate.  
+4. The steps.  
 
 Both the actual and prediction DataFrames must use a multi-index of `(month_id, country_id/priogrid_gid)` and contain a column for the target variable. In the actuals DataFrame, this column must be named exactly as the target. In each prediction DataFrame, the predicted column must be named `f'pred_{target}'`.
 
