@@ -62,10 +62,13 @@ Each report follows a standardized JSON structure that includes:
     ]
 }
 ````
+Here, the 
+
 The output file is name with the following name convention:
 ```
 eval_validation_{conflict_type}_{timestamp}.json
 ```
+
 
 
 ## Consequences
