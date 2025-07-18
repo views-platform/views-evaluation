@@ -35,7 +35,7 @@ class EvaluationManager:
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
-        Transform the data to normal distribution.
+        Transform the data.
         """
         if isinstance(target, str):
             target = [target]
@@ -229,6 +229,21 @@ class EvaluationManager:
 
         return result_dfs
 
+    def _process_data(self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str):
+        """
+        Process the data for evaluation.
+        """
+        actual = EvaluationManager.transform_data(
+            EvaluationManager.convert_to_array(actual, target), target
+        )
+        predictions = [
+            EvaluationManager.transform_data(
+                EvaluationManager.convert_to_array(pred, f"pred_{target}"), f"pred_{target}"
+            )
+            for pred in predictions
+        ]
+        return actual, predictions
+
     def step_wise_evaluation(
         self,
         actual: pd.DataFrame,
@@ -415,7 +430,7 @@ class EvaluationManager:
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
         target: str,
-        config: dict,
+        steps: List[int],
         **kwargs,
     ):
         """
@@ -425,18 +440,10 @@ class EvaluationManager:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
-            config (dict): The configuration dictionary.
+            steps (List[int]): The steps to evaluate.
         """
         EvaluationManager.validate_predictions(predictions, target)
-        actual = EvaluationManager.transform_data(
-            EvaluationManager.convert_to_array(actual, target), target
-        )
-        predictions = [
-            EvaluationManager.transform_data(
-                EvaluationManager.convert_to_array(pred, f"pred_{target}"), f"pred_{target}"
-            )
-            for pred in predictions
-        ]
+        actual, predictions = self._process_data(actual, predictions, target)
         self.is_uncertainty = EvaluationManager.get_evaluation_type(predictions, f"pred_{target}")
 
         evaluation_results = {}
@@ -450,7 +457,7 @@ class EvaluationManager:
             actual,
             predictions,
             target,
-            config["steps"],
+            steps,
             self.is_uncertainty,
             **kwargs,
         )
