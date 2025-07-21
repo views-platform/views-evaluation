@@ -20,7 +20,7 @@ The `evaluate` method accepts the following inputs:
 1. A DataFrame of actual values,  
 2. A list of prediction DataFrames,  
 3. The target variable name,  
-4. The steps.  
+4. The model config.  
 
 Both the actual and prediction DataFrames must use a multi-index of `(month_id, country_id/priogrid_gid)` and contain a column for the target variable. In the actuals DataFrame, this column must be named exactly as the target. In each prediction DataFrame, the predicted column must be named `f'pred_{target}'`.
 
