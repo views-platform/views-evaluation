@@ -13,10 +13,11 @@ class EvalReportGenerator:
         self.run_type = config.get("run_type")
         self.eval_type = config.get("eval_type")
         self.is_ensemble = True if "models" in config else False
+        self.eval_report = {}
 
     def generate_eval_report_dict(self, df_preds: list[pd.DataFrame], df_eval_ts: pd.DataFrame):
         """Return a dictionary with evaluation report data."""
-        eval_report = {
+        self.eval_report = {
             "Target": self.target,
             "Forecast Type": self._forecast_type(df_preds),
             "Level of Analysis": self.level,
@@ -28,7 +29,7 @@ class EvalReportGenerator:
             "Evaluation Results": []
         }
 
-        eval_report["Evaluation Results"].append(
+        self.eval_report["Evaluation Results"].append(
             self._single_result(
                 "Ensemble" if self.is_ensemble else "Model",
                 self.config["name"],
@@ -36,20 +37,18 @@ class EvalReportGenerator:
                 df_preds
             )
         )
+        return self.eval_report
 
-        if self.is_ensemble:
-            from views_pipeline_core.managers.model import ModelPathManager
-            for model_name in self.config["models"]:
-                pm = ModelPathManager(model_name)
-                eval_report["Evaluation Results"].append(
-                    self._single_result(
-                        "Constituent",
-                        model_name,
-                        self._eval_ts(pm),
-                        self._preds(pm, rolling_origin_number=len(df_preds))
-                    )
-                )
-        return eval_report
+    def update_ensemble_eval_report(self, model_name, df_preds: list[pd.DataFrame], df_eval_ts: pd.DataFrame):
+        self.eval_report["Evaluation Results"].append(
+            self._single_result(
+                "Constituent",
+                model_name,
+                df_eval_ts,
+                df_preds
+            )
+        )
+        return self.eval_report
 
     def _forecast_type(self, df_preds: list[pd.DataFrame]):
         from views_evaluation.evaluation.evaluation_manager import EvaluationManager
@@ -59,27 +58,25 @@ class EvalReportGenerator:
     def _partition(self, key: str):
         return self.config[self.run_type][key]
 
-    def _eval_ts(self, pm):
-        from views_pipeline_core.files.utils import read_dataframe
-        path = pm._get_eval_file_paths(self.run_type, self.conflict_type)[0]
-        return read_dataframe(path)
-
-    def _preds(self, pm, rolling_origin_number: int):
-        from views_pipeline_core.files.utils import read_dataframe
-        paths = pm._get_generated_predictions_data_file_paths(self.run_type)[:rolling_origin_number]
-        return [read_dataframe(path) for path in paths]
-
     def _single_result(self, model_type: str, model_name: str, df_eval_ts: pd.DataFrame, df_preds: list[pd.DataFrame]):
-        # mse = df_eval_ts["MSE"].mean() # Add back after publishing latest version of views-evaluation
-        msle = np.sqrt(df_eval_ts["RMSLE"]).mean()
-        mean_pred = np.mean([df_pred[f"pred_{self.target}"].mean() for df_pred in df_preds])
+        from views_evaluation.evaluation.evaluation_manager import EvaluationManager
+        df_preds = [
+            EvaluationManager.transform_data(
+                EvaluationManager.convert_to_array(df_pred, f"pred_{self.target}"), f"pred_{self.target}"
+            )
+            for df_pred in df_preds
+        ]
+        mse = df_eval_ts["MSE"].mean() 
+        msle = df_eval_ts["MSLE"].mean()
+        all_preds = np.concatenate([np.asarray(v).flatten() for df_pred in df_preds for v in df_pred[f"pred_{self.target}"]])
+        mean_pred = np.mean(all_preds)
         
         return {
             "Type": model_type,
             "Model Name": model_name,
-            # "MSE": mse,
+            "MSE": mse,
             "MSLE": msle,
-            "mean prediction": mean_pred
+            r"$\bar{\hat{y}}$": mean_pred
         }
 
 
