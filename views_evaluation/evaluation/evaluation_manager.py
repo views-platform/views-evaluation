@@ -32,7 +32,6 @@ class EvaluationManager:
         self.metrics_list = metrics_list
         self.point_metric_functions = POINT_METRIC_FUNCTIONS
         self.uncertainty_metric_functions = UNCERTAINTY_METRIC_FUNCTIONS
-        self.evaluation_results = {}
 
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
@@ -448,22 +447,16 @@ class EvaluationManager:
         self.actual, self.predictions = self._process_data(actual, predictions, target)
         self.is_uncertainty = EvaluationManager.get_evaluation_type(self.predictions, f"pred_{target}")
         
-        self.evaluation_results["month"] = self.month_wise_evaluation(
+        evaluation_results = {}
+        evaluation_results["month"] = self.month_wise_evaluation(
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
-        self.evaluation_results["time_series"] = self.time_series_wise_evaluation(
+        evaluation_results["time_series"] = self.time_series_wise_evaluation(
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
-        self.evaluation_results["step"] = self.step_wise_evaluation(
+        evaluation_results["step"] = self.step_wise_evaluation(
             self.actual, self.predictions, target, config["steps"], self.is_uncertainty, **kwargs,
         )
 
-        return self.evaluation_results
+        return evaluation_results
     
-    def generate_dict_report(self, config: dict, target: str, conflict_type: str):
-        """
-        Generate a report of the evaluation results.
-        """
-        report_generator = EvalReportGenerator(config, target, conflict_type)
-        return report_generator.generate_eval_report_dict(self.predictions, self.evaluation_results["time_series"][1])
-
