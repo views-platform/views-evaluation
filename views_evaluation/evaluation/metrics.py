@@ -119,6 +119,7 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
     """
 
     MSE: Optional[float] = None
+    MSLE: Optional[float] = None
     RMSLE: Optional[float] = None
     CRPS: Optional[float] = None
     AP: Optional[float] = None

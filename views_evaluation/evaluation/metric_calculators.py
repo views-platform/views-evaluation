@@ -5,6 +5,7 @@ import properscoring as ps
 from sklearn.metrics import (
     root_mean_squared_log_error,
     mean_squared_error,
+    mean_squared_log_error,
     average_precision_score,
 )
 from scipy.stats import wasserstein_distance, pearsonr
@@ -32,7 +33,29 @@ def calculate_mse(
     )
 
     return mean_squared_error(actual_expanded, pred_values)
-    
+
+
+def calculate_msle(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+) -> float:
+    """
+    Calculate Mean Squared Logarithmic Error (MSLE) for each prediction.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values
+        matched_pred (pd.DataFrame): DataFrame containing predictions
+        target (str): The target column name
+
+    Returns:
+        float: Average MSLE score
+    """
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+    return mean_squared_log_error(actual_expanded, pred_values)
+
 
 def calculate_rmsle(
     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
@@ -387,6 +410,7 @@ def calculate_ignorance_score(
 
 POINT_METRIC_FUNCTIONS = {
     "MSE": calculate_mse,
+    "MSLE": calculate_msle,
     "RMSLE": calculate_rmsle,
     "CRPS": calculate_crps,
     "AP": calculate_ap,
