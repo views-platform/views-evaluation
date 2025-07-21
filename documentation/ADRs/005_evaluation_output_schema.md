@@ -11,8 +11,6 @@
 ## Context
 As part of our model evaluation workflow, we generate comprehensive reports summarizing model performance across a range of metrics and time periods. These reports are intended primarily for comparing ensemble models against their constituent models and baselines.
 
-We use the `views-evaluation` package for computing evaluation metrics, while the report generation logic resides in the `views-pipeline-core` package. This separation of concerns avoids circular dependency, but requires a well-defined schema for passing data between the two components.
-
 ## Decision
 
 We define a standard output schema for model evaluation reports using two formats:
@@ -22,7 +20,7 @@ We define a standard output schema for model evaluation reports using two format
 
 These files are stored in the `reports/` directory for each model within `views-models`.
 
-To prevent a circular dependency between `views-evaluation` and `views-pipeline-core`, the `views-evaluation` package **does not** generate reports directly. Instead, it outputs intermediate results. These are then consumed by the reporting module in `views-pipeline-core` to generate final report files.
+To prevent a circular dependency between `views-evaluation` and `views-pipeline-core`, the `views-evaluation` package returns the evaluation dictionary, and then  `views-pipeline-core` continues saving it as a json file.
 
 ### Schema Overview (JSON)
 Each report follows a standardized JSON structure that includes:
@@ -94,13 +92,12 @@ eval_validation_{conflict_type}_{timestamp}.json
 
 ## Rationale
 
-Generating reports within `views-pipeline-core` ensures full control over rendering, formatting, and contextual customization (e.g., comparing different model families). By letting `views-evaluation` focus strictly on metrics and alignment logic, we maintain cleaner package boundaries.
+Saving reports within `views-pipeline-core` ensures full control over rendering, formatting, and contextual customization (e.g., comparing different model families). By letting `views-evaluation` focus strictly on metrics and alignment logic, we maintain cleaner package boundaries.
 
 
 ### Considerations
 
 - This schema may evolve as we introduce new types of evaluation (e.g., correlation matrix).
-
 
 - Reports are currently only generated for **ensemble models**, as comparison against constituent models is the primary use case.
 
