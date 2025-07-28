@@ -59,7 +59,7 @@ class EvalReportGenerator:
     def _single_result(self, model_type: str, model_name: str, df_eval_ts: pd.DataFrame):
         mse = df_eval_ts["MSE"].mean() 
         msle = df_eval_ts["MSLE"].mean()
-        mean_pred = df_eval_ts["Mean_Prediction"].mean()
+        mean_pred = df_eval_ts["y_hat_bar"].mean()
         
         return {
             "Type": model_type,
