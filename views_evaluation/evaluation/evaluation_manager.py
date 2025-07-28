@@ -412,8 +412,8 @@ class EvaluationManager:
                     level=matched_pred.index.names[0]
                 ).apply(
                     lambda df: metric_functions[metric](
-                        matched_actual.loc[df.index, [target]],
-                        matched_pred.loc[df.index, [f"pred_{target}"]],
+                        matched_actual.loc[df.index.unique(), [target]],
+                        matched_pred.loc[df.index.unique(), [f"pred_{target}"]],
                         target,
                         **kwargs,
                     )
