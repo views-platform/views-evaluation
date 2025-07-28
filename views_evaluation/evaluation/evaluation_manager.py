@@ -43,20 +43,20 @@ class EvaluationManager:
         for t in target:
             if t.startswith("ln") or t.startswith("pred_ln"):
                 df[[t]] = df[[t]].applymap(
-                lambda x: (
-                    np.exp(x) - 1
-                    if isinstance(x, (list, np.ndarray))
-                    else np.exp(x) - 1
+                    lambda x: (
+                        np.exp(x) - 1
+                        if isinstance(x, (list, np.ndarray))
+                        else np.exp(x) - 1
+                    )
                 )
-            )
             elif t.startswith("lx") or t.startswith("pred_lx"):
                 df[[t]] = df[[t]].applymap(
-                lambda x: (
-                    np.exp(x) - np.exp(100)
-                    if isinstance(x, (list, np.ndarray))
-                    else np.exp(x) - np.exp(100)
+                    lambda x: (
+                        np.exp(x) - np.exp(100)
+                        if isinstance(x, (list, np.ndarray))
+                        else np.exp(x) - np.exp(100)
+                    )
                 )
-            )
             elif t.startswith("lr") or t.startswith("pred_lr"):
                 df[[t]] = df[[t]].applymap(
                     lambda x: x if isinstance(x, (list, np.ndarray)) else x
@@ -79,10 +79,14 @@ class EvaluationManager:
         converted = df.copy()
         if isinstance(target, str):
             target = [target]
-            
+
         for t in target:
             converted[t] = converted[t].apply(
-                lambda x: x if isinstance(x, np.ndarray) else (np.array(x) if isinstance(x, list) else np.array([x]))
+                lambda x: (
+                    x
+                    if isinstance(x, np.ndarray)
+                    else (np.array(x) if isinstance(x, list) else np.array([x]))
+                )
             )
         return converted
 
@@ -99,7 +103,7 @@ class EvaluationManager:
                 lambda x: np.mean(x) if isinstance(x, (list, np.ndarray)) else x
             )
         return converted
-        
+
     @staticmethod
     def get_evaluation_type(predictions: List[pd.DataFrame], target: str) -> bool:
         """
@@ -120,7 +124,6 @@ class EvaluationManager:
         is_uncertainty = False
         is_point = False
         uncertainty_length = None
-
 
         for df in predictions:
             for value in df[target].values.flatten():
@@ -193,7 +196,7 @@ class EvaluationManager:
         - matched_pred: pd.DataFrame aligned with actual.
         """
         actual_target = actual[[target]]
-        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")  
+        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")
         matched_actual = aligned_actual.reindex(index=aligned_pred.index)
         matched_actual[[target]] = actual_target
 
@@ -230,7 +233,9 @@ class EvaluationManager:
 
         return result_dfs
 
-    def _process_data(self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str):
+    def _process_data(
+        self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
+    ):
         """
         Process the data for evaluation.
         """
@@ -239,7 +244,8 @@ class EvaluationManager:
         )
         predictions = [
             EvaluationManager.transform_data(
-                EvaluationManager.convert_to_array(pred, f"pred_{target}"), f"pred_{target}"
+                EvaluationManager.convert_to_array(pred, f"pred_{target}"),
+                f"pred_{target}",
             )
             for pred in predictions
         ]
@@ -380,7 +386,7 @@ class EvaluationManager:
         """
         pred_concat = pd.concat(predictions)
         month_range = pred_concat.index.get_level_values(0).unique()
-        month_start = int(month_range.min())  
+        month_start = int(month_range.min())
         month_end = int(month_range.max())
 
         if is_uncertainty:
@@ -426,6 +432,13 @@ class EvaluationManager:
             PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
         )
     
+    def calculate_mean_prediction(self, predictions: List[pd.DataFrame], target: str, **kwargs):
+        """
+        Calculate the mean prediction.
+        """
+        all_preds = np.concatenate([np.asarray(v).flatten() for df_pred in predictions for v in df_pred[f"pred_{target}"]])
+        return np.mean(all_preds)
+
     def evaluate(
         self,
         actual: pd.DataFrame,
@@ -445,8 +458,10 @@ class EvaluationManager:
         """
         EvaluationManager.validate_predictions(predictions, target)
         self.actual, self.predictions = self._process_data(actual, predictions, target)
-        self.is_uncertainty = EvaluationManager.get_evaluation_type(self.predictions, f"pred_{target}")
-        
+        self.is_uncertainty = EvaluationManager.get_evaluation_type(
+            self.predictions, f"pred_{target}"
+        )
+
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
@@ -455,8 +470,14 @@ class EvaluationManager:
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
         evaluation_results["step"] = self.step_wise_evaluation(
-            self.actual, self.predictions, target, config["steps"], self.is_uncertainty, **kwargs,
+            self.actual,
+            self.predictions,
+            target,
+            config["steps"],
+            self.is_uncertainty,
+            **kwargs,
         )
-
+        evaluation_results["mean_prediction"] = self.calculate_mean_prediction(
+            self.predictions, target, **kwargs
+        )
         return evaluation_results
-    

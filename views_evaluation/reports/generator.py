@@ -15,7 +15,7 @@ class EvalReportGenerator:
         self.is_ensemble = True if "models" in config else False
         self.eval_report = {}
 
-    def generate_eval_report_dict(self, df_preds: list[pd.DataFrame], df_eval_ts: pd.DataFrame):
+    def generate_eval_report_dict(self, df_preds: list[pd.DataFrame], df_eval_ts: pd.DataFrame, mean_prediction: float=None):
         """Return a dictionary with evaluation report data."""
         self.eval_report = {
             "Target": self.target,
@@ -34,18 +34,20 @@ class EvalReportGenerator:
                 "Ensemble" if self.is_ensemble else "Model",
                 self.config["name"],
                 df_eval_ts,
-                df_preds
+                df_preds,
+                mean_prediction
             )
         )
         return self.eval_report
 
-    def update_ensemble_eval_report(self, model_name, df_preds: list[pd.DataFrame], df_eval_ts: pd.DataFrame):
+    def update_ensemble_eval_report(self, model_name, df_preds: list[pd.DataFrame], df_eval_ts: pd.DataFrame, mean_prediction: float=None):
         self.eval_report["Evaluation Results"].append(
             self._single_result(
                 "Constituent",
                 model_name,
                 df_eval_ts,
-                df_preds
+                df_preds,
+                mean_prediction
             )
         )
         return self.eval_report
@@ -58,7 +60,7 @@ class EvalReportGenerator:
     def _partition(self, key: str):
         return self.config[self.run_type][key]
 
-    def _single_result(self, model_type: str, model_name: str, df_eval_ts: pd.DataFrame, df_preds: list[pd.DataFrame]):
+    def _single_result(self, model_type: str, model_name: str, df_eval_ts: pd.DataFrame, df_preds: list[pd.DataFrame], mean_prediction: float=None):
         from views_evaluation.evaluation.evaluation_manager import EvaluationManager
         df_preds = [
             EvaluationManager.transform_data(
@@ -68,8 +70,11 @@ class EvalReportGenerator:
         ]
         mse = df_eval_ts["MSE"].mean() 
         msle = df_eval_ts["MSLE"].mean()
-        all_preds = np.concatenate([np.asarray(v).flatten() for df_pred in df_preds for v in df_pred[f"pred_{self.target}"]])
-        mean_pred = np.mean(all_preds)
+        if mean_prediction is None:
+            all_preds = np.concatenate([np.asarray(v).flatten() for df_pred in df_preds for v in df_pred[f"pred_{self.target}"]])
+            mean_pred = np.mean(all_preds)
+        else:
+            mean_pred = mean_prediction
         
         return {
             "Type": model_type,
