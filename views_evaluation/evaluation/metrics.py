@@ -128,6 +128,7 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
     pEMDiv: Optional[float] = None
     Pearson: Optional[float] = None
     Variogram: Optional[float] = None
+    Mean_Prediction: Optional[float] = None
 
   
 @dataclass
@@ -146,5 +147,5 @@ class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
     pEMDiv: Optional[float] = None
     Brier: Optional[float] = None
     Jeffreys: Optional[float] = None
-    
+    Mean_Prediction: Optional[float] = None
     

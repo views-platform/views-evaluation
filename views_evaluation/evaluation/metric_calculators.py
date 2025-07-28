@@ -408,6 +408,15 @@ def calculate_ignorance_score(
     return np.mean(scores)
 
 
+def calculate_mean_prediction(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+) -> float:
+    """
+    Calculate the mean prediction.
+    """
+    all_preds = np.concatenate([np.asarray(v).flatten() for v in matched_pred[f"pred_{target}"]])
+    return np.mean(all_preds)
+
 POINT_METRIC_FUNCTIONS = {
     "MSE": calculate_mse,
     "MSLE": calculate_msle,
@@ -419,6 +428,7 @@ POINT_METRIC_FUNCTIONS = {
     "pEMDiv": calculate_pEMDiv,
     "Pearson": calculate_pearson,
     "Variogram": calculate_variogram,
+    "Mean_Prediction": calculate_mean_prediction,
 }
 
 UNCERTAINTY_METRIC_FUNCTIONS = {
@@ -429,4 +439,5 @@ UNCERTAINTY_METRIC_FUNCTIONS = {
     "Jeffreys": calculate_jeffreys,
     "Coverage": calculate_coverage,
     "pEMDiv": calculate_pEMDiv,
+    "Mean_Prediction": calculate_mean_prediction,
 }

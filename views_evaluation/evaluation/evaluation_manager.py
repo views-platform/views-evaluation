@@ -431,13 +431,6 @@ class EvaluationManager:
             evaluation_dict,
             PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
         )
-    
-    def calculate_mean_prediction(self, predictions: List[pd.DataFrame], target: str, **kwargs):
-        """
-        Calculate the mean prediction.
-        """
-        all_preds = np.concatenate([np.asarray(v).flatten() for df_pred in predictions for v in df_pred[f"pred_{target}"]])
-        return np.mean(all_preds)
 
     def evaluate(
         self,
@@ -477,7 +470,5 @@ class EvaluationManager:
             self.is_uncertainty,
             **kwargs,
         )
-        evaluation_results["mean_prediction"] = self.calculate_mean_prediction(
-            self.predictions, target, **kwargs
-        )
+
         return evaluation_results
