@@ -10,7 +10,6 @@ from views_evaluation.evaluation.metric_calculators import (
     POINT_METRIC_FUNCTIONS,
     UNCERTAINTY_METRIC_FUNCTIONS,
 )
-from views_evaluation.reports.generator import EvalReportGenerator
 
 logger = logging.getLogger(__name__)
 

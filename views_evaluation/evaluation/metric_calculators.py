@@ -428,7 +428,7 @@ POINT_METRIC_FUNCTIONS = {
     "pEMDiv": calculate_pEMDiv,
     "Pearson": calculate_pearson,
     "Variogram": calculate_variogram,
-    "Mean_Prediction": calculate_mean_prediction,
+    "y_hat_bar": calculate_mean_prediction,
 }
 
 UNCERTAINTY_METRIC_FUNCTIONS = {
@@ -439,5 +439,5 @@ UNCERTAINTY_METRIC_FUNCTIONS = {
     "Jeffreys": calculate_jeffreys,
     "Coverage": calculate_coverage,
     "pEMDiv": calculate_pEMDiv,
-    "Mean_Prediction": calculate_mean_prediction,
+    "y_hat_bar": calculate_mean_prediction,
 }
