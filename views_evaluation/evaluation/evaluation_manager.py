@@ -3,6 +3,7 @@ import logging
 import pandas as pd
 import numpy as np
 from views_evaluation.evaluation.metrics import (
+    BaseEvaluationMetrics,
     PointEvaluationMetrics,
     UncertaintyEvaluationMetrics,
 )
@@ -471,3 +472,120 @@ class EvaluationManager:
         )
 
         return evaluation_results
+
+    @staticmethod
+    def filter_step_wise_evaluation(
+        step_wise_evaluation_results: dict,
+        filter_steps: list[int] = [1, 3, 6, 12, 36],
+    ):
+        """
+        Filter step-wise evaluation results to include only specific steps.
+
+        Args:
+            step_wise_evaluation_results (dict): The step-wise evaluation results containing evaluation dict and DataFrame.
+            filter_steps (list[int]): List of step numbers to include in the filtered results. Defaults to [1, 3, 6, 12, 36].
+
+        Returns:
+            dict: A dictionary containing the filtered evaluation dictionary and DataFrame for the selected steps.
+        """
+        step_wise_evaluation_dict = step_wise_evaluation_results[0]
+        step_wise_evaluation_df = step_wise_evaluation_results[1]
+
+        selected_keys = [f"step{str(step).zfill(2)}" for step in filter_steps]
+
+        filtered_evaluation_dict = {
+            key: step_wise_evaluation_dict[key]
+            for key in selected_keys
+            if key in step_wise_evaluation_dict
+        }
+
+        filtered_evaluation_df = step_wise_evaluation_df.loc[
+            step_wise_evaluation_df.index.isin(selected_keys)
+        ]
+
+        return (filtered_evaluation_dict, filtered_evaluation_df)
+
+    @staticmethod
+    def aggregate_month_wise_evaluation(
+        month_wise_evaluation_results: dict,
+        aggregation_period: int = 6,
+        aggregation_type: str = "mean",
+    ):
+        """
+        Aggregate month-wise evaluation results by grouping months into periods and applying aggregation.
+
+        Args:
+            month_wise_evaluation_results (dict): The month-wise evaluation results containing evaluation dict and DataFrame.
+            aggregation_period (int): Number of months to group together for aggregation.
+            aggregation_type (str): Type of aggregation to apply.
+        Returns:
+            dict: A dictionary containing the aggregated evaluation dictionary and DataFrame.
+        """
+        month_wise_evaluation_dict = month_wise_evaluation_results[0]
+        month_wise_evaluation_df = month_wise_evaluation_results[1]
+
+        available_months = [
+            int(month.replace("month", "")) for month in month_wise_evaluation_df.index
+        ]
+        available_months.sort()
+
+        if len(available_months) < aggregation_period:
+            raise ValueError(
+                f"Not enough months to aggregate. Available months: {available_months}, aggregation period: {aggregation_period}"
+            )
+
+        aggregated_dict = {}
+        aggregated_data = []
+
+        for i in range(0, len(available_months), aggregation_period):
+            period_months = available_months[i : i + aggregation_period]
+            period_start = period_months[0]
+            period_end = period_months[-1]
+            period_key = f"month_{period_start}_{period_end}"
+
+            period_metrics = []
+            for month in period_months:
+                month_key = f"month{month}"
+                if month_key in month_wise_evaluation_dict:
+                    period_metrics.append(month_wise_evaluation_dict[month_key])
+
+            if period_metrics:
+                aggregated_metrics = {}
+                for metric_name in period_metrics[0].__annotations__.keys():
+                    metric_values = [
+                        getattr(metric, metric_name)
+                        for metric in period_metrics
+                        if getattr(metric, metric_name) is not None
+                    ]
+
+                    if metric_values:
+                        if aggregation_type == "mean":
+                            aggregated_value = np.mean(metric_values)
+                        elif aggregation_type == "median":
+                            aggregated_value = np.median(metric_values)
+                        else:
+                            raise ValueError(
+                                f"Unsupported aggregation type: {aggregation_type}"
+                            )
+
+                        aggregated_metrics[metric_name] = aggregated_value
+                    else:
+                        aggregated_metrics[metric_name] = None
+
+                if hasattr(period_metrics[0], "__class__"):
+                    aggregated_eval_metrics = period_metrics[0].__class__(
+                        **aggregated_metrics
+                    )
+                else:
+                    aggregated_eval_metrics = aggregated_metrics
+
+                aggregated_dict[period_key] = aggregated_eval_metrics
+
+                aggregated_data.append({"month_id": period_key, **aggregated_metrics})
+
+        if aggregated_data:
+            aggregated_df = BaseEvaluationMetrics.evaluation_dict_to_dataframe(
+                aggregated_dict
+            )
+
+        return (aggregated_dict, aggregated_df)
