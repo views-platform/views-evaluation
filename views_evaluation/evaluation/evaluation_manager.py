@@ -196,11 +196,14 @@ class EvaluationManager:
         - matched_pred: pd.DataFrame aligned with actual.
         """
         actual_target = actual[[target]]
-        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")
-        matched_actual = aligned_actual.reindex(index=aligned_pred.index)
-        matched_actual[[target]] = actual_target
+        # Get indices from pred that exist in actual_target, preserving duplicates
+        mask = pred.index.isin(actual_target.index)
+        common_indices = pred.index[mask]
+        matched_actual = actual_target.reindex(common_indices).sort_index()
+        matched_pred = pred.reindex(common_indices).sort_index()
+        
+        return matched_actual, matched_pred
 
-        return matched_actual.sort_index(), pred.sort_index()
 
     @staticmethod
     def _split_dfs_by_step(dfs: list) -> list:
