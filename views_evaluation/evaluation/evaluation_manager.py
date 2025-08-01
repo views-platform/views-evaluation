@@ -196,12 +196,16 @@ class EvaluationManager:
         - matched_pred: pd.DataFrame aligned with actual.
         """
         actual_target = actual[[target]]
-        # Get indices from pred that exist in actual_target, preserving duplicates
-        mask = pred.index.isin(actual_target.index)
-        common_indices = pred.index[mask]
-        matched_actual = actual_target.reindex(common_indices).sort_index()
-        matched_pred = pred.reindex(common_indices).sort_index()
+        common_indices = actual_target.index.intersection(pred.index)
+        matched_pred = pred[pred.index.isin(common_indices)].copy()
         
+        # Create matched_actual by reindexing actual_target to match pred's index structure
+        # This will duplicate rows in actual where pred has duplicate indices
+        matched_actual = actual_target.reindex(matched_pred.index)
+        
+        matched_actual = matched_actual.sort_index()
+        matched_pred = matched_pred.sort_index()
+
         return matched_actual, matched_pred
 
 
