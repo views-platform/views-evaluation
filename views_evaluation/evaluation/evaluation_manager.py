@@ -3,6 +3,7 @@ import logging
 import pandas as pd
 import numpy as np
 from views_evaluation.evaluation.metrics import (
+    BaseEvaluationMetrics,
     PointEvaluationMetrics,
     UncertaintyEvaluationMetrics,
 )
@@ -33,36 +34,39 @@ class EvaluationManager:
         self.uncertainty_metric_functions = UNCERTAINTY_METRIC_FUNCTIONS
 
     @staticmethod
-    def transform_data(df: pd.DataFrame, target: str) -> pd.DataFrame:
+    def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
-        Transform the data to normal distribution.
+        Transform the data.
         """
-        if target.startswith("ln") or target.startswith("pred_ln"):
-            df[[target]] = df[[target]].applymap(
-                lambda x: (
-                    np.exp(x) - 1
-                    if isinstance(x, (list, np.ndarray))
-                    else np.exp(x) - 1
+        if isinstance(target, str):
+            target = [target]
+        for t in target:
+            if t.startswith("ln") or t.startswith("pred_ln"):
+                df[[t]] = df[[t]].applymap(
+                    lambda x: (
+                        np.exp(x) - 1
+                        if isinstance(x, (list, np.ndarray))
+                        else np.exp(x) - 1
+                    )
                 )
-            )
-        elif target.startswith("lx") or target.startswith("pred_lx"):
-            df[[target]] = df[[target]].applymap(
-                lambda x: (
-                    np.exp(x) - np.exp(100)
-                    if isinstance(x, (list, np.ndarray))
-                    else np.exp(x) - np.exp(100)
+            elif t.startswith("lx") or t.startswith("pred_lx"):
+                df[[t]] = df[[t]].applymap(
+                    lambda x: (
+                        np.exp(x) - np.exp(100)
+                        if isinstance(x, (list, np.ndarray))
+                        else np.exp(x) - np.exp(100)
+                    )
                 )
-            )
-        elif target.startswith("lr") or target.startswith("pred_lr"):
-            df[[target]] = df[[target]].applymap(
-                lambda x: x if isinstance(x, (list, np.ndarray)) else x
-            )
-        else:
-            raise ValueError(f"Target {target} is not a valid target")
+            elif t.startswith("lr") or t.startswith("pred_lr"):
+                df[[t]] = df[[t]].applymap(
+                    lambda x: x if isinstance(x, (list, np.ndarray)) else x
+                )
+            else:
+                raise ValueError(f"Target {t} is not a valid target")
         return df
 
     @staticmethod
-    def convert_to_arrays(df: pd.DataFrame) -> pd.DataFrame:
+    def convert_to_array(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
         Convert columns in a DataFrame to numpy arrays.
 
@@ -73,14 +77,35 @@ class EvaluationManager:
             pd.DataFrame: A new DataFrame with columns converted to numpy arrays.
         """
         converted = df.copy()
-        for col in converted.columns:
-            converted[col] = converted[col].apply(
-                lambda x: np.array(x) if isinstance(x, list) else np.array([x])
+        if isinstance(target, str):
+            target = [target]
+
+        for t in target:
+            converted[t] = converted[t].apply(
+                lambda x: (
+                    x
+                    if isinstance(x, np.ndarray)
+                    else (np.array(x) if isinstance(x, list) else np.array([x]))
+                )
             )
         return converted
 
     @staticmethod
-    def get_evaluation_type(predictions: List[pd.DataFrame]) -> bool:
+    def convert_to_scalar(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
+        """
+        Convert columns in a DataFrame to scalar values by taking the mean of the list.
+        """
+        converted = df.copy()
+        if isinstance(target, str):
+            target = [target]
+        for t in target:
+            converted[t] = converted[t].apply(
+                lambda x: np.mean(x) if isinstance(x, (list, np.ndarray)) else x
+            )
+        return converted
+
+    @staticmethod
+    def get_evaluation_type(predictions: List[pd.DataFrame], target: str) -> bool:
         """
         Validates the values in each DataFrame in the list.
         The return value indicates whether all DataFrames are for uncertainty evaluation.
@@ -101,12 +126,12 @@ class EvaluationManager:
         uncertainty_length = None
 
         for df in predictions:
-            for value in df.values.flatten():
+            for value in df[target].values.flatten():
                 if not (isinstance(value, np.ndarray) or isinstance(value, list)):
                     raise ValueError(
                         "All values must be lists or numpy arrays. Convert the data."
                     )
-                
+
                 if len(value) > 1:
                     is_uncertainty = True
                     # For uncertainty evaluation, check that all lists have the same length
@@ -171,11 +196,18 @@ class EvaluationManager:
         - matched_pred: pd.DataFrame aligned with actual.
         """
         actual_target = actual[[target]]
-        aligned_actual, aligned_pred = actual_target.align(pred, join="inner")
-        matched_actual = aligned_actual.reindex(index=aligned_pred.index)
-        matched_actual[[target]] = actual_target
+        common_indices = actual_target.index.intersection(pred.index)
+        matched_pred = pred[pred.index.isin(common_indices)].copy()
+        
+        # Create matched_actual by reindexing actual_target to match pred's index structure
+        # This will duplicate rows in actual where pred has duplicate indices
+        matched_actual = actual_target.reindex(matched_pred.index)
+        
+        matched_actual = matched_actual.sort_index()
+        matched_pred = matched_pred.sort_index()
 
-        return matched_actual.sort_index(), pred.sort_index()
+        return matched_actual, matched_pred
+
 
     @staticmethod
     def _split_dfs_by_step(dfs: list) -> list:
@@ -207,6 +239,24 @@ class EvaluationManager:
             result_dfs.append(combined)
 
         return result_dfs
+
+    def _process_data(
+        self, actual: pd.DataFrame, predictions: List[pd.DataFrame], target: str
+    ):
+        """
+        Process the data for evaluation.
+        """
+        actual = EvaluationManager.transform_data(
+            EvaluationManager.convert_to_array(actual, target), target
+        )
+        predictions = [
+            EvaluationManager.transform_data(
+                EvaluationManager.convert_to_array(pred, f"pred_{target}"),
+                f"pred_{target}",
+            )
+            for pred in predictions
+        ]
+        return actual, predictions
 
     def step_wise_evaluation(
         self,
@@ -254,7 +304,9 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
+                        metric_functions[metric](
+                            matched_actual, matched_pred, target, **kwargs
+                        ),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -307,7 +359,9 @@ class EvaluationManager:
                     )
                     evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
                         metric,
-                        metric_functions[metric](matched_actual, matched_pred, target, **kwargs),
+                        metric_functions[metric](
+                            matched_actual, matched_pred, target, **kwargs
+                        ),
                     )
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
@@ -339,8 +393,8 @@ class EvaluationManager:
         """
         pred_concat = pd.concat(predictions)
         month_range = pred_concat.index.get_level_values(0).unique()
-        month_start = month_range.min()
-        month_end = month_range.max()
+        month_start = int(month_range.min())
+        month_end = int(month_range.max())
 
         if is_uncertainty:
             evaluation_dict = (
@@ -366,8 +420,8 @@ class EvaluationManager:
                     level=matched_pred.index.names[0]
                 ).apply(
                     lambda df: metric_functions[metric](
-                        matched_actual.loc[df.index, [target]],
-                        matched_pred.loc[df.index, [f"pred_{target}"]],
+                        matched_actual.loc[df.index.unique(), [target]],
+                        matched_pred.loc[df.index.unique(), [f"pred_{target}"]],
                         target,
                         **kwargs,
                     )
@@ -390,7 +444,7 @@ class EvaluationManager:
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
         target: str,
-        steps: List[int],
+        config: dict,
         **kwargs,
     ):
         """
@@ -400,36 +454,145 @@ class EvaluationManager:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
-            steps (List[int]): The steps to evaluate.
-
+            config (dict): The configuration dictionary.
         """
-
         EvaluationManager.validate_predictions(predictions, target)
-        actual = EvaluationManager.transform_data(
-            EvaluationManager.convert_to_arrays(actual), target
+        self.actual, self.predictions = self._process_data(actual, predictions, target)
+        self.is_uncertainty = EvaluationManager.get_evaluation_type(
+            self.predictions, f"pred_{target}"
         )
-        predictions = [
-            EvaluationManager.transform_data(
-                EvaluationManager.convert_to_arrays(pred), f"pred_{target}"
-            )
-            for pred in predictions
-        ]
-        is_uncertainty = EvaluationManager.get_evaluation_type(predictions)
 
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
-            actual, predictions, target, is_uncertainty, **kwargs
+            self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
         evaluation_results["time_series"] = self.time_series_wise_evaluation(
-            actual, predictions, target, is_uncertainty, **kwargs
+            self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
         evaluation_results["step"] = self.step_wise_evaluation(
-            actual,
-            predictions,
+            self.actual,
+            self.predictions,
             target,
-            steps,
-            is_uncertainty,
+            config["steps"],
+            self.is_uncertainty,
             **kwargs,
         )
 
         return evaluation_results
+
+    @staticmethod
+    def filter_step_wise_evaluation(
+        step_wise_evaluation_results: dict,
+        filter_steps: list[int] = [1, 3, 6, 12, 36],
+    ):
+        """
+        Filter step-wise evaluation results to include only specific steps.
+
+        Args:
+            step_wise_evaluation_results (dict): The step-wise evaluation results containing evaluation dict and DataFrame.
+            filter_steps (list[int]): List of step numbers to include in the filtered results. Defaults to [1, 3, 6, 12, 36].
+
+        Returns:
+            dict: A dictionary containing the filtered evaluation dictionary and DataFrame for the selected steps.
+        """
+        step_wise_evaluation_dict = step_wise_evaluation_results[0]
+        step_wise_evaluation_df = step_wise_evaluation_results[1]
+
+        selected_keys = [f"step{str(step).zfill(2)}" for step in filter_steps]
+
+        filtered_evaluation_dict = {
+            key: step_wise_evaluation_dict[key]
+            for key in selected_keys
+            if key in step_wise_evaluation_dict
+        }
+
+        filtered_evaluation_df = step_wise_evaluation_df.loc[
+            step_wise_evaluation_df.index.isin(selected_keys)
+        ]
+
+        return (filtered_evaluation_dict, filtered_evaluation_df)
+
+    @staticmethod
+    def aggregate_month_wise_evaluation(
+        month_wise_evaluation_results: dict,
+        aggregation_period: int = 6,
+        aggregation_type: str = "mean",
+    ):
+        """
+        Aggregate month-wise evaluation results by grouping months into periods and applying aggregation.
+
+        Args:
+            month_wise_evaluation_results (dict): The month-wise evaluation results containing evaluation dict and DataFrame.
+            aggregation_period (int): Number of months to group together for aggregation.
+            aggregation_type (str): Type of aggregation to apply.
+        Returns:
+            dict: A dictionary containing the aggregated evaluation dictionary and DataFrame.
+        """
+        month_wise_evaluation_dict = month_wise_evaluation_results[0]
+        month_wise_evaluation_df = month_wise_evaluation_results[1]
+
+        available_months = [
+            int(month.replace("month", "")) for month in month_wise_evaluation_df.index
+        ]
+        available_months.sort()
+
+        if len(available_months) < aggregation_period:
+            raise ValueError(
+                f"Not enough months to aggregate. Available months: {available_months}, aggregation period: {aggregation_period}"
+            )
+
+        aggregated_dict = {}
+        aggregated_data = []
+
+        for i in range(0, len(available_months), aggregation_period):
+            period_months = available_months[i : i + aggregation_period]
+            period_start = period_months[0]
+            period_end = period_months[-1]
+            period_key = f"month_{period_start}_{period_end}"
+
+            period_metrics = []
+            for month in period_months:
+                month_key = f"month{month}"
+                if month_key in month_wise_evaluation_dict:
+                    period_metrics.append(month_wise_evaluation_dict[month_key])
+
+            if period_metrics:
+                aggregated_metrics = {}
+                for metric_name in period_metrics[0].__annotations__.keys():
+                    metric_values = [
+                        getattr(metric, metric_name)
+                        for metric in period_metrics
+                        if getattr(metric, metric_name) is not None
+                    ]
+
+                    if metric_values:
+                        if aggregation_type == "mean":
+                            aggregated_value = np.mean(metric_values)
+                        elif aggregation_type == "median":
+                            aggregated_value = np.median(metric_values)
+                        else:
+                            raise ValueError(
+                                f"Unsupported aggregation type: {aggregation_type}"
+                            )
+
+                        aggregated_metrics[metric_name] = aggregated_value
+                    else:
+                        aggregated_metrics[metric_name] = None
+
+                if hasattr(period_metrics[0], "__class__"):
+                    aggregated_eval_metrics = period_metrics[0].__class__(
+                        **aggregated_metrics
+                    )
+                else:
+                    aggregated_eval_metrics = aggregated_metrics
+
+                aggregated_dict[period_key] = aggregated_eval_metrics
+
+                aggregated_data.append({"month_id": period_key, **aggregated_metrics})
+
+        if aggregated_data:
+            aggregated_df = BaseEvaluationMetrics.evaluation_dict_to_dataframe(
+                aggregated_dict
+            )
+
+        return (aggregated_dict, aggregated_df)
