@@ -295,13 +295,17 @@ class EvaluationManager:
 
         result_dfs = EvaluationManager._split_dfs_by_step(predictions)
 
+        step_matched_data = {}
+        for i, pred in enumerate(result_dfs):
+            step = i + 1
+            matched_actual, matched_pred = EvaluationManager._match_actual_pred(
+                actual, pred, target
+            )
+            step_matched_data[step] = (matched_actual, matched_pred)
+
         for metric in self.metrics_list:
             if metric in metric_functions:
-                for i, pred in enumerate(result_dfs):
-                    step = i + 1
-                    matched_actual, matched_pred = EvaluationManager._match_actual_pred(
-                        actual, pred, target
-                    )
+                for step, (matched_actual, matched_pred) in step_matched_data.items():
                     evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
                         metric,
                         metric_functions[metric](
@@ -351,12 +355,16 @@ class EvaluationManager:
             )
             metric_functions = self.point_metric_functions
 
+        ts_matched_data = {}
+        for i, pred in enumerate(predictions):
+            matched_actual, matched_pred = EvaluationManager._match_actual_pred(
+                actual, pred, target
+            )
+            ts_matched_data[i] = (matched_actual, matched_pred)
+
         for metric in self.metrics_list:
             if metric in metric_functions:
-                for i, pred in enumerate(predictions):
-                    matched_actual, matched_pred = EvaluationManager._match_actual_pred(
-                        actual, pred, target
-                    )
+                for i, (matched_actual, matched_pred) in ts_matched_data.items():
                     evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
                         metric,
                         metric_functions[metric](
@@ -394,7 +402,7 @@ class EvaluationManager:
         pred_concat = pd.concat(predictions)
         month_range = pred_concat.index.get_level_values(0).unique()
         month_start = int(month_range.min())
-        month_end = int(month_range.max())
+        month_end = int(month_range.max()) 
 
         if is_uncertainty:
             evaluation_dict = (
@@ -413,27 +421,23 @@ class EvaluationManager:
             actual, pred_concat, target
         )
         # matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
+        
+        g = matched_pred.groupby(level=matched_pred.index.names[0], sort=False, observed=True)
+        groups = g.indices  # dict: {month -> np.ndarray of row positions}
 
         for metric in self.metrics_list:
             if metric in metric_functions:
-                metric_by_month = matched_pred.groupby(
-                    level=matched_pred.index.names[0]
-                ).apply(
-                    lambda df: metric_functions[metric](
-                        matched_actual.loc[df.index.unique(), [target]],
-                        matched_pred.loc[df.index.unique(), [f"pred_{target}"]],
+                for month, pos in groups.items():
+                    value = metric_functions[metric](
+                        matched_actual.iloc[pos],
+                        matched_pred.iloc[pos],
                         target,
                         **kwargs,
                     )
-                )
-
-                for month in month_range:
-                    evaluation_dict[f"month{str(month)}"].__setattr__(
-                        metric, metric_by_month.loc[month]
-                    )
+                    evaluation_dict[f"month{str(month)}"].__setattr__(metric, value)
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
-
+      
         return (
             evaluation_dict,
             PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
@@ -461,14 +465,21 @@ class EvaluationManager:
         self.is_uncertainty = EvaluationManager.get_evaluation_type(
             self.predictions, f"pred_{target}"
         )
-
         evaluation_results = {}
+        from time import time
+        start_time = time()
         evaluation_results["month"] = self.month_wise_evaluation(
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
+        end_time = time()
+        print(f"Month-wise evaluation time: {end_time - start_time} seconds")
+        start_time = time()
         evaluation_results["time_series"] = self.time_series_wise_evaluation(
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
+        end_time = time()
+        print(f"Time-series-wise evaluation time: {end_time - start_time} seconds")
+        start_time = time()
         evaluation_results["step"] = self.step_wise_evaluation(
             self.actual,
             self.predictions,
@@ -477,7 +488,8 @@ class EvaluationManager:
             self.is_uncertainty,
             **kwargs,
         )
-
+        end_time = time()
+        print(f"Step-wise evaluation time: {end_time - start_time} seconds")
         return evaluation_results
 
     @staticmethod
