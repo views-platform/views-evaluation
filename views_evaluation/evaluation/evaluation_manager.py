@@ -466,20 +466,14 @@ class EvaluationManager:
             self.predictions, f"pred_{target}"
         )
         evaluation_results = {}
-        from time import time
-        start_time = time()
         evaluation_results["month"] = self.month_wise_evaluation(
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
-        end_time = time()
-        print(f"Month-wise evaluation time: {end_time - start_time} seconds")
-        start_time = time()
+
         evaluation_results["time_series"] = self.time_series_wise_evaluation(
             self.actual, self.predictions, target, self.is_uncertainty, **kwargs
         )
-        end_time = time()
-        print(f"Time-series-wise evaluation time: {end_time - start_time} seconds")
-        start_time = time()
+
         evaluation_results["step"] = self.step_wise_evaluation(
             self.actual,
             self.predictions,
@@ -488,8 +482,7 @@ class EvaluationManager:
             self.is_uncertainty,
             **kwargs,
         )
-        end_time = time()
-        print(f"Step-wise evaluation time: {end_time - start_time} seconds")
+
         return evaluation_results
 
     @staticmethod
