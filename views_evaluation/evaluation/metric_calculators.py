@@ -1,13 +1,60 @@
-from typing import List, Dict, Tuple, Optional
 from collections import Counter
 import pandas as pd
 import numpy as np
 import properscoring as ps
 from sklearn.metrics import (
     root_mean_squared_log_error,
+    mean_squared_error,
+    mean_squared_log_error,
     average_precision_score,
 )
 from scipy.stats import wasserstein_distance, pearsonr
+
+
+def calculate_mse(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+) -> float:
+    """
+    Calculate Mean Square Error for each prediction.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values
+        matched_pred (pd.DataFrame): DataFrame containing predictions
+        target (str): The target column name
+
+    Returns:
+        float: Average MSE score
+    """
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+
+    return mean_squared_error(actual_expanded, pred_values)
+
+
+def calculate_msle(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+) -> float:
+    """
+    Calculate Mean Squared Logarithmic Error (MSLE) for each prediction.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values
+        matched_pred (pd.DataFrame): DataFrame containing predictions
+        target (str): The target column name
+
+    Returns:
+        float: Average MSLE score
+    """
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+    return mean_squared_log_error(actual_expanded, pred_values)
 
 
 def calculate_rmsle(
@@ -334,9 +381,11 @@ def calculate_ignorance_score(
     def digitize_minus_one(x, edges):
         return np.digitize(x, edges, right=False) - 1
 
-    def _calculate_ignorance_score(predictions, observed, n):
-        c = Counter(predictions)
-        prob = c[observed] / n
+    def _calculate_ignorance_score(predictions, observed, n, all_bins):
+        # Initialize each bin with 1 (Laplace smoothing)
+        c = Counter({bin_idx: 1 for bin_idx in all_bins})
+        c.update(predictions)
+        prob = c[observed] / sum(c.values())
         return -np.log2(prob)
 
     scores = []
@@ -353,13 +402,24 @@ def calculate_ignorance_score(
         binned_preds = np.concatenate([binned_preds, synthetic])
 
         n = len(binned_preds)
-        score = _calculate_ignorance_score(binned_preds, binned_obs, n)
+        score = _calculate_ignorance_score(binned_preds, binned_obs, n, synthetic)
         scores.append(score)
 
     return np.mean(scores)
 
 
+def calculate_mean_prediction(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+) -> float:
+    """
+    Calculate the mean prediction.
+    """
+    all_preds = np.concatenate([np.asarray(v).flatten() for v in matched_pred[f"pred_{target}"]])
+    return np.mean(all_preds)
+
 POINT_METRIC_FUNCTIONS = {
+    "MSE": calculate_mse,
+    "MSLE": calculate_msle,
     "RMSLE": calculate_rmsle,
     "CRPS": calculate_crps,
     "AP": calculate_ap,
@@ -368,6 +428,7 @@ POINT_METRIC_FUNCTIONS = {
     "pEMDiv": calculate_pEMDiv,
     "Pearson": calculate_pearson,
     "Variogram": calculate_variogram,
+    "y_hat_bar": calculate_mean_prediction,
 }
 
 UNCERTAINTY_METRIC_FUNCTIONS = {
@@ -377,4 +438,6 @@ UNCERTAINTY_METRIC_FUNCTIONS = {
     "Brier": calculate_brier,
     "Jeffreys": calculate_jeffreys,
     "Coverage": calculate_coverage,
+    "pEMDiv": calculate_pEMDiv,
+    "y_hat_bar": calculate_mean_prediction,
 }

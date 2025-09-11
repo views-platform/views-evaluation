@@ -4,81 +4,99 @@
 |---------------------|-------------------|
 | Subject             | Evaluation Strategy  |
 | ADR Number          | 002   |
-| Status              | Accepted|
-| Author              | Mihai, Xiaolong|
-| Date                | 31.10.2024 |
+| Status              | Proposed |
+| Author              | Xiaolong, Mihai|
+| Date                | 16.07.2025 |
 
 ## Context
-The primary output of VIEWS is a panel of forecasts, which consist of temporal sequences of predictions for each observation at the corresponding level of analysis (LOA). These forecasts span a defined forecasting window and can represent values such as predicted fatalities, probabilities, quantiles, or sample vectors.
+To ensure reliable and realistic model performance assessment, our forecasting framework supports both **offline** and **online** evaluation strategies. These strategies serve complementary purposes: offline evaluation simulates the forecasting process retrospectively, while online evaluation assesses actual deployed forecasts against observed data.
 
-The machine learning models generating these predictions are trained on historical time-series data, supplemented by covariates that may be either known in advance (future features) or only available for training data (shifted features). Given the variety of models used, evaluation routines must remain model- and paradigm-agnostic to ensure consistency across different methodologies.
+Both strategies are designed to work with time-series predictions and support multi-step forecast horizons, ensuring robustness across temporal scales and use cases.
 
 
 ## Decision
-The evaluation strategy must be structured to assess predictive performance comprehensively.
+We adopt a dual evaluation approach consisting of:
+1. **Offline Evaluation:** Evaluating a model's performance on historical data, before deployment.
+
+2. **Online Evaluation:** The ongoing process of evaluating a deployed model's performance as new, real-world data becomes available.
+
 
 ### Points of Definition: 
 
-1. *Time*: All time points and horizons mentioned below are in  **outcome space**, also known as $Y$-space : this means that they refer to the time point of the (forecasted or observed) outcome. This is especially important for such models where the feature-space and outcome-space are shifted and refer to different time points.
+- **Rolling-Origin Holdout:** A robust backtesting strategy that simulates a real-world forecasting scenario by generating forecasts from multiple, rolling time origins.
 
-2. *Temporal resolution*: The temporal resolution of VIEWS is the calendar-month. These are referred in VIEWS by an ordinal (Julian) month identifier (`month_id`) which is a serial numeric identifier with a reference epoch (month 0) of December 1979. For control purposes, January 2024 is month 529. VIEWS does not define behavior and does not have the ability to store data prior to the reference epoch (with negative `month_id`). Conflict history data, which marks the earliest possible meaningful start of the training time-series, is available from `month_id==109`.
+- **Forecast Steps:** The time increment between predictions within a \textbf{sequence} of forecasts (further referred to as steps).
 
-3. *Forecasting Steps* (further referred to as steps) is defined as the 1-indexed number of months from the start of a forecast time-series.
+- **Sequence:** An ordered set of data points indexed by time. 
 
-### General Evaluation Strategy
+### Diagram
 ![path](../img/approach.png)
 
-The general evaluation strategy involves *training* one model on a time-series that goes up to the training horizon $H_0$. This sequence is then used to predict a number of sequences (time-series). The first such sequence goes from $H_{0+1}$ to $H_{0+36}$, thus containing 36 forecasted values -- i.e. 36 months. The next one goes from $H_{0+2}$ to $H_{0+37}$. This is repeated until we reach a constant stop-point $k$ such that the last sequence forecasted is $H_{0+k+1}$ to $H_{0+k+36}$. 
+### Offline Evaluation
+We adopt a **rolling-origin holdout evaluation strategy** for all offline (backtesting) evaluations.
 
-Normally, it is up to the modeller whether the model performs *expanding window* or *rolling window* evaluation, since *how* prediction is carried out all evaluations are of the *expanding window forecasting* type, i.e. the training window. 
+The offline evaluation strategy involves 
+1. **A single model** is trained on historical data up to training cutoff $H_0$.
+2. Using this trained model object, a forecast is generated for the next **36 months**:
+    - Sequence 1: $H_{0+1}$ -> $H_{0+36}$
+3. The origin is then rolled forward by one month, and another forecast is generated:
+    - Sequence 2: $H_{0+2}$ -> $H_{0+37}$
+4. This process continues until a fixed number of sequences **k** is reached.
+5. In our standardized offline evaluation, **12 forecast sequences** are used (i.e., k = 12).
 
-#### Live evaluation
-
-For **live** evaluation, we suggest doing this in the same way as has been done for VIEWS2020/FCDO (_confirm with HH and/or Mike_), i.e. predict to k=12, resulting in *12* time series over a prediction window of *48* months. We call this the evaluation partition end $H_{e,live}$. This gives a prediction horizon of 48 months, thus $H_{47}$ in our notation.
-
-Note that this is **not** the final version of online evaluation.
-
-#### Offline evaluation
-
-For **offline** model evaluation, we suggest doing this in a way that simulates production over a longer time-span. For this, a new model is trained at every **twelve** months interval, thus resetting $H_0$ at months $H_{0+0}, H_{0+12}, H_{0+24}, \dots H_{0+12r}$ where $12r=H_e$.
-
-The default way is to set $H_{e_eval}$ to 48 months, meaning we only train the model once at $H_0$. This will result in **12** time series. We call it **standard** evaluation.
-
-We also propose the following practical approaches:
-
-1. A **long** evaluation where we set $H_{e_eval}$ to 72 months. This will result in *36* predicted time-series.
-   
-2. A **complete** evaluation system, the longest one, where we set $H_0$ at 36 months of data (157 for models depending on UCDP GED), and iterate until the end of data (currently, the final $H_0$ will be 529).
-
-For comparability and abstraction of seasonality (which is inherent in both the DGP as well as the conflict data we rely on, due to their definition), $H_0$ should always be December or June (this also adds convenience).
-
-The three approaches have trade-offs besides increasing computational complexity.  Since conflict is not a stationary process, evaluation carried for long time-periods will prefer models that predict whatever stationary components exist in the DGP (and thus in the time-series). For example these may include salient factors such GDP, HDI, infant mortality etc.. Evaluation on such very long time-spans may substantially penalize models that predict more current event, due shorter term causes that were not so salient in the past. Examples of these may be the change in the taboo on inter-state war after 2014 and 2022 with Russia invading Ukraine.
+It is important to note that **offline evaluation is not a true forecast**. Instead it is a simulation using historical data from the **Validation Partition** to approximate forecasting performance under realistic, rolling deployment conditions. (See [ADR TBD] for data partitioning strategy.)
 
 
+### Online Evaluation
+Online evaluation reflects **true forecasting** and is based on the **Forecasting Partition** 
+
+Suppose the latest available data point is $H_{36}$. Over time, the system would have generated the following forecast sequences:
+- Sequence 1: forecast for $H_{1}$ → $H_{36}$, generated at time **t = 0**
+- Sequence 2: forecast for $H_{2}$ → $H_{37}$, generated at **t = 1**
+- ...
+- Sequence 36: forecast for $H_{36}$ → $H_{71}$, generated at **t = 35**
+
+At time $H_{36}$, we evaluate all forecasts made for $H_{36}$, i.e., the predictions from each of these 36 sequences are compared to the true value observed at $H_{36}$.
+
+This provides a comprehensive view of how well the deployed model performs across multiple forecast origins and steps.
 
 ## Consequences
 
 **Positive Effects:**
-- Standardized evaluation across models, ensuring comparability.
+- Reflects realistic deployment and monitoring conditions.
 
-- Clear separation of live and offline evaluation, facilitating both operational monitoring and research validation.
+- Allows for evaluation across multiple forecast origins and time horizons.
+
+- Improves robustness by capturing temporal variation in model performance.
+
 
 **Negative Effects:**
-- Increased computational demands for long and complete evaluations.
+- Requires careful alignment of sequences and forecast windows.
 
-- Potential complexity in managing multiple evaluation strategies.
+- May introduce computational overhead due to repeated evaluation across multiple origins.
 
-- Additional infrastructure requirements.
+- Models must be capable of generalizing across slightly shifted input windows.
+
 
 ## Rationale
-By structuring evaluation routines to be agnostic of the modeling approach, the framework ensures consistency in assessing predictive performance. Using multiple evaluation methodologies balances computational feasibility with robustness in performance assessment.
+The dual evaluation setup strikes a balance between experimentation and real-world monitoring:
+
+- **Offline evaluation** provides a controlled and reproducible environment for backtesting.
+- **Online evaluation** reflects actual model behavior in production.
+
+For further technical details:
+- See [ADR 004 – Evaluation Input Schema](https://github.com/views-platform/views-evaluation/blob/main/documentation/ADRs/004_evaluation_input_schema.md)
+- See [ADR 003 – Metric Calculation](https://github.com/views-platform/views-evaluation/blob/main/documentation/ADRs/003_metric_calculation.md)
+
+
 
 ### Considerations
-- Computational cost vs. granularity of evaluation results.
+- Sequence length (currently 36 months) may need to be adjusted for different use cases (e.g., quarterly or annual models).
 
-- Trade-offs between short-term and long-term predictive performance.
+- The number of sequences (k) can be tuned depending on evaluation budget or forecast range.
 
-- Ensuring reproducibility and scalability of evaluation routines.
+- Consider future support for probabilistic or uncertainty-aware forecasts in the same rolling evaluation framework.
+
 
 
 ## Feedback and Suggestions
