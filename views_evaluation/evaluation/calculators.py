@@ -131,8 +131,9 @@ def calculate_ap(
     )
 
     actual_binary = (actual_expanded > threshold).astype(int)
+    pred_binary = (pred_values > threshold).astype(int)
 
-    return average_precision_score(actual_binary, pred_values)
+    return average_precision_score(actual_binary, pred_binary)
 
 
 def calculate_emd(
@@ -227,7 +228,7 @@ def calculate_variogram(
     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
 ) -> float:
     """
-    !! How to accountr for time and location?
+    !! How to account for time and location?
     Calculate the variogram score between actual and predicted values.
     This measures the spatial/temporal correlation structure.
 
@@ -419,14 +420,12 @@ def calculate_mean_prediction(
 
 def calculate_diversity_score(
     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
-) -> dict:
+) -> float:
     """
-    Calculate the diversity score.
+    Calculate the sum ratio (Sum(Predicted) / Sum(Actual)) aggregated by each country or priogrid.
     """
     group_results = {}
-
     grouped_preds = matched_pred.groupby(level=matched_pred.index.names[1], sort=False, observed=True)
-    
     for group_id, pred_group_df in grouped_preds:
         actual_group_df = matched_actual.loc[pred_group_df.index]
         actual_values = np.concatenate(actual_group_df[target].values)
@@ -434,14 +433,14 @@ def calculate_diversity_score(
 
         actual_expanded = np.repeat(
             actual_values, [len(x) for x in pred_group_df[f"pred_{target}"]]
-        )
-        
-        total_actual = np.sum(actual_expanded)
-        total_pred = np.sum(pred_values)
+        ) # Not sure how to deal with uncertainty predictions 
 
-        group_results[group_id] = {"total_actual": total_actual, "total_pred": total_pred, "ratio": total_pred / total_actual}
+        sum_ratio = np.sum(pred_values) / np.sum(actual_expanded)
+        group_results[group_id] = sum_ratio
 
     return group_results
+
+    
 
 POINT_METRIC_FUNCTIONS = {
     "MSE": calculate_mse,
@@ -449,22 +448,25 @@ POINT_METRIC_FUNCTIONS = {
     "RMSLE": calculate_rmsle,
     "CRPS": calculate_crps,
     "AP": calculate_ap,
-    "EMD": calculate_emd,
-    "SD": calculate_sd,
-    "pEMDiv": calculate_pEMDiv,
+    "EMD": calculate_emd, 
+    "SD": calculate_sd, # Not implemented
+    "pEMDiv": calculate_pEMDiv, # Not implemented
     "Pearson": calculate_pearson,
-    "Variogram": calculate_variogram,
+    "Variogram": calculate_variogram, # Not implemented
     "y_hat_bar": calculate_mean_prediction,
-    "Diversity": calculate_diversity_score,
 }
 
 UNCERTAINTY_METRIC_FUNCTIONS = {
     "CRPS": calculate_crps,
     "MIS": calculate_mean_interval_score,
-    "Ignorance": calculate_ignorance_score,
-    "Brier": calculate_brier,
-    "Jeffreys": calculate_jeffreys,
+    "Ignorance": calculate_ignorance_score, # bins required
+    "Brier": calculate_brier, # Not implemented
+    "Jeffreys": calculate_jeffreys, # Not implemented
     "Coverage": calculate_coverage,
-    "pEMDiv": calculate_pEMDiv,
+    "pEMDiv": calculate_pEMDiv, # Not implemented
     "y_hat_bar": calculate_mean_prediction,
+}
+
+LOCATION_METRIC_FUNCTIONS = {
+    "Diversity": calculate_diversity_score,
 }

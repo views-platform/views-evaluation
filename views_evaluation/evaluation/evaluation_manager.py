@@ -304,7 +304,7 @@ class EvaluationManager:
             step_matched_data[step] = (matched_actual, matched_pred)
 
         for metric in self.metrics_list:
-            if metric in metric_functions:
+            if metric in metric_functions and metric != "Diversity": # Diversity is only calculated on time series wise
                 for step, (matched_actual, matched_pred) in step_matched_data.items():
                     evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
                         metric,
@@ -315,10 +315,7 @@ class EvaluationManager:
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
 
-        return (
-            evaluation_dict,
-            PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
-        )
+        return evaluation_dict
 
     def time_series_wise_evaluation(
         self,
@@ -374,10 +371,8 @@ class EvaluationManager:
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
 
-        return (
-            evaluation_dict,
-            PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
-        )
+        return evaluation_dict
+ 
 
     def month_wise_evaluation(
         self,
@@ -426,7 +421,7 @@ class EvaluationManager:
         groups = g.indices  # dict: {month -> np.ndarray of row positions}
 
         for metric in self.metrics_list:
-            if metric in metric_functions:
+            if metric in metric_functions and metric != "Diversity": # Diversity is only calculated on time series wise
                 for month, pos in groups.items():
                     value = metric_functions[metric](
                         matched_actual.iloc[pos],
@@ -438,10 +433,8 @@ class EvaluationManager:
             else:
                 logger.warning(f"Metric {metric} is not a default metric, skipping...")
       
-        return (
-            evaluation_dict,
-            PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
-        )
+        return evaluation_dict
+
 
     def evaluate(
         self,
