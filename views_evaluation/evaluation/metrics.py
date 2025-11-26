@@ -1,5 +1,5 @@
 from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import pandas as pd
 
 
@@ -97,6 +97,32 @@ class BaseEvaluationMetrics:
         """
         df = pd.DataFrame.from_dict(evaluation_dict, orient='index')
         return df.loc[:, df.notna().any()]
+    
+    @staticmethod
+    def evaluation_dict_to_serializable(evaluation_dict: dict, requested_metrics: List[str]) -> dict:
+        """
+        Converts a dictionary of EvaluationMetrics objects into a serializable 
+        dictionary of dictionaries, removing null objects and unwanted metrics.
+        """
+        serializable_dict = {}
+        
+        for key, metric_object in evaluation_dict.items():
+            if metric_object is None:
+                continue 
+            
+            metric_dict = asdict(metric_object)
+            
+            cleaned_metric_dict = {
+                attr: val 
+                for attr, val in metric_dict.items() 
+                # Keep only values that are not None AND were requested
+                if val is not None and attr in requested_metrics
+            }
+
+            if cleaned_metric_dict:
+                serializable_dict[key] = cleaned_metric_dict
+                
+        return serializable_dict
 
 
 @dataclass

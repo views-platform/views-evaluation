@@ -439,7 +439,12 @@ def calculate_diversity_score(
         total_actual = np.sum(actual_expanded)
         total_pred = np.sum(pred_values)
 
-        group_results[group_id] = {"total_actual": total_actual, "total_pred": total_pred, "ratio": total_pred / total_actual}
+        if total_actual == 0:
+            ratio = np.nan
+        else:
+            ratio = total_pred / total_actual
+
+        group_results[group_id] = {"total_actual": total_actual, "total_pred": total_pred, "ratio": ratio}
 
     return group_results
 
