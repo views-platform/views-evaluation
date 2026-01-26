@@ -1,6 +1,5 @@
 import pytest
 import pandas as pd
-import numpy as np
 from views_evaluation.evaluation.metric_calculators import (
     calculate_mse,
     calculate_rmsle,
