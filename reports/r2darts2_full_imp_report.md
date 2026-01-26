@@ -75,6 +75,8 @@ def evaluate(
 ```
 
 ### **4. Guide–Code Divergences**
+*(Note: As of January 23, 2026, the `eval_lib_imp.md` guide has been updated to address some of the fundamental flaws identified below, particularly regarding point prediction formats and the implied strictness of input schemas. Please refer to the latest `eval_lib_imp.md` for the most current specifications.)*
+
 
 *   **`eval_lib_imp.md` is Fundamentally Flawed (CRITICAL):** The guide is incorrect on multiple, critical points of the `EvaluationManager`'s contract:
     1.  **It fails to document the mandatory `lr_`, `ln_`, `lx_` prefixes for the `target` name**, causing its own example code to fail with a `ValueError`.
@@ -86,7 +88,8 @@ def evaluate(
 ### **5. Implicit Assumptions & Risks**
 
 1.  **Producer's Responsibility for Inverse Transformation (CRITICAL - Silent-break-risk):** The most critical risk is that a producer repository fails to inverse-transform its predictions back to the "raw count" scale. The `EvaluationManager` *can* apply transformations based on `ln_`/`lx_` prefixes in column names, but the universal rule is that **the producer is always responsible** for this. If the data is not on the correct scale *or* the prefix does not accurately reflect the data's scale, metrics will be calculated on the wrong values, leading to **silently and completely incorrect results**.
-2.  **Point Prediction Format Ambiguity (Critical Risk):** Different producer repositories (`views-r2darts2` -> `list`, `views-stepshifter` -> `float`) produce different data types for point predictions. The downstream consumer **must** reconcile this by wrapping raw floats in a list to create a canonical format, or risk errors.
+2.  **Point Prediction Format Ambiguity (Critical Risk):** Different producer repositories (`views-r2darts2` -> `list`, `views-stepshifter` -> `float`) produce different data types for point predictions. While the `EvaluationManager` now *implicitly converts* raw `float` or `int` values into a single-element `numpy.ndarray`, thereby mitigating the risk of runtime errors, it is still **highly recommended** that the downstream consumer reconcile these to a canonical list format for consistency across all prediction types.
+
 3.  **Data Appropriateness for Transformation (Critical Risk):** For `ln_` and `lx_` prefixes, the `EvaluationManager` applies `np.exp()` transformations directly. It does **not** validate if the input data is mathematically appropriate (e.g., non-negative for `ln_` transforms). It will process negative numbers and very large/small numbers without error, potentially producing mathematically invalid or floating-point-limited results. This responsibility lies solely with the user providing the data (the producer).
 4.  **Orchestration Logic Exists Externally (High Risk):** The architecture assumes a higher-level orchestrator correctly handles the data contract (passing data between the producer and consumer). Flaws in this layer can break the entire process.
 5.  **Target Name Prefix Requirement (High Risk):** The `target` name passed to `EvaluationManager` must have a valid prefix (`lr_`, `ln_`, `lx_`). Failure to do so results in a `ValueError`.

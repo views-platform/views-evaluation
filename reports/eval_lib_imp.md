@@ -149,7 +149,20 @@ list_of_prediction_dfs = [predictions_1, ...] # Add more sequences here
 The single most dangerous risk of silent failure is a mismatch between the expected data scale and the actual data scale.
 
 *   **Universal Rule:** The producer repository (e.g., `views-r2darts2`, `views-stepshifter`) is **always responsible** for fully inverse-transforming its predictions back to their original, "raw count" scale.
-*   **Risk:** The `EvaluationManager` **does not** perform any inverse transformations on prediction data. If it receives log-transformed data, it will calculate all metrics on these incorrect values, producing silently corrupted results. It is the producer's sole responsibility to ensure the data is on the correct scale.
+*   **Risk:** The `EvaluationManager` **does not** perform any inverse transformations on prediction data. If it receives log-transformed data, it will calculate all metrics on these incorrect values, producing silently corrupted results. It is the producer's sole responsibility to ensure the data is on the correct scale. Producers must also ensure the data is mathematically appropriate for these transformations (e.g., non-negative values when using `ln_` or `lx_` prefixes, as log-transforms are undefined for negative numbers), as the `EvaluationManager` applies these transforms directly without prior validation.
+
+### 3.5. Robustness Limitations & Input Validation Responsibility (CRITICAL)
+
+While `views-evaluation` provides robust metric calculation, it **does not perform extensive internal validation for corrupted or malformed data beyond basic schema checks.** Integrators must be aware of and proactively handle these limitations, especially in critical production environments.
+
+*   **Non-Finite Numerical Data (`NaN`, `inf`):**
+    *   **Behavior:** The `EvaluationManager` (and its underlying `sklearn` dependencies) will raise a `ValueError` if `NaN` or `inf` values are present in `actuals` or `predictions`. This will cause a **hard crash** in the evaluation pipeline.
+    *   **Responsibility:** Downstream consumers **MUST** ensure all input data (`actuals` and `predictions`) contains only finite numerical values.
+*   **Malformed Structural Data:**
+    *   **Behavior:** Inputs such as empty `predictions` lists, empty `actuals` DataFrames, or `actuals`/`predictions` with completely non-overlapping indices will lead to specific exceptions (`ValueError`, `KeyError`) and pipeline failures.
+    *   **Responsibility:** Downstream consumers **MUST** implement robust checks to guarantee structural integrity and ensure at least some overlap between `actuals` and `predictions` indices.
+
+**Recommendation:** For critical infrastructure, any system using `views-evaluation` **MUST** implement its own robust pre-processing and validation layer to filter, clean, and validate input data (ensuring finiteness, structural integrity, and index overlap) *before* calling `EvaluationManager.evaluate()`.
 
 ---
 
@@ -321,4 +334,11 @@ if __name__ == "__main__":
     month_wise_results_df = results_dict['month'][1]
     print("\n--- Month-Wise Evaluation Results ---")
     print(month_wise_results_df.head()) # Print head for brevity
+
+---
+
+## Further Reading
+
+For a comprehensive list of known limitations, design considerations, and areas for future robustness enhancements of the `views-evaluation` library, please refer to the [Technical Debt / Refactoring Backlog](technical_debt_backlog.md).
+
 ```
