@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch, mock_open
 from sklearn.metrics import root_mean_squared_log_error
 import properscoring as ps
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
@@ -120,14 +119,14 @@ def test_get_evaluation_type():
         pd.DataFrame({'pred_target': [[1.0, 2.0], [3.0, 4.0]]}),
         pd.DataFrame({'pred_target': [[5.0, 6.0], [7.0, 8.0]]}),
     ]
-    assert EvaluationManager.get_evaluation_type(predictions_uncertainty, "pred_target") == True
+    assert EvaluationManager.get_evaluation_type(predictions_uncertainty, "pred_target") is True
 
     # Test case 2: All DataFrames for point evaluation
     predictions_point = [
         pd.DataFrame({'pred_target': [[1.0], [2.0]]}),
         pd.DataFrame({'pred_target': [[3.0], [4.0]]}),
     ]
-    assert EvaluationManager.get_evaluation_type(predictions_point, "pred_target") == False
+    assert EvaluationManager.get_evaluation_type(predictions_point, "pred_target") is False
 
     # Test case 3: Mixed evaluation types
     predictions_mixed = [
@@ -142,7 +141,7 @@ def test_get_evaluation_type():
         pd.DataFrame({'pred_target': [[1.0], [2.0]]}),
         pd.DataFrame({'pred_target': [[3.0], [4.0]]}),
     ]
-    assert EvaluationManager.get_evaluation_type(predictions_single_element, "pred_target") == False
+    assert EvaluationManager.get_evaluation_type(predictions_single_element, "pred_target") is False
 
 
 def test_match_actual_pred_point(
