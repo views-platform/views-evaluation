@@ -14,6 +14,10 @@ In the context of the VIEWS pipeline, it is necessary to evaluate the models usi
 
 
 ## Decision
+> **Note:** This ADR reflects the architectural goal. As of Jan 2026, several metrics are defined in the ADR but not yet implemented in the code.
+> - **Not Implemented:** `Sinkhorn Distance (SD)`, `pEMDiv`, `Variogram`, `Brier Score`, `Jeffreys Divergence`.
+> This discrepancy should be resolved in a future development cycle.
+
 Below are the evaluation metrics that will be used to assess the performance of models in the VIEWS pipeline:
 
 | Metric                              | Abbreviation          | Task             | Notes                                                                            |
