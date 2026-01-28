@@ -37,9 +37,15 @@ A major finding from Phase 2 (Adversarial Testing) is the EM's fragility when en
 
 ### 2.2. Unhandled Empty `predictions` List
 
-*   **Description:** Providing an empty list for `predictions` causes a `ValueError: No objects to concatenate` from `pandas.concat`.
-*   **Impact:** Unexpected input can crash the system.
-*   **Recommendation:** Add explicit validation within `EvaluationManager` to check if the `predictions` list is empty. If so, return empty results or raise a specific, clear error.
+*   **Status:** Resolved.
+*   **Description:** Providing an empty list for `predictions` caused a `ValueError: No objects to concatenate` from `pandas.concat`.
+*   **Fix:** Added explicit validation in `validate_predictions` to ensure the list is not empty and each DataFrame is valid.
+
+### 2.2.1 Unhandled Multiple/Duplicate Prediction Columns
+
+*   **Status:** Resolved.
+*   **Description:** The library previously tolerated extra columns but crashed on duplicate `pred_{target}` names.
+*   **Fix:** Hardened `validate_predictions` to strictly enforce the "Exactly One Column" contract, raising a clear `ValueError` if multiple columns are found.
 
 ### 2.3. Unhandled Empty `actuals` DataFrame
 

@@ -174,6 +174,12 @@ class EvaluationManager:
                 raise TypeError(f"Predictions[{i}] must be a DataFrame.")
             if df.empty:
                 raise ValueError(f"Predictions[{i}] must not be empty.")
+            
+            if len(df.columns) != 1:
+                raise ValueError(
+                    f"Predictions[{i}] must contain exactly one column, but found {len(df.columns)}: {list(df.columns)}"
+                )
+
             if pred_column_name not in df.columns:
                 raise ValueError(
                     f"Predictions[{i}] must contain the column named '{pred_column_name}'."

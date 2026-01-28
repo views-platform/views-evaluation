@@ -69,11 +69,14 @@ print(actuals)
 This must be a **Python `list`** where each element is a `pandas` DataFrame. Each DataFrame in the list represents a single forecast sequence from a rolling-origin evaluation.
 
 -   **Index:** Must be the same `MultiIndex` format as `actuals`.
--   **Columns:** Each DataFrame must contain exactly one column.
-    -   The column name **must** be `f"pred_{target_name}"`. For the example above, this would be `pred_lr_ged_sb_best`.
+-   **Columns:** Each DataFrame must contain **exactly one column**. The `EvaluationManager` will raise a `ValueError` if extra or duplicate columns are detected.
+    -   The column name **must** be formatted as `f"pred_{target_name}"`. For the example above, this would be `pred_lr_ged_sb_best`.
 -   **Values (Crucial for Evaluation Type):** The data type of the values in the prediction column determines whether a point or uncertainty evaluation is performed.
     -   **Point Evaluation:** Each value must be a list or `np.ndarray` containing a **single** float (e.g., `[10.5]`).
     -   **Uncertainty Evaluation:** Each value must be a list or `np.ndarray` containing **multiple** floats that represent the predictive distribution (e.g., `[8.1, 9.5, 10.5, 11.2]`).
+
+> [!IMPORTANT]
+> **Common Pitfall:** Do **not** include `month_id` or `location_id` as standard columns in your DataFrames. These must reside in the `MultiIndex`. Including them as columns will violate the "Exactly One Column" contract and cause a validation error.
 
 **Example `predictions` List (for a Point Evaluation):**
 
