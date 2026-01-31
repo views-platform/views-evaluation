@@ -455,12 +455,6 @@ def calculate_mtd(
         >>> mtd_score = calculate_mtd(actual_df, pred_df, "ln_sb_best")
         >>> print(f"Mean Tweedie Deviance: {mtd_score:.4f}")
 
-    References:
-        - Jørgensen, B. (1987). Exponential Dispersion Models. 
-          Journal of the Royal Statistical Society. Series B, 49(2), 127-162.
-        - Tweedie, M. C. K. (1984). An index which distinguishes between some important
-          exponential families. Statistics: Applications and New Directions.
-
     See Also:
         - sklearn.metrics.mean_tweedie_deviance: The underlying implementation.
         - calculate_mse: Mean Squared Error (equivalent to MTD with power=0).
