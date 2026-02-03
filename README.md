@@ -55,9 +55,31 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
   * **Step-wise evaluation**: groups and evaluates predictions by the respective steps from all models.
   * **Time-series-wise evaluation**: evaluates predictions for each time-series.
   * **Month-wise evaluation**: groups and evaluates predictions at a monthly level.
-* **Support for Mulyiple Metrics**
-  * **Point Evaluation Metrics**: RMSLE, CRPS, Average Precision (Brier Score, Jeffreys Divergence, Pearson Correlation, Sinkhorn/Earth-mover Distance & pEMDiv and Variogram to be added).
-  * **Uncertainty Evaluation Metrics**: CRPS (and more to be added in the future).
+* **Support for Multiple Metrics** (see table below for details)
+
+### **Available Metrics**
+
+| Metric | Key | Description | Available | Supports Distributions |
+|--------|-----|-------------|:---------:|:----------------------:|
+| Mean Squared Error | `MSE` | Average of squared differences between predictions and actuals | ✅ | ❌ |
+| Mean Squared Log Error | `MSLE` | MSE computed on log-transformed values | ✅ | ❌ |
+| Root Mean Squared Log Error | `RMSLE` | Square root of MSLE | ✅ | ❌ |
+| Mean Tweedie Deviance | `MTD` | Tweedie deviance with power=1.5, ideal for zero-inflated data | ✅ | ❌ |
+| Average Precision | `AP` | Area under precision-recall curve for binary classification | ✅ | ❌ |
+| Pearson Correlation | `Pearson` | Linear correlation between predictions and actuals | ✅ | ❌ |
+| Earth Mover's Distance | `EMD` | Wasserstein distance between predicted and actual distributions | ✅ | ✅ |
+| Continuous Ranked Probability Score | `CRPS` | Measures calibration and sharpness of probabilistic forecasts | ✅ | ✅ |
+| Mean Interval Score | `MIS` | Evaluates prediction interval width and coverage | ✅ | ✅ |
+| Ignorance Score | `Ignorance` | Logarithmic scoring rule for probabilistic predictions | ✅ | ✅ |
+| Coverage | `Coverage` | Proportion of actuals falling within prediction intervals | ✅ | ✅ |
+| Mean Prediction | `y_hat_bar` | Average of all predicted values | ✅ | ✅ |
+| Sinkhorn Distance | `SD` | Regularized optimal transport distance | ❌ | ✅ |
+| pseudo-Earth Mover Divergence | `pEMDiv` | Efficient EMD approximation | ❌ | ✅ |
+| Variogram | `Variogram` | Spatial/temporal correlation structure score | ❌ | ❌ |
+| Brier Score | `Brier` | Accuracy of probabilistic predictions | ❌ | ✅ |
+| Jeffreys Divergence | `Jeffreys` | Symmetric measure of distribution difference | ❌ | ✅ |
+
+> **Note:** Metrics marked with ✅ in "Supports Distributions" can be used for uncertainty evaluation with ensemble/sample-based predictions.
 * **Data Integrity Checks**: Ensures that input DataFrames conform to expected structures before evaluation based on point and uncertainty evaluation.
 * **Automatic Index Matching**: Aligns actual and predicted values based on MultiIndex structures.
 * **Planned Enhancements**: 
