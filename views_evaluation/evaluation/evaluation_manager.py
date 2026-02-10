@@ -12,6 +12,8 @@ from views_evaluation.evaluation.metric_calculators import (
     UNCERTAINTY_METRIC_FUNCTIONS,
 )
 
+#from deprecation_msgs import raise_legacy_scale_msg
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,11 +35,18 @@ class EvaluationManager:
         self.point_metric_functions = POINT_METRIC_FUNCTIONS
         self.uncertainty_metric_functions = UNCERTAINTY_METRIC_FUNCTIONS
 
+        print("/n")
+        print("EvaluationManager initialized")
+        print("/n")
+
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
         Transform the data.
+        [SHOULD DEPRECATE!!! ONLY ALLOW lr_ FOR REGRESSION AND by_ FOR CLASSIFICATION]
         """
+        #raise_legacy_scale_msg()
+
         if isinstance(target, str):
             target = [target]
         for t in target:
@@ -167,11 +176,6 @@ class EvaluationManager:
         """
         pred_column_name = f"pred_{target}"
 
-        # hydarnat patch ====================================
-        pred_column_name_raw = f"pred_{target}_raw"
-        pred_column_name_rpobs = f"pred_{target}_prob"
-        # ===================================================
-
         if not isinstance(predictions, list):
             raise TypeError("Predictions must be a list of DataFrames.")
 
@@ -185,15 +189,13 @@ class EvaluationManager:
             
             if len(df.columns) != 1:
                 raise ValueError(
-                    f"Predictions[{i}] must contain exactly one column, but found {len(df.columns)}: {list(df.columns)}"
+                    f"Predictions[{i}] must contain exactly one column, but found {len(df.columns)}: {list(df.columns)}" # <--------
                 )
 
-            # hydarnat patch ======
-            if pred_column_name not in df.columns or pred_column_name_raw not in df.columns or pred_column_name_rpobs not in df.columns:
+            if pred_column_name not in df.columns:
                 raise ValueError(
-                    f"Predictions[{i}] must contain the column named '{pred_column_name}'."
+                    f"Predictions[{i}] must contain the column named '{pred_column_name}'. Columns found: {list(df.columns)}"
                 )
-            # ======================
 
     @staticmethod
     def _match_actual_pred(
