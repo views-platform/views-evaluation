@@ -12,6 +12,7 @@ from views_evaluation.evaluation.metric_calculators import (
     calculate_ignorance_score,
     calculate_mean_interval_score,
     calculate_mtd,
+    calculate_bcd,
     POINT_METRIC_FUNCTIONS,
     UNCERTAINTY_METRIC_FUNCTIONS,
 )
@@ -117,6 +118,42 @@ def test_calculate_mtd_with_power(sample_data):
     assert result_2 >= 0
 
 
+def test_calculate_bcd(sample_data):
+    """Test Balanced Conflict Deviation calculation."""
+    actual, pred = sample_data
+    result = calculate_bcd(actual, pred, 'target')
+    assert isinstance(result, float)
+    assert result >= 0
+
+
+def test_calculate_bcd_is_geometric_mean(sample_data):
+    """Test that BCD is the geometric mean of MTD and MSLE."""
+    actual, pred = sample_data
+    bcd = calculate_bcd(actual, pred, 'target')
+    mtd = calculate_mtd(actual, pred, 'target', power=1.5)
+    from views_evaluation.evaluation.metric_calculators import calculate_msle
+    msle = calculate_msle(actual, pred, 'target')
+    expected_bcd = np.sqrt(mtd * msle)
+    assert np.isclose(bcd, expected_bcd, rtol=1e-10)
+
+
+def test_calculate_bcd_with_power(sample_data):
+    """Test BCD calculation with different power values."""
+    actual, pred = sample_data
+    # Test with power=1.5 (default)
+    result_15 = calculate_bcd(actual, pred, 'target', power=1.5)
+    assert isinstance(result_15, float)
+    assert result_15 >= 0
+    
+    # Test with power=2 (Gamma)
+    result_2 = calculate_bcd(actual, pred, 'target', power=2.0)
+    assert isinstance(result_2, float)
+    assert result_2 >= 0
+    
+    # Results should differ with different power values
+    assert result_15 != result_2
+
+
 def test_calculate_coverage_uncertainty(sample_uncertainty_data):
     """Test Coverage calculation."""
     actual, pred = sample_uncertainty_data
@@ -144,7 +181,7 @@ def test_calculate_mis_uncertainty(sample_uncertainty_data):
 def test_point_metric_functions():
     """Test that all point metric functions are available."""
     expected_metrics = [
-        "MSE", "MSLE", "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
+        "MSE", "MSLE", "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "BCD", "y_hat_bar"
     ]
     
     for metric in expected_metrics:

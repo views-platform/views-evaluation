@@ -478,6 +478,46 @@ def calculate_mean_prediction(
     all_preds = np.concatenate([np.asarray(v).flatten() for v in matched_pred[f"pred_{target}"]])
     return np.mean(all_preds)
 
+
+def calculate_bcd(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, power: float = 1.5
+) -> float:
+    """
+    Calculate Balanced Conflict Deviation (BCD) between actual and predicted values.
+
+    BCD is defined as the geometric mean of Mean Tweedie Deviance (MTD) and
+    Mean Squared Logarithmic Error (MSLE):
+        BCD = sqrt(MTD * MSLE)
+
+    This metric combines the strengths of both MTD and MSLE:
+        - MTD (with power=1.5) is well-suited for zero-inflated positive continuous data
+          typical in conflict forecasting
+        - MSLE penalizes underestimates more than overestimates and is scale-independent
+
+    The geometric mean ensures that both components contribute equally on a multiplicative
+    scale, making BCD robust to cases where one metric might dominate the other.
+
+    Lower values indicate better model performance.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values with the target column.
+        matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
+        target (str): The target column name (without the 'pred_' prefix).
+        power (float): The power parameter for the Tweedie distribution used in MTD calculation.
+            Default is 1.5 (compound Poisson-Gamma distribution).
+
+    Returns:
+        float: The Balanced Conflict Deviation score. Lower values indicate better predictions.
+
+    See Also:
+        - calculate_mtd: Mean Tweedie Deviance component.
+        - calculate_msle: Mean Squared Logarithmic Error component.
+    """
+    mtd = calculate_mtd(matched_actual, matched_pred, target, power=power)
+    msle = calculate_msle(matched_actual, matched_pred, target)
+    return np.sqrt(mtd * msle)
+
+
 POINT_METRIC_FUNCTIONS = {
     "MSE": calculate_mse,
     "MSLE": calculate_msle,
@@ -490,6 +530,7 @@ POINT_METRIC_FUNCTIONS = {
     "Pearson": calculate_pearson,
     "Variogram": calculate_variogram,
     "MTD": calculate_mtd,
+    "BCD": calculate_bcd,
     "y_hat_bar": calculate_mean_prediction,
 }
 

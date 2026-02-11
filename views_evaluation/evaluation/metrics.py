@@ -129,6 +129,7 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
     Pearson: Optional[float] = None
     Variogram: Optional[float] = None
     MTD: Optional[float] = None
+    BCD: Optional[float] = None
     y_hat_bar: Optional[float] = None
 
   

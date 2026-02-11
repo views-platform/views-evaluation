@@ -65,6 +65,7 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
 | Mean Squared Log Error | `MSLE` | MSE computed on log-transformed values | ✅ | ❌ |
 | Root Mean Squared Log Error | `RMSLE` | Square root of MSLE | ✅ | ❌ |
 | Mean Tweedie Deviance | `MTD` | Tweedie deviance with power=1.5, ideal for zero-inflated data | ✅ | ❌ |
+| Balanced Conflict Deviation | `BCD` | Geometric mean of MTD and MSLE, balancing both metrics | ✅ | ❌ |
 | Average Precision | `AP` | Area under precision-recall curve for binary classification | ✅ | ❌ |
 | Pearson Correlation | `Pearson` | Linear correlation between predictions and actuals | ✅ | ❌ |
 | Earth Mover's Distance | `EMD` | Wasserstein distance between predicted and actual distributions | ✅ | ✅ |
