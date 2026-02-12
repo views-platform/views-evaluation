@@ -466,6 +466,9 @@ def calculate_mtd(
         actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
     )
 
+    # Clip predictions to avoid zero values (MTD with power > 1 requires positive predictions)
+    pred_values = np.clip(pred_values, 1e-4, None)
+
     return mean_tweedie_deviance(actual_expanded, pred_values, power=power)
 
 
