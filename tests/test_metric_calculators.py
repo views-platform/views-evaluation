@@ -127,13 +127,14 @@ def test_calculate_bcd(sample_data):
 
 
 def test_calculate_bcd_is_geometric_mean(sample_data):
-    """Test that BCD is the geometric mean of MTD and MSLE."""
+    """Test that BCD is the geometric mean of MTD, MSLE, and log(1 + MSE)."""
     actual, pred = sample_data
     bcd = calculate_bcd(actual, pred, 'target')
     mtd = calculate_mtd(actual, pred, 'target', power=1.5)
+    mse = calculate_mse(actual, pred, 'target')
     from views_evaluation.evaluation.metric_calculators import calculate_msle
     msle = calculate_msle(actual, pred, 'target')
-    expected_bcd = np.sqrt(mtd * msle)
+    expected_bcd = np.cbrt(mtd * msle * np.log(1 + mse))
     assert np.isclose(bcd, expected_bcd, rtol=1e-10)
 
 

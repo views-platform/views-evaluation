@@ -485,17 +485,18 @@ def calculate_bcd(
     """
     Calculate Balanced Conflict Deviation (BCD) between actual and predicted values.
 
-    BCD is defined as the geometric mean of Mean Tweedie Deviance (MTD) and
-    Mean Squared Logarithmic Error (MSLE):
-        BCD = sqrt(MTD * MSLE)
+    BCD is defined as the geometric mean of Mean Tweedie Deviance (MTD),
+    Mean Squared Logarithmic Error (MSLE), and log(1 + MSE):
+        BCD = (MTD * MSLE * log(1 + MSE))^(1/3)
 
-    This metric combines the strengths of both MTD and MSLE:
+    This metric combines the strengths of MTD, MSLE, and MSE:
         - MTD (with power=1.5) is well-suited for zero-inflated positive continuous data
           typical in conflict forecasting
         - MSLE penalizes underestimates more than overestimates and is scale-independent
+        - log(1 + MSE) incorporates absolute error magnitude in a bounded, scale-friendly way
 
-    The geometric mean ensures that both components contribute equally on a multiplicative
-    scale, making BCD robust to cases where one metric might dominate the other.
+    The geometric mean ensures that all components contribute equally on a multiplicative
+    scale, making BCD robust to cases where one metric might dominate the others.
 
     Lower values indicate better model performance.
 
@@ -512,10 +513,12 @@ def calculate_bcd(
     See Also:
         - calculate_mtd: Mean Tweedie Deviance component.
         - calculate_msle: Mean Squared Logarithmic Error component.
+        - calculate_mse: Mean Squared Error component (used as log(1 + MSE)).
     """
     mtd = calculate_mtd(matched_actual, matched_pred, target, power=power)
     msle = calculate_msle(matched_actual, matched_pred, target)
-    return np.sqrt(mtd * msle)
+    mse = calculate_mse(matched_actual, matched_pred, target)
+    return np.cbrt(mtd * msle * np.log(1 + mse))
 
 
 POINT_METRIC_FUNCTIONS = {
