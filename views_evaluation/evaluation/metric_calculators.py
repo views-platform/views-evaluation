@@ -527,6 +527,66 @@ def calculate_level_ratio(
     return y_hat_bar / y_bar
 
 
+def calculate_baseline_deviation(
+    matched_actual: pd.DataFrame,
+    matched_pred: pd.DataFrame,
+    target: str,
+    baseline: pd.DataFrame = None,
+    epsilon: float = 1e-8,
+) -> float:
+    """
+    Calculate the Normalized Deviation from No-Change Baseline.
+
+    This metric measures how different a model's predictions are from a no-change
+    baseline. Models that produce forecasts indistinguishable from baseline are
+    considered baseline-equivalent and not eligible for production use.
+
+    The deviation is defined as:
+        D(M) = mean(|y_hat_M - y_hat_NC|) / (mean(|y_hat_NC|) + epsilon)
+
+    where y_hat_M are model predictions and y_hat_NC are no-change baseline predictions.
+
+    A model is disqualified if D(M) < tau (threshold), indicating it extracts no
+    meaningful temporal information beyond persistence.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values (unused but
+            required for API consistency).
+        matched_pred (pd.DataFrame): DataFrame containing model predictions with
+            the `pred_{target}` column.
+        target (str): The target column name (without the 'pred_' prefix).
+        baseline (pd.DataFrame): DataFrame containing no-change baseline predictions
+            with the `pred_{target}` column. If None, returns NaN.
+        epsilon (float): Small constant for numerical stability. Default 1e-8.
+
+    Returns:
+        float: The normalized deviation from baseline. Values close to 0 indicate
+            the model is baseline-equivalent. Higher values indicate more deviation.
+            Returns NaN if baseline is not provided.
+
+    Reference:
+        Colaresi, M. (2026). Baseline equivalence constraint for conflict forecasting.
+    """
+    if baseline is None:
+        return np.nan
+
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+    baseline_values = np.concatenate(baseline[f"pred_{target}"].values)
+
+    # Ensure same length
+    if len(pred_values) != len(baseline_values):
+        raise ValueError(
+            f"Model predictions ({len(pred_values)}) and baseline predictions "
+            f"({len(baseline_values)}) must have the same length."
+        )
+
+    # Calculate normalized deviation
+    mean_abs_diff = np.mean(np.abs(pred_values - baseline_values))
+    mean_abs_baseline = np.mean(np.abs(baseline_values))
+
+    return mean_abs_diff / (mean_abs_baseline + epsilon)
+
+
 def calculate_bcd(
     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, power: float = 1.5
 ) -> float:
@@ -583,6 +643,7 @@ POINT_METRIC_FUNCTIONS = {
     "MTD": calculate_mtd,
     "BCD": calculate_bcd,
     "LevelRatio": calculate_level_ratio,
+    "BaselineDeviation": calculate_baseline_deviation,
     "y_hat_bar": calculate_mean_prediction,
 }
 
