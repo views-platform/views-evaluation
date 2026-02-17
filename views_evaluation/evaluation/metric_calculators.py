@@ -482,6 +482,51 @@ def calculate_mean_prediction(
     return np.mean(all_preds)
 
 
+def calculate_level_ratio(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
+) -> float:
+    """
+    Calculate the Global Level Ratio between predictions and actuals.
+
+    The level ratio is defined as:
+        R_level = mean(predictions) / mean(actuals)
+
+    This metric detects systematic under-prediction, where a model achieves apparent
+    improvements in MSLE by shrinking forecasts toward a low, near-constant level.
+    In sparse, zero-inflated settings, such shrinkage can reduce average error without
+    reflecting meaningful information about underlying risk.
+
+    A model is considered disqualified if R_level < 0.90, indicating excessive shrinkage.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values with the target column.
+        matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
+        target (str): The target column name (without the 'pred_' prefix).
+
+    Returns:
+        float: The level ratio. Values < 0.90 indicate disqualification-level under-prediction.
+            Values close to 1.0 indicate good level consistency.
+
+    Reference:
+        Colaresi, M. (2026). Level consistency constraint for conflict forecasting evaluation.
+    """
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+
+    y_bar = np.mean(actual_expanded)
+    y_hat_bar = np.mean(pred_values)
+
+    # Avoid division by zero
+    if y_bar == 0:
+        return np.inf if y_hat_bar > 0 else 1.0
+
+    return y_hat_bar / y_bar
+
+
 def calculate_bcd(
     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, power: float = 1.5
 ) -> float:
@@ -537,6 +582,7 @@ POINT_METRIC_FUNCTIONS = {
     "Variogram": calculate_variogram,
     "MTD": calculate_mtd,
     "BCD": calculate_bcd,
+    "LevelRatio": calculate_level_ratio,
     "y_hat_bar": calculate_mean_prediction,
 }
 
