@@ -9,7 +9,8 @@ from sklearn.metrics import (
     average_precision_score,
     mean_tweedie_deviance,
 )
-from scipy.stats import wasserstein_distance, pearsonr
+from scipy.stats import wasserstein_distance, pearsonr, entropy
+from scipy.spatial.distance import jensenshannon
 
 
 def calculate_mse(
@@ -588,23 +589,35 @@ def calculate_baseline_deviation(
 
 
 def calculate_bcd(
-    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, power: float = 1.5
+    matched_actual: pd.DataFrame,
+    matched_pred: pd.DataFrame,
+    target: str,
+    tail_quantile: float = 0.90,
+    power: float = 1.5
 ) -> float:
     """
-    Calculate Balanced Conflict Deviation (BCD) between actual and predicted values.
+    Calculate Optimal Balanced Conflict Deviation (BCD) between actual and predicted values.
 
-    BCD is defined as the geometric mean of Mean Tweedie Deviance (MTD),
-    Mean Squared Logarithmic Error (MSLE), and log(1 + MSE):
-        BCD = (MTD * MSLE * log(1 + MSE))^(1/3)
+    BCD is defined as the geometric mean of four components:
+        BCD = (MTD * P_level * P_tail * P_shape)^(1/4)
 
-    This metric combines the strengths of MTD, MSLE, and MSE:
-        - MTD (with power=1.5) is well-suited for zero-inflated positive continuous data
-          typical in conflict forecasting
-        - MSLE penalizes underestimates more than overestimates and is scale-independent
-        - log(1 + MSE) incorporates absolute error magnitude in a bounded, scale-friendly way
+    Components:
+        1. MTD (Backbone): Mean Tweedie Deviance with power=1.5 (Compound Poisson-Gamma).
+           Well-suited for zero-inflated positive continuous data typical in conflict forecasting.
 
-    The geometric mean ensures that all components contribute equally on a multiplicative
-    scale, making BCD robust to cases where one metric might dominate the others.
+        2. P_level (Global Volume): Symmetric penalty for overall mean mismatch.
+           P_level = max(mu_pred/mu_actual, mu_actual/mu_pred)
+           Penalizes systematic over- or under-prediction.
+
+        3. P_tail (Extreme Events): Symmetric penalty for tail (top quantile) mismatch.
+           Ensures the model captures extreme conflict events accurately.
+
+        4. P_shape (Timing/Correlation): Penalty based on Pearson correlation.
+           P_shape = 1 + (1 - r), ranging from 1.0 (perfect) to 3.0 (inverse).
+           Penalizes poor temporal alignment.
+
+    The geometric mean (4th root) ensures all components contribute equally on a
+    multiplicative scale and keeps the result interpretable relative to MTD.
 
     Lower values indicate better model performance.
 
@@ -612,21 +625,291 @@ def calculate_bcd(
         matched_actual (pd.DataFrame): DataFrame containing actual values with the target column.
         matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
         target (str): The target column name (without the 'pred_' prefix).
+        tail_quantile (float): Quantile threshold for identifying tail/extreme events.
+            Default is 0.90 (top 10% of actual values).
         power (float): The power parameter for the Tweedie distribution used in MTD calculation.
             Default is 1.5 (compound Poisson-Gamma distribution).
 
     Returns:
         float: The Balanced Conflict Deviation score. Lower values indicate better predictions.
+    """
+    # Flatten Data
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    # Handle shape for point forecasts
+    if pred_values.ndim > 1 or len(pred_values) != len(actual_values):
+        actual_flat = actual_values
+        pred_flat = pred_values
+    else:
+        actual_flat = actual_values
+        pred_flat = pred_values
+
+    # =================================================================
+    # COMPONENT 1: THE BACKBONE (MTD)
+    # =================================================================
+    # Tweedie Deviance with power=1.5 (Compound Poisson-Gamma)
+    # Clip preds to avoid log(0) issues in deviance calculation
+    pred_clipped = np.clip(pred_flat, 1e-6, None)
+    mtd = mean_tweedie_deviance(actual_flat, pred_clipped, power=power)
+
+    # =================================================================
+    # COMPONENT 2: LEVEL PENALTY (Global Volume)
+    # =================================================================
+    mu_actual = np.mean(actual_flat)
+    mu_pred = np.mean(pred_clipped)
+
+    if mu_actual == 0:
+        p_level = 1.0 if mu_pred == 0 else np.inf
+    else:
+        ratio = mu_pred / mu_actual
+        # Symmetric penalty: 0.5 -> 2.0, 2.0 -> 2.0, 1.0 -> 1.0
+        p_level = max(ratio, 1.0 / ratio)
+
+    # =================================================================
+    # COMPONENT 3: TAIL PENALTY (Extreme Events)
+    # =================================================================
+    # Identify the tail (top quantile of actual events)
+    threshold = np.quantile(actual_flat, tail_quantile)
+    tail_mask = actual_flat > threshold
+
+    if np.sum(tail_mask) > 0:
+        mu_tail_actual = np.mean(actual_flat[tail_mask])
+        mu_tail_pred = np.mean(pred_clipped[tail_mask])
+
+        if mu_tail_actual == 0:
+            p_tail = 1.0
+        else:
+            tail_ratio = mu_tail_pred / mu_tail_actual
+            p_tail = max(tail_ratio, 1.0 / tail_ratio)
+    else:
+        p_tail = 1.0  # No tail events to penalize
+
+    # =================================================================
+    # COMPONENT 4: SHAPE PENALTY (Timing/Correlation)
+    # =================================================================
+    # Pearson Correlation
+    if np.std(pred_clipped) < 1e-6 or np.std(actual_flat) < 1e-6:
+        r = 0.0  # No variation means no correlation
+    else:
+        r, _ = pearsonr(actual_flat, pred_clipped)
+
+    # Penalty: 1.0 (perfect) to 3.0 (inverse)
+    p_shape = 1 + (1 - r)
+
+    # =================================================================
+    # AGGREGATION
+    # =================================================================
+    # Geometric Mean: Forces balance.
+    # We take the 4th root to keep the scale interpretable relative to MTD.
+    bcd_score = np.power(mtd * p_level * p_tail * p_shape, 0.25)
+
+    return bcd_score
+
+
+def calculate_kl_divergence(
+    matched_actual: pd.DataFrame,
+    matched_pred: pd.DataFrame,
+    target: str,
+    n_bins: int = 20,
+    epsilon: float = 1e-10,
+) -> float:
+    """
+    Calculate Kullback-Leibler Divergence between predicted and actual distributions.
+
+    KL Divergence measures the information lost when using the predicted distribution
+    to approximate the actual distribution. It quantifies how different the predicted
+    distribution is from the true distribution.
+
+    The metric is computed by:
+    1. Binning both actual and predicted values into histograms
+    2. Normalizing to create probability distributions
+    3. Computing KL(actual || predicted) = sum(actual * log(actual / predicted))
+
+    Lower values indicate better distribution matching. A value of 0 means perfect match.
+    Note: KL divergence is asymmetric - KL(P||Q) ≠ KL(Q||P).
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values with the target column.
+        matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
+        target (str): The target column name (without the 'pred_' prefix).
+        n_bins (int): Number of bins for histogram computation. Default 20.
+        epsilon (float): Small constant added to avoid log(0). Default 1e-10.
+
+    Returns:
+        float: The KL Divergence score. Lower values indicate better distribution match.
+            Returns 0 for identical distributions.
 
     See Also:
-        - calculate_mtd: Mean Tweedie Deviance component.
-        - calculate_msle: Mean Squared Logarithmic Error component.
-        - calculate_mse: Mean Squared Error component (used as log(1 + MSE)).
+        - calculate_js_divergence: Symmetric alternative to KL divergence.
+        - calculate_emd: Earth Mover's Distance for distribution comparison.
     """
-    mtd = calculate_mtd(matched_actual, matched_pred, target, power=power)
-    msle = calculate_msle(matched_actual, matched_pred, target)
-    mse = calculate_mse(matched_actual, matched_pred, target)
-    return np.cbrt(mtd * msle * np.log(1 + mse))
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+
+    # Create histograms with same bins
+    min_val = min(actual_expanded.min(), pred_values.min())
+    max_val = max(actual_expanded.max(), pred_values.max())
+    
+    # Handle edge case where all values are the same
+    if min_val == max_val:
+        return 0.0
+    
+    bins = np.linspace(min_val, max_val, n_bins + 1)
+
+    actual_hist, _ = np.histogram(actual_expanded, bins=bins, density=True)
+    pred_hist, _ = np.histogram(pred_values, bins=bins, density=True)
+
+    # Add epsilon to avoid log(0)
+    actual_hist = actual_hist + epsilon
+    pred_hist = pred_hist + epsilon
+
+    # Normalize to probability distributions
+    actual_hist = actual_hist / actual_hist.sum()
+    pred_hist = pred_hist / pred_hist.sum()
+
+    return entropy(actual_hist, pred_hist)
+
+
+def calculate_js_divergence(
+    matched_actual: pd.DataFrame,
+    matched_pred: pd.DataFrame,
+    target: str,
+    n_bins: int = 20,
+) -> float:
+    """
+    Calculate Jensen-Shannon Divergence between predicted and actual distributions.
+
+    JS Divergence is a symmetric and bounded measure of similarity between two
+    probability distributions. Unlike KL divergence, JS divergence is:
+    - Symmetric: JS(P||Q) = JS(Q||P)
+    - Bounded: Always in range [0, 1] (when using base-2 logarithm)
+    - Always finite (even when distributions don't fully overlap)
+
+    The metric is computed by:
+    1. Binning both actual and predicted values into histograms
+    2. Normalizing to create probability distributions
+    3. Computing JS(P,Q) = 0.5 * KL(P||M) + 0.5 * KL(Q||M) where M = 0.5*(P+Q)
+
+    Lower values indicate better distribution matching. A value of 0 means identical
+    distributions, while 1 means maximally different distributions.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values with the target column.
+        matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
+        target (str): The target column name (without the 'pred_' prefix).
+        n_bins (int): Number of bins for histogram computation. Default 20.
+
+    Returns:
+        float: The JS Divergence score in range [0, 1]. Lower values indicate better
+            distribution match. Returns 0 for identical distributions.
+
+    See Also:
+        - calculate_kl_divergence: Asymmetric alternative.
+        - calculate_emd: Earth Mover's Distance for distribution comparison.
+    """
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+
+    min_val = min(actual_expanded.min(), pred_values.min())
+    max_val = max(actual_expanded.max(), pred_values.max())
+    
+    # Handle edge case where all values are the same
+    if min_val == max_val:
+        return 0.0
+    
+    bins = np.linspace(min_val, max_val, n_bins + 1)
+
+    actual_hist, _ = np.histogram(actual_expanded, bins=bins, density=True)
+    pred_hist, _ = np.histogram(pred_values, bins=bins, density=True)
+
+    # Normalize (jensenshannon handles zeros internally)
+    actual_sum = actual_hist.sum()
+    pred_sum = pred_hist.sum()
+    
+    if actual_sum == 0 or pred_sum == 0:
+        return 1.0  # Maximally different if one distribution is empty
+    
+    actual_hist = actual_hist / actual_sum
+    pred_hist = pred_hist / pred_sum
+
+    return jensenshannon(actual_hist, pred_hist)
+
+
+def calculate_quantile_loss(
+    matched_actual: pd.DataFrame,
+    matched_pred: pd.DataFrame,
+    target: str,
+    quantiles: list = None,
+) -> float:
+    """
+    Calculate Pinball Loss (Quantile Loss) across multiple quantiles.
+
+    Pinball loss measures how well predictions match specific quantiles of the
+    actual distribution. It's asymmetric: under-predictions are penalized
+    differently than over-predictions depending on the quantile.
+
+    For each quantile q:
+    - If actual > predicted: loss = q * (actual - predicted)
+    - If actual < predicted: loss = (1 - q) * (predicted - actual)
+
+    The metric computes pinball loss at multiple quantiles (default: 0.1, 0.25,
+    0.5, 0.75, 0.9) and returns the mean. This tests whether the model correctly
+    captures the full distribution shape, not just the mean.
+
+    Lower values indicate better quantile calibration.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values with the target column.
+        matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
+        target (str): The target column name (without the 'pred_' prefix).
+        quantiles (list): List of quantiles to evaluate. Default [0.1, 0.25, 0.5, 0.75, 0.9].
+
+    Returns:
+        float: Mean pinball loss across all specified quantiles. Lower is better.
+
+    Example:
+        >>> # A model with good distribution coverage will have low quantile loss
+        >>> ql = calculate_quantile_loss(actual_df, pred_df, "ln_sb_best")
+        >>> print(f"Quantile Loss: {ql:.4f}")
+
+    See Also:
+        - calculate_coverage: Tests if prediction intervals contain actual values.
+        - calculate_crps: Integrates pinball loss over all quantiles.
+    """
+    if quantiles is None:
+        quantiles = [0.1, 0.25, 0.5, 0.75, 0.9]
+    
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+
+    losses = []
+    for q in quantiles:
+        # Get the q-th quantile of predictions
+        pred_quantile = np.quantile(pred_values, q)
+        
+        # Compute pinball loss
+        errors = actual_expanded - pred_quantile
+        pinball = np.where(
+            errors >= 0,
+            q * errors,
+            (q - 1) * errors
+        )
+        losses.append(np.mean(pinball))
+
+    return np.mean(losses)
 
 
 POINT_METRIC_FUNCTIONS = {
@@ -645,6 +928,9 @@ POINT_METRIC_FUNCTIONS = {
     "LevelRatio": calculate_level_ratio,
     "BaselineDeviation": calculate_baseline_deviation,
     "y_hat_bar": calculate_mean_prediction,
+    "KL": calculate_kl_divergence,
+    "JS": calculate_js_divergence,
+    "QuantileLoss": calculate_quantile_loss,
 }
 
 UNCERTAINTY_METRIC_FUNCTIONS = {

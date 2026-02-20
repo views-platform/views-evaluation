@@ -116,6 +116,9 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
         pEMDiv (Optional[float]): pseudo-Earth Mover Divergence.
         Pearson (Optional[float]): Pearson Correlation.
         Variogram (Optional[float]): Variogram.
+        KL (Optional[float]): Kullback-Leibler Divergence.
+        JS (Optional[float]): Jensen-Shannon Divergence.
+        QuantileLoss (Optional[float]): Average Pinball Loss across quantiles.
     """
 
     MSE: Optional[float] = None
@@ -133,6 +136,9 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
     LevelRatio: Optional[float] = None
     BaselineDeviation: Optional[float] = None
     y_hat_bar: Optional[float] = None
+    KL: Optional[float] = None
+    JS: Optional[float] = None
+    QuantileLoss: Optional[float] = None
 
   
 @dataclass
