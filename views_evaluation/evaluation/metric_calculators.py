@@ -592,7 +592,7 @@ def calculate_bcd(
     matched_actual: pd.DataFrame,
     matched_pred: pd.DataFrame,
     target: str,
-    tail_quantile: float = 0.98,
+    tail_quantile: float = 0.99,
     power: float = 1.5
 ) -> float:
     """
@@ -626,7 +626,7 @@ def calculate_bcd(
         matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
         target (str): The target column name (without the 'pred_' prefix).
         tail_quantile (float): Quantile threshold for identifying tail/extreme events.
-            Default is 0.98 (top 2% of actual values).
+            Default is 0.99 (top 1% of actual values).
         power (float): The power parameter for the Tweedie distribution used in MTD calculation.
             Default is 1.5 (compound Poisson-Gamma distribution).
 
