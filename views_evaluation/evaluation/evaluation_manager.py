@@ -247,8 +247,7 @@ class EvaluationManager:
         grouped_month_ids = list(zip(*all_month_ids))
 
         result_dfs = []
-        for i, group in enumerate(grouped_month_ids):
-            step = i + 1
+        for group in grouped_month_ids:
             combined = pd.concat(
                 [df.loc[month_id] for df, month_id in zip(dfs, group)],
                 keys=group,
