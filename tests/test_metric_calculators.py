@@ -10,6 +10,7 @@ from views_evaluation.evaluation.metric_calculators import (
     calculate_coverage,
     calculate_ignorance_score,
     calculate_mean_interval_score,
+    calculate_mtd,
     POINT_METRIC_FUNCTIONS,
     UNCERTAINTY_METRIC_FUNCTIONS,
 )
@@ -93,6 +94,28 @@ def test_calculate_pearson(sample_data):
     assert -1 <= result <= 1
 
 
+def test_calculate_mtd(sample_data):
+    """Test Mean Tweedie Deviance calculation."""
+    actual, pred = sample_data
+    result = calculate_mtd(actual, pred, 'target')
+    assert isinstance(result, float)
+    assert result >= 0
+
+
+def test_calculate_mtd_with_power(sample_data):
+    """Test Mean Tweedie Deviance calculation with different power values."""
+    actual, pred = sample_data
+    # Test with power=1.5 (compound Poisson-Gamma)
+    result_15 = calculate_mtd(actual, pred, 'target', power=1.5)
+    assert isinstance(result_15, float)
+    assert result_15 >= 0
+    
+    # Test with power=2 (Gamma)
+    result_2 = calculate_mtd(actual, pred, 'target', power=2.0)
+    assert isinstance(result_2, float)
+    assert result_2 >= 0
+
+
 def test_calculate_coverage_uncertainty(sample_uncertainty_data):
     """Test Coverage calculation."""
     actual, pred = sample_uncertainty_data
@@ -120,7 +143,7 @@ def test_calculate_mis_uncertainty(sample_uncertainty_data):
 def test_point_metric_functions():
     """Test that all point metric functions are available."""
     expected_metrics = [
-        "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram"
+        "MSE", "MSLE", "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
     ]
     
     for metric in expected_metrics:

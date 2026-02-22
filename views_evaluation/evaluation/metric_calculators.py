@@ -7,6 +7,7 @@ from sklearn.metrics import (
     mean_squared_error,
     mean_squared_log_error,
     average_precision_score,
+    mean_tweedie_deviance,
 )
 from scipy.stats import wasserstein_distance, pearsonr
 
@@ -408,6 +409,66 @@ def calculate_ignorance_score(
     return np.mean(scores)
 
 
+def calculate_mtd(
+    matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str, power: float = 1.5
+) -> float:
+    """
+    Calculate Mean Tweedie Deviance (MTD) between actual and predicted values.
+
+    The Tweedie deviance is a family of loss functions parameterized by a power parameter `p`.
+    It generalizes several common loss functions:
+        - p = 0: Equivalent to Mean Squared Error (Gaussian distribution)
+        - p = 1: Equivalent to Poisson deviance (count data)
+        - p = 2: Equivalent to Gamma deviance (positive continuous data)
+        - 1 < p < 2: Compound Poisson-Gamma distribution (zero-inflated positive continuous data)
+
+    With the default power of 1.5 (compound Poisson-Gamma), this metric is particularly
+    well-suited for conflict forecasting data which typically exhibits:
+        - Right-skewness (many small values, few large values)
+        - Zero-inflation (many observations with zero fatalities)
+        - Non-negative continuous outcomes
+
+    The Tweedie deviance for a single observation is defined as:
+        d(y, μ) = 2 * (y^(2-p)/((1-p)*(2-p)) - y*μ^(1-p)/(1-p) + μ^(2-p)/(2-p))
+    where y is the actual value and μ is the predicted value.
+
+    Lower values indicate better model performance.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values with the target column.
+            The target column should contain numpy arrays or lists of actual observations.
+        matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
+            The prediction column should contain numpy arrays or lists of predicted values.
+        target (str): The target column name (without the 'pred_' prefix).
+        power (float): The power parameter for the Tweedie distribution. Must be in range
+            [0, 1) or >= 1. Default is 1.5, which corresponds to the compound Poisson-Gamma
+            distribution, ideal for zero-inflated positive continuous data.
+
+    Returns:
+        float: The Mean Tweedie Deviance score. Lower values indicate better predictions.
+
+    Raises:
+        ValueError: If predictions contain negative values when power > 0, or if
+            actual values are negative when power >= 1.
+
+    Example:
+        >>> mtd_score = calculate_mtd(actual_df, pred_df, "ln_sb_best")
+        >>> print(f"Mean Tweedie Deviance: {mtd_score:.4f}")
+
+    See Also:
+        - sklearn.metrics.mean_tweedie_deviance: The underlying implementation.
+        - calculate_mse: Mean Squared Error (equivalent to MTD with power=0).
+    """
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+
+    return mean_tweedie_deviance(actual_expanded, pred_values, power=power)
+
+
 def calculate_mean_prediction(
     matched_actual: pd.DataFrame, matched_pred: pd.DataFrame, target: str
 ) -> float:
@@ -428,6 +489,7 @@ POINT_METRIC_FUNCTIONS = {
     "pEMDiv": calculate_pEMDiv,
     "Pearson": calculate_pearson,
     "Variogram": calculate_variogram,
+    "MTD": calculate_mtd,
     "y_hat_bar": calculate_mean_prediction,
 }
 
