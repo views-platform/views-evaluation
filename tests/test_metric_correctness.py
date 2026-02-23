@@ -19,17 +19,21 @@ class TestMetricCorrectness:
         # Arrange
         target_name = "lr_test"
         pred_col_name = f"pred_{target_name}"
-        
+
         # Create a simple, non-random dataset
         actuals_index = pd.MultiIndex.from_product([[500], [10, 20]], names=['month_id', 'country_id'])
         actuals = pd.DataFrame({target_name: [100, 50]}, index=actuals_index)
-        
+
         # Predictions are identical to actuals
         predictions_df = pd.DataFrame({pred_col_name: [[100.0], [50.0]]}, index=actuals_index)
         predictions = [predictions_df]
-        
-        config = {'steps': [1]}
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+
+        config = {
+            'steps': [1],
+            'regression_targets': [target_name],
+            'regression_point_metrics': ['RMSLE'],
+        }
+        manager = EvaluationManager()
 
         # Act
         results = manager.evaluate(
@@ -44,7 +48,7 @@ class TestMetricCorrectness:
         rmsle_step = results['step'][1]['RMSLE'].iloc[0]
         rmsle_ts = results['time_series'][1]['RMSLE'].iloc[0]
         rmsle_month = results['month'][1]['RMSLE'].iloc[0]
-        
+
         assert rmsle_step == 0.0
         assert rmsle_ts == 0.0
         assert rmsle_month == 0.0
@@ -61,18 +65,22 @@ class TestMetricCorrectness:
         # Arrange
         target_name = "lr_test"
         pred_col_name = f"pred_{target_name}"
-        
+
         actual_val = np.e - 1
         pred_val = 0.0
-        
+
         actuals_index = pd.MultiIndex.from_product([[500], [10]], names=['month_id', 'country_id'])
         actuals = pd.DataFrame({target_name: [actual_val]}, index=actuals_index)
-        
+
         predictions_df = pd.DataFrame({pred_col_name: [[pred_val]]}, index=actuals_index)
         predictions = [predictions_df]
-        
-        config = {'steps': [1]}
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+
+        config = {
+            'steps': [1],
+            'regression_targets': [target_name],
+            'regression_point_metrics': ['RMSLE'],
+        }
+        manager = EvaluationManager()
 
         # Act
         results = manager.evaluate(
@@ -84,111 +92,84 @@ class TestMetricCorrectness:
 
         # Assert
         rmsle_step = results['step'][1]['RMSLE'].iloc[0]
-        
+
         assert rmsle_step == pytest.approx(1.0)
 
-    def test_ap_metric_kwargs_threshold(self):
+    def test_ap_metric_with_prebinarised_inputs(self):
         """
-        Tests the AP (Average Precision) metric with different 'threshold' kwargs.
-        Expected: AP scores should differ based on the threshold.
+        Tests the AP (Average Precision) metric with pre-binarised actuals and probability
+        scores as predictions.  AP is a classification metric; actuals must already be
+        binary (0/1) before reaching evaluate().  No threshold kwarg is accepted.
         """
         # Arrange
-        target_name = "lr_binary"
+        target_name = "cls_binary"
         pred_col_name = f"pred_{target_name}"
-        
-        # Golden dataset, simplified to one month to avoid KeyError for steps
-        # y_true = np.array([0, 0, 1, 1])
-        # y_scores = np.array([0.1, 0.4, 0.35, 0.8])
-        
-        
 
-        
-        manager_low_threshold = EvaluationManager(metrics_list=['AP'])
-        manager_high_threshold = EvaluationManager(metrics_list=['AP'])
+        # Pre-binarised actuals and probability scores
+        y_true_binary = [0, 1, 1, 0]
+        y_scores = [0.1, 0.4, 0.35, 0.8]
+
+        actuals_index = pd.MultiIndex.from_product(
+            [[500], [10, 20, 30, 40]], names=['month_id', 'country_id']
+        )
+        actuals = pd.DataFrame({target_name: y_true_binary}, index=actuals_index)
+        predictions_df = pd.DataFrame(
+            {pred_col_name: [[s] for s in y_scores]}, index=actuals_index
+        )
+        predictions = [predictions_df]
+
+        config = {
+            'steps': [1],
+            'classification_targets': [target_name],
+            'classification_point_metrics': ['AP'],
+        }
+        manager = EvaluationManager()
 
         # Act
-
-
-
-        # Assert
-
-
-        
-        # For reference:
-        # y_true = [0, 1], y_scores = [0.1, 0.8]
-        # with threshold=0.3, pred_binary = [0, 1]. AP = 1.0
-        # with threshold=0.5, pred_binary = [0, 1]. AP = 1.0 (same as above)
-        
-        # This setup doesn't make AP different. Let's adjust to be more like sklearn example
-        # y_true = [0, 1, 1, 0]
-        # y_scores = [0.1, 0.4, 0.35, 0.8]
-        
-        actuals_index_full = pd.MultiIndex.from_product([[500], [10, 20, 30, 40]], names=['month_id', 'country_id'])
-        actuals_full = pd.DataFrame({target_name: [0, 1, 1, 0]}, index=actuals_index_full)
-        predictions_df_full = pd.DataFrame({pred_col_name: [[0.1], [0.4], [0.35], [0.8]]}, index=actuals_index_full)
-        predictions_full = [predictions_df_full]
-        
-        # Re-evaluate with the full example for better threshold demonstration
-        results_low_threshold_full = manager_low_threshold.evaluate(
-            actual=actuals_full,
-            predictions=predictions_full,
+        results = manager.evaluate(
+            actual=actuals,
+            predictions=predictions,
             target=target_name,
-            config={'steps': [1]}, # Still single step
-            threshold=0.3 # Classifies 0.4, 0.35, 0.8 as positive
-        )
-        results_high_threshold_full = manager_high_threshold.evaluate(
-            actual=actuals_full,
-            predictions=predictions_full,
-            target=target_name,
-            config={'steps': [1]},
-            threshold=0.5 # Classifies 0.8 as positive
+            config=config
         )
 
-        ap_low_full = results_low_threshold_full['step'][1]['AP'].iloc[0]
-        ap_high_full = results_high_threshold_full['step'][1]['AP'].iloc[0]
+        ap_step = results['step'][1]['AP'].iloc[0]
 
-        # Assert specific values based on sklearn's example and thresholds
-        # y_true = [0, 1, 1, 0], y_scores = [0.1, 0.4, 0.35, 0.8]
-        # threshold=0.3 -> y_pred_binary = [0,1,1,1]. True positives: (1,0.4), (1,0.35), (0,0.8). Score: ~0.55
-        # This is more complex than simple binary. Let's use sklearn's direct calculation for reference.
+        # Expected AP from sklearn with the raw probability scores as the ranking signal
         from sklearn.metrics import average_precision_score
-        y_true_ref = np.array([0, 1, 1, 0])
-        y_scores_ref = np.array([0.1, 0.4, 0.35, 0.8])
-        
-        # Binary predictions after thresholding
-        y_pred_binary_low_thresh = (y_scores_ref >= 0.3).astype(int) # [0, 1, 1, 1]
-        y_pred_binary_high_thresh = (y_scores_ref >= 0.5).astype(int) # [0, 0, 0, 1]
-        
-        # Manual calculation of AP based on sklearn's average_precision_score
-        expected_ap_low = average_precision_score(y_true_ref, y_pred_binary_low_thresh) # Expected: ~0.5555
-        expected_ap_high = average_precision_score(y_true_ref, y_pred_binary_high_thresh) # Expected: 0.5
+        expected_ap = average_precision_score(y_true_binary, y_scores)
 
-        assert ap_low_full == pytest.approx(expected_ap_low)
-        assert ap_high_full == pytest.approx(expected_ap_high)
-        assert ap_low_full != ap_high_full
+        assert ap_step == pytest.approx(expected_ap)
 
     def test_crps_golden_dataset_point_prediction(self):
         """
-        Tests the CRPS calculation for point predictions.
-        Expected: CRPS for point predictions (treated as an ensemble of 1) matches properscoring.
+        Tests the CRPS calculation for point predictions (single-value ensemble).
+        Expected: CRPS matches properscoring for a 1-sample ensemble.
         """
         # Arrange
         target_name = "lr_test_crps_point"
         pred_col_name = f"pred_{target_name}"
-        
+
         # Simple dataset: one actual, one prediction
         actual_val = 5.0
         pred_val = 6.0
-        
+
         actuals_index = pd.MultiIndex.from_product([[500], [10]], names=['month_id', 'country_id'])
         actuals = pd.DataFrame({target_name: [actual_val]}, index=actuals_index)
-        
-        # Point prediction is a list of one value
-        predictions_df = pd.DataFrame({pred_col_name: [[pred_val]]}, index=actuals_index)
+
+        # Single-value prediction → point prediction, use regression_uncertainty_metrics
+        # by providing a multi-element ensemble so it's detected as uncertainty type.
+        # Use the same scalar as a 3-sample degenerate ensemble for CRPS:
+        predictions_df = pd.DataFrame({pred_col_name: [[pred_val, pred_val, pred_val]]}, index=actuals_index)
         predictions = [predictions_df]
-        
-        config = {'steps': [1]}
-        manager = EvaluationManager(metrics_list=['CRPS'])
+
+        config = {
+            'steps': [1],
+            'regression_targets': [target_name],
+            'regression_point_metrics': ['RMSLE'],       # required by _validate_config
+            'regression_uncertainty_metrics': ['CRPS'],  # routed to because predictions are multi-element
+        }
+        manager = EvaluationManager()
 
         # Act
         results = manager.evaluate(
@@ -200,11 +181,11 @@ class TestMetricCorrectness:
 
         # Assert
         crps_step = results['step'][1]['CRPS'].iloc[0]
-        
-        # Calculate expected CRPS using properscoring for a point prediction (ensemble of 1)
+
+        # Calculate expected CRPS using properscoring for the degenerate 3-sample ensemble
         import properscoring as ps
-        expected_crps = ps.crps_ensemble(actual_val, np.array([pred_val]))
-        
+        expected_crps = ps.crps_ensemble(actual_val, np.array([pred_val, pred_val, pred_val]))
+
         assert crps_step == pytest.approx(expected_crps)
 
     def test_crps_golden_dataset_uncertainty_prediction(self):
@@ -215,20 +196,25 @@ class TestMetricCorrectness:
         # Arrange
         target_name = "lr_test_crps_uncertainty"
         pred_col_name = f"pred_{target_name}"
-        
+
         # Simple dataset: one actual, one prediction ensemble
         actual_val = 5.0
-        prediction_ensemble = [3.0, 4.0, 5.0, 6.0, 7.0] # A simple ensemble
-        
+        prediction_ensemble = [3.0, 4.0, 5.0, 6.0, 7.0]  # A simple ensemble
+
         actuals_index = pd.MultiIndex.from_product([[500], [10]], names=['month_id', 'country_id'])
         actuals = pd.DataFrame({target_name: [actual_val]}, index=actuals_index)
-        
+
         # Uncertainty prediction is a list of multiple values
         predictions_df = pd.DataFrame({pred_col_name: [prediction_ensemble]}, index=actuals_index)
         predictions = [predictions_df]
-        
-        config = {'steps': [1]}
-        manager = EvaluationManager(metrics_list=['CRPS'])
+
+        config = {
+            'steps': [1],
+            'regression_targets': [target_name],
+            'regression_point_metrics': ['RMSLE'],       # required by _validate_config
+            'regression_uncertainty_metrics': ['CRPS'],  # routed to because predictions are multi-element
+        }
+        manager = EvaluationManager()
 
         # Act
         results = manager.evaluate(
@@ -240,14 +226,9 @@ class TestMetricCorrectness:
 
         # Assert
         crps_step = results['step'][1]['CRPS'].iloc[0]
-        
+
         # Calculate expected CRPS using properscoring for the ensemble
         import properscoring as ps
         expected_crps = ps.crps_ensemble(actual_val, np.array(prediction_ensemble))
-        
+
         assert crps_step == pytest.approx(expected_crps)
-
-
-
-
-

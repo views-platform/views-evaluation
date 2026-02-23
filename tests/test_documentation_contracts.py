@@ -18,7 +18,7 @@ class TestDocumentationContracts:
         # Arrange
         target_with_prefix = "lr_ged_sb_best"
         actuals, predictions, target, config = mock_data_factory(target_name=target_with_prefix)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         try:
@@ -33,21 +33,29 @@ class TestDocumentationContracts:
 
     def test_eval_lib_imp_actuals_schema_prefix_requirement_fails(self, mock_data_factory):
         """
-        Verifies Section 3.1 of eval_lib_imp.md.
-        Claim: Evaluation fails if the target name is missing a valid prefix.
+        Verifies updated behaviour from Section 3.1 of eval_lib_imp.md.
+        Old claim: Evaluation fails if the target name is missing a valid prefix.
+        New behaviour: The new EvaluationManager no longer validates prefixes in evaluate().
+        transform_data() issues a warning for unknown prefixes but applies an identity
+        transform and continues. Evaluation therefore *succeeds* with an unknown prefix as
+        long as the target is declared in the config.
         """
         # Arrange
         target_without_prefix = "ged_sb_best"
         actuals, predictions, target, config = mock_data_factory(target_name=target_without_prefix)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
-        # Act & Assert
-        with pytest.raises(ValueError, match=f"Target {target_without_prefix} is not a valid target"):
+        # Act & Assert — should now succeed (prefix validation removed from evaluate())
+        try:
             manager.evaluate(
                 actual=actuals,
                 predictions=predictions,
                 target=target,
                 config=config
+            )
+        except Exception as e:
+            pytest.fail(
+                f"evaluate() raised unexpectedly for a target with no recognised prefix: {e}"
             )
 
     def test_eval_lib_imp_predictions_schema_point_canonical_succeeds(self, mock_data_factory):
@@ -57,7 +65,7 @@ class TestDocumentationContracts:
         """
         # Arrange
         actuals, predictions, target, config = mock_data_factory(point_predictions_as_list=True)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         try:
@@ -78,7 +86,7 @@ class TestDocumentationContracts:
         """
         # Arrange
         actuals, predictions, target, config = mock_data_factory(point_predictions_as_list=False)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         try:
@@ -99,7 +107,7 @@ class TestDocumentationContracts:
         """
         # Arrange
         actuals, predictions, target, config = mock_data_factory(point_predictions_as_list=False)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act
         manager.evaluate(
@@ -124,7 +132,7 @@ class TestDocumentationContracts:
         """
         # Arrange
         actuals, predictions, target, _ = mock_data_factory() # Use _ to ignore the default config
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
         invalid_config = {} # Missing 'steps' key
 
         # Act & Assert
@@ -167,10 +175,14 @@ class TestDocumentationContracts:
         )
         predictions_list.append(predictions_df)
         
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
         
-        # We need a config with steps
-        config = {'steps': [1]}
+        # We need a config with steps and the new required keys
+        config = {
+            'steps': [1],
+            'regression_targets': [target_name],
+            'regression_point_metrics': ['RMSLE'],
+        }
 
         # Act
         results = manager.evaluate(
@@ -201,7 +213,7 @@ class TestDocumentationContracts:
         # Arrange
         # Use mock_data_factory with point_predictions_as_list=True to simulate r2darts2 output
         actuals, predictions, target, config = mock_data_factory(point_predictions_as_list=True)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         try:
@@ -223,7 +235,7 @@ class TestDocumentationContracts:
         # Arrange
         # Use mock_data_factory with point_predictions_as_list=False to simulate stepshifter output
         actuals, predictions, target, config = mock_data_factory(point_predictions_as_list=False)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         try:
@@ -245,7 +257,7 @@ class TestDocumentationContracts:
         # Arrange
         # Simulate stepshifter output (raw floats)
         actuals, predictions_raw_floats, target, config = mock_data_factory(point_predictions_as_list=False)
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Apply the reconciliation logic as described in the report
         # "Wrap every cell value in a list to conform to the canonical standard."

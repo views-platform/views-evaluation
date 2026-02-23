@@ -1,9 +1,18 @@
+import logging
 import pandas as pd
 import numpy as np
 import pytest
-from sklearn.metrics import root_mean_squared_log_error
+from sklearn.metrics import root_mean_squared_log_error, average_precision_score
 import properscoring as ps
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
+from views_evaluation.evaluation.metric_calculators import (
+    REGRESSION_POINT_METRIC_FUNCTIONS,
+    REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+)
+from views_evaluation.evaluation.metrics import (
+    RegressionPointEvaluationMetrics,
+    RegressionUncertaintyEvaluationMetrics,
+)
 
 
 @pytest.fixture
@@ -222,9 +231,12 @@ def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions)
 
 
 def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
-    manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
+    manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.step_wise_evaluation(
-        mock_actual, mock_point_predictions, "target", [1, 2, 3], False
+        mock_actual, mock_point_predictions, "target", [1, 2, 3],
+        metrics_list=["RMSLE"],
+        metric_functions=REGRESSION_POINT_METRIC_FUNCTIONS,
+        metrics_cls=RegressionPointEvaluationMetrics,
     )
 
     actuals = [[1, 2, 2, 3], [2, 3, 3, 4], [3, 4, 4, 5]]
@@ -233,10 +245,6 @@ def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
         {
             "RMSLE": [
                 root_mean_squared_log_error(actual, pred)
-                for (actual, pred) in zip(actuals, preds)
-            ],
-            "CRPS": [
-                ps.crps_ensemble(actual, pred).mean()
                 for (actual, pred) in zip(actuals, preds)
             ],
         },
@@ -248,9 +256,12 @@ def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
 
 
 def test_step_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
-    manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
+    manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.step_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "target", [1, 2, 3], True
+        mock_actual, mock_uncertainty_predictions, "target", [1, 2, 3],
+        metrics_list=["CRPS"],
+        metric_functions=REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+        metrics_cls=RegressionUncertaintyEvaluationMetrics,
     )
     actuals = [[1, 2, 2, 3], [2, 3, 3, 4], [3, 4, 4, 5]]
     preds = [
@@ -273,9 +284,12 @@ def test_step_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predicti
 
 
 def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
-    manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
+    manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
-        mock_actual, mock_point_predictions, "target", False
+        mock_actual, mock_point_predictions, "target",
+        metrics_list=["RMSLE"],
+        metric_functions=REGRESSION_POINT_METRIC_FUNCTIONS,
+        metrics_cls=RegressionPointEvaluationMetrics,
     )
 
     actuals = [[1, 2, 2, 3, 3, 4], [2, 3, 3, 4, 4, 5]]
@@ -284,10 +298,6 @@ def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
         {
             "RMSLE": [
                 root_mean_squared_log_error(actual, pred)
-                for (actual, pred) in zip(actuals, preds)
-            ],
-            "CRPS": [
-                ps.crps_ensemble(actual, pred).mean()
                 for (actual, pred) in zip(actuals, preds)
             ],
         },
@@ -299,9 +309,12 @@ def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
 
 
 def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
-    manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
+    manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "target", True
+        mock_actual, mock_uncertainty_predictions, "target",
+        metrics_list=["CRPS"],
+        metric_functions=REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+        metrics_cls=RegressionUncertaintyEvaluationMetrics,
     )
 
     actuals = [[1, 2, 2, 3, 3, 4], [2, 3, 3, 4, 4, 5]]
@@ -315,7 +328,7 @@ def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_p
                 ps.crps_ensemble(actual, pred).mean()
                 for (actual, pred) in zip(actuals, preds)
             ],
-        },  
+        },
         index=["ts00", "ts01"],
     )
 
@@ -324,9 +337,12 @@ def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_p
 
 
 def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
-    manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
+    manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.month_wise_evaluation(
-        mock_actual, mock_point_predictions, "target", False
+        mock_actual, mock_point_predictions, "target",
+        metrics_list=["RMSLE"],
+        metric_functions=REGRESSION_POINT_METRIC_FUNCTIONS,
+        metrics_cls=RegressionPointEvaluationMetrics,
     )
 
     actuals = [[1, 2], [2, 3, 2, 3], [3, 4, 3, 4], [4, 5]]
@@ -334,10 +350,6 @@ def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
     df_evaluation_test = pd.DataFrame({
             "RMSLE": [
                 root_mean_squared_log_error(actual, pred)
-                for (actual, pred) in zip(actuals, preds)
-            ],
-            "CRPS": [
-                ps.crps_ensemble(actual, pred).mean()
                 for (actual, pred) in zip(actuals, preds)
             ],
         },
@@ -351,9 +363,12 @@ def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
 
 
 def test_month_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
-    manager = EvaluationManager(metrics_list=["RMSLE", "CRPS", "ABCD"])
+    manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.month_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "target", True
+        mock_actual, mock_uncertainty_predictions, "target",
+        metrics_list=["CRPS"],
+        metric_functions=REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+        metrics_cls=RegressionUncertaintyEvaluationMetrics,
     )
 
     actuals = [[1, 2], [2, 3, 2, 3], [3, 4, 3, 4], [4, 5]]
@@ -380,51 +395,116 @@ def test_month_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predict
 
 
 def test_calculate_ap_point_predictions():
-    actual_data = {'target': [[40], [20], [35], [25]]}
-    pred_data = {'pred_target': [[35], [30], [20], [15]]}
-    threshold=30
-    
-    matched_actual = pd.DataFrame(actual_data)
-    matched_pred = pd.DataFrame(pred_data)
-    
+    """
+    Test calculate_ap with pre-binarised actuals (0/1) and probability scores as predictions.
+    """
+    # Binary actuals: 1 = positive class, 0 = negative class
+    actual_binary = [1, 0, 1, 0]
+    # Probability scores for the positive class
+    pred_scores = [0.9, 0.4, 0.3, 0.1]
+
+    matched_actual = pd.DataFrame({'target': [[v] for v in actual_binary]})
+    matched_pred = pd.DataFrame({'pred_target': [[v] for v in pred_scores]})
+
     from views_evaluation.evaluation.metric_calculators import calculate_ap
-    ap_score = calculate_ap(matched_actual, matched_pred, 'target', threshold)
-    
-    actual_binary = [1, 0, 1, 0]  # 40>30, 20<30, 35>30, 25<30
-    pred_binary = [1, 1, 0, 0]    # 35>30, 30=30, 20<30, 15<30
-    from sklearn.metrics import average_precision_score
-    expected_ap = average_precision_score(actual_binary, pred_binary)
-    
+    ap_score = calculate_ap(matched_actual, matched_pred, 'target')
+
+    expected_ap = average_precision_score(actual_binary, pred_scores)
+
     assert abs(ap_score - expected_ap) < 0.01
 
 
 def test_calculate_ap_uncertainty_predictions():
-    actual_data = {'target': [[40], [20], [35], [25]]}
-    pred_data = {
-        'pred_target': [
-            [35, 40, 45],
-            [30, 35, 40],
-            [20, 25, 30],
-            [15, 20, 25]
-        ]
-    }
-    threshold=30
-    matched_actual = pd.DataFrame(actual_data)
-    matched_pred = pd.DataFrame(pred_data)
-    
-    from views_evaluation.evaluation.metric_calculators import calculate_ap
-    ap_score = calculate_ap(matched_actual, matched_pred, 'target', threshold)
-    
-    pred_values = [35, 40, 45, 30, 35, 40, 20, 25, 30, 15, 20, 25]
-    actual_values = [40, 40, 40, 20, 20, 20, 35, 35, 35, 25, 25, 25]
-    actual_binary = [1 if x > threshold else 0 for x in actual_values]
-    pred_binary = [1 if x >= threshold else 0 for x in pred_values]
+    """
+    Test calculate_ap with pre-binarised actuals and distributional probability scores.
+    Each prediction is a list of probability samples; actuals are 0/1.
+    """
+    # Binary actuals: 1 = positive, 0 = negative
+    actual_binary = [1, 0, 1, 0]
+    # Distributional probability predictions (multiple samples per observation)
+    pred_scores = [
+        [0.8, 0.9, 0.95],
+        [0.3, 0.4, 0.45],
+        [0.2, 0.25, 0.35],
+        [0.05, 0.1, 0.15],
+    ]
 
-    from sklearn.metrics import average_precision_score
-    expected_ap = average_precision_score(actual_binary, pred_binary)
-    
+    matched_actual = pd.DataFrame({'target': [[v] for v in actual_binary]})
+    matched_pred = pd.DataFrame({'pred_target': pred_scores})
+
+    from views_evaluation.evaluation.metric_calculators import calculate_ap
+    ap_score = calculate_ap(matched_actual, matched_pred, 'target')
+
+    # Expected: actuals expanded to match samples, predictions are the raw samples
+    actual_expanded = np.repeat(actual_binary, [len(p) for p in pred_scores])
+    pred_flat = np.concatenate(pred_scores)
+    expected_ap = average_precision_score(actual_expanded, pred_flat)
+
     assert abs(ap_score - expected_ap) < 0.01
 
 
+# ---------------------------------------------------------------------------
+# New tests for config normalisation and validation
+# ---------------------------------------------------------------------------
+
+def test_normalise_config_legacy_targets_key(caplog):
+    """Legacy 'targets' key should be translated to 'regression_targets' with a warning."""
+    config = {'steps': [1], 'targets': ['my_target'], 'regression_point_metrics': ['MSE']}
+    with caplog.at_level(logging.WARNING):
+        normalised = EvaluationManager._normalise_config(config)
+    assert 'regression_targets' in normalised
+    assert 'targets' not in normalised
+    assert any('DEPRECATED' in r.message for r in caplog.records)
 
 
+def test_normalise_config_legacy_metrics_key(caplog):
+    """Legacy 'metrics' key should be translated to 'regression_point_metrics' with a warning."""
+    config = {'steps': [1], 'regression_targets': ['t'], 'metrics': ['MSE']}
+    with caplog.at_level(logging.WARNING):
+        normalised = EvaluationManager._normalise_config(config)
+    assert 'regression_point_metrics' in normalised
+    assert 'metrics' not in normalised
+    assert any('DEPRECATED' in r.message for r in caplog.records)
+
+
+def test_validate_config_missing_steps():
+    with pytest.raises(KeyError, match="steps"):
+        EvaluationManager._validate_config({'regression_targets': ['t'], 'regression_point_metrics': ['MSE']})
+
+
+def test_validate_config_missing_all_targets():
+    with pytest.raises(KeyError):
+        EvaluationManager._validate_config({'steps': [1]})
+
+
+def test_validate_config_regression_targets_without_metrics():
+    with pytest.raises(KeyError, match="regression_point_metrics"):
+        EvaluationManager._validate_config({'steps': [1], 'regression_targets': ['t']})
+
+
+def test_validate_config_classification_targets_without_metrics():
+    with pytest.raises(KeyError, match="classification_point_metrics"):
+        EvaluationManager._validate_config({'steps': [1], 'classification_targets': ['t']})
+
+
+def test_evaluate_target_not_in_config(mock_actual, mock_point_predictions):
+    manager = EvaluationManager()
+    config = {
+        'steps': [1, 2, 3],
+        'regression_targets': ['some_other_target'],
+        'regression_point_metrics': ['RMSLE'],
+    }
+    with pytest.raises(ValueError, match="not declared in config"):
+        manager.evaluate(mock_actual, mock_point_predictions, 'target', config)
+
+
+def test_evaluate_invalid_metric_for_task_type(mock_actual, mock_point_predictions):
+    """AP is a classification metric — declaring it under regression_point_metrics should raise."""
+    manager = EvaluationManager()
+    config = {
+        'steps': [1, 2, 3],
+        'regression_targets': ['target'],
+        'regression_point_metrics': ['AP'],  # AP is not a regression metric
+    }
+    with pytest.raises(ValueError, match="not valid for"):
+        manager.evaluate(mock_actual, mock_point_predictions, 'target', config)

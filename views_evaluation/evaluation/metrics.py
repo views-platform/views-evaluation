@@ -136,7 +136,7 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
 class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
     """
     A data class for storing and managing uncertainty evaluation metrics for time series forecasting models.
-    
+
     Attributes:
         CRPS (Optional[float]): Continuous Ranked Probability Score.
     """
@@ -149,4 +149,48 @@ class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
     Brier: Optional[float] = None
     Jeffreys: Optional[float] = None
     y_hat_bar: Optional[float] = None
-    
+
+
+# ---------------------------------------------------------------------------
+# New 2×2 dataclasses: {regression, classification} × {point, uncertainty}
+# These replace PointEvaluationMetrics and UncertaintyEvaluationMetrics for
+# all new code. The legacy classes above are retained for backward compat.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RegressionPointEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for regression targets evaluated with point predictions."""
+    MSE:       Optional[float] = None
+    MSLE:      Optional[float] = None
+    RMSLE:     Optional[float] = None
+    EMD:       Optional[float] = None
+    SD:        Optional[float] = None
+    pEMDiv:    Optional[float] = None
+    Pearson:   Optional[float] = None
+    Variogram: Optional[float] = None
+    MTD:       Optional[float] = None
+    y_hat_bar: Optional[float] = None
+
+
+@dataclass
+class RegressionUncertaintyEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for regression targets evaluated with distributional predictions."""
+    CRPS:      Optional[float] = None
+    MIS:       Optional[float] = None
+    Coverage:  Optional[float] = None
+    Ignorance: Optional[float] = None
+    y_hat_bar: Optional[float] = None
+
+
+@dataclass
+class ClassificationPointEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for classification targets evaluated with point (probability) predictions."""
+    AP: Optional[float] = None
+
+
+@dataclass
+class ClassificationUncertaintyEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for classification targets evaluated with distributional predictions."""
+    CRPS:     Optional[float] = None
+    Brier:    Optional[float] = None
+    Jeffreys: Optional[float] = None

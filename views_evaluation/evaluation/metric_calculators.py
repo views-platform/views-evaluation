@@ -110,16 +110,18 @@ def calculate_ap(
     matched_actual: pd.DataFrame,
     matched_pred: pd.DataFrame,
     target: str,
-    threshold=25,
 ) -> float:
     """
-    Calculate Average Precision (AP) for binary predictions with a threshold.
+    Calculate Average Precision (AP) for classification targets.
+
+    Actuals must be pre-binarised (0/1) by the model pipeline before reaching
+    the evaluator. Predictions should be probability scores in [0, 1].
+    No thresholding is applied here — that is the model pipeline's responsibility.
 
     Args:
-        matched_actual (pd.DataFrame): DataFrame containing actual values
-        matched_pred (pd.DataFrame): DataFrame containing predictions
+        matched_actual (pd.DataFrame): DataFrame with binary actual values (0/1)
+        matched_pred (pd.DataFrame): DataFrame with prediction probability scores
         target (str): The target column name
-        threshold (float): Threshold to convert predictions to binary values
 
     Returns:
         float: Average Precision score
@@ -131,10 +133,7 @@ def calculate_ap(
         actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
     )
 
-    actual_binary = (actual_expanded > threshold).astype(int)
-    pred_binary = (pred_values >= threshold).astype(int)
-
-    return average_precision_score(actual_binary, pred_binary)
+    return average_precision_score(actual_expanded, pred_values)
 
 
 def calculate_emd(
@@ -478,28 +477,44 @@ def calculate_mean_prediction(
     all_preds = np.concatenate([np.asarray(v).flatten() for v in matched_pred[f"pred_{target}"]])
     return np.mean(all_preds)
 
-POINT_METRIC_FUNCTIONS = {
-    "MSE": calculate_mse,
-    "MSLE": calculate_msle,
-    "RMSLE": calculate_rmsle,
-    "CRPS": calculate_crps,
-    "AP": calculate_ap,
-    "EMD": calculate_emd,
-    "SD": calculate_sd,
-    "pEMDiv": calculate_pEMDiv,
-    "Pearson": calculate_pearson,
-    "Variogram": calculate_variogram,
-    "MTD": calculate_mtd,
+REGRESSION_POINT_METRIC_FUNCTIONS = {
+    "MSE":       calculate_mse,
+    "MSLE":      calculate_msle,
+    "RMSLE":     calculate_rmsle,
+    "EMD":       calculate_emd,
+    "SD":        calculate_sd,         # raises NotImplementedError
+    "pEMDiv":    calculate_pEMDiv,     # raises NotImplementedError
+    "Pearson":   calculate_pearson,
+    "Variogram": calculate_variogram,  # raises NotImplementedError
+    "MTD":       calculate_mtd,
     "y_hat_bar": calculate_mean_prediction,
 }
 
-UNCERTAINTY_METRIC_FUNCTIONS = {
-    "CRPS": calculate_crps,
-    "MIS": calculate_mean_interval_score,
+REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS = {
+    "CRPS":      calculate_crps,
+    "MIS":       calculate_mean_interval_score,
+    "Coverage":  calculate_coverage,
     "Ignorance": calculate_ignorance_score,
-    "Brier": calculate_brier,
-    "Jeffreys": calculate_jeffreys,
-    "Coverage": calculate_coverage,
-    "pEMDiv": calculate_pEMDiv,
     "y_hat_bar": calculate_mean_prediction,
+}
+
+CLASSIFICATION_POINT_METRIC_FUNCTIONS = {
+    "AP": calculate_ap,
+}
+
+CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS = {
+    "CRPS":     calculate_crps,
+    "Brier":    calculate_brier,    # raises NotImplementedError
+    "Jeffreys": calculate_jeffreys, # raises NotImplementedError
+}
+
+# DEPRECATED — will be removed in a future minor version once all callers
+# have migrated to the four task-specific dicts above.
+POINT_METRIC_FUNCTIONS = {
+    **REGRESSION_POINT_METRIC_FUNCTIONS,
+    **CLASSIFICATION_POINT_METRIC_FUNCTIONS,
+}
+UNCERTAINTY_METRIC_FUNCTIONS = {
+    **REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+    **CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS,
 }

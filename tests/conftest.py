@@ -48,7 +48,11 @@ def mock_data_factory():
             predictions_list.append(preds)
 
         # 3. Config
-        config = {'steps': list(range(1, num_steps + 1))}
+        config = {
+            'steps': list(range(1, num_steps + 1)),
+            'regression_targets': [target_name],
+            'regression_point_metrics': ['MSE', 'RMSLE', 'Pearson'],
+        }
 
         return actuals, predictions_list, target_name, config
 

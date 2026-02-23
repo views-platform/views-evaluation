@@ -9,6 +9,7 @@ import pandas as pd
 from unittest.mock import MagicMock, patch
 
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
+from views_evaluation.evaluation.metrics import RegressionPointEvaluationMetrics
 
 @pytest.fixture
 def schema_test_data():
@@ -83,12 +84,17 @@ def test_step_wise_schema_grouping(schema_test_data):
     Verify that step-wise evaluation groups data by forecast horizon (diagonals).
     """
     actuals, preds, target, config = schema_test_data
-    manager = EvaluationManager(metrics_list=["RMSLE"])
+    manager = EvaluationManager()
     mock_metric_func = MagicMock()
 
-    with patch.dict(manager.point_metric_functions, {"RMSLE": mock_metric_func}):
+    with patch.dict(manager.regression_point_functions, {"RMSLE": mock_metric_func}):
         actuals, preds = manager._process_data(actuals, preds, target)
-        manager.step_wise_evaluation(actuals, preds, target, config["steps"], is_uncertainty=False)
+        manager.step_wise_evaluation(
+            actuals, preds, target, config["steps"],
+            metrics_list=["RMSLE"],
+            metric_functions=manager.regression_point_functions,
+            metrics_cls=RegressionPointEvaluationMetrics,
+        )
 
     # Expected groupings for steps (diagonals of the parallelogram)
     expected_step_months = {
@@ -115,12 +121,17 @@ def test_time_series_wise_schema_grouping(schema_test_data):
     Verify that time-series-wise evaluation groups data by forecast run (columns).
     """
     actuals, preds, target, config = schema_test_data
-    manager = EvaluationManager(metrics_list=["RMSLE"])
+    manager = EvaluationManager()
     mock_metric_func = MagicMock()
 
-    with patch.dict(manager.point_metric_functions, {"RMSLE": mock_metric_func}):
+    with patch.dict(manager.regression_point_functions, {"RMSLE": mock_metric_func}):
         actuals, preds = manager._process_data(actuals, preds, target)
-        manager.time_series_wise_evaluation(actuals, preds, target, is_uncertainty=False)
+        manager.time_series_wise_evaluation(
+            actuals, preds, target,
+            metrics_list=["RMSLE"],
+            metric_functions=manager.regression_point_functions,
+            metrics_cls=RegressionPointEvaluationMetrics,
+        )
 
     # Expected groupings for time-series (columns of the parallelogram)
     expected_ts_months = {
@@ -145,12 +156,17 @@ def test_month_wise_schema_grouping(schema_test_data):
     Verify that month-wise evaluation groups data by calendar month (rows).
     """
     actuals, preds, target, config = schema_test_data
-    manager = EvaluationManager(metrics_list=["RMSLE"])
+    manager = EvaluationManager()
     mock_metric_func = MagicMock()
 
-    with patch.dict(manager.point_metric_functions, {"RMSLE": mock_metric_func}):
+    with patch.dict(manager.regression_point_functions, {"RMSLE": mock_metric_func}):
         actuals, preds = manager._process_data(actuals, preds, target)
-        manager.month_wise_evaluation(actuals, preds, target, is_uncertainty=False)
+        manager.month_wise_evaluation(
+            actuals, preds, target,
+            metrics_list=["RMSLE"],
+            metric_functions=manager.regression_point_functions,
+            metrics_cls=RegressionPointEvaluationMetrics,
+        )
 
     # For month-wise, each call corresponds to one month.
     # We check that each month was called and that the data in the call is correct.
@@ -175,4 +191,3 @@ def test_month_wise_schema_grouping(schema_test_data):
     assert len(observed_calls[102]) == 6
     # Month 105: Only from sequence 2 (2 locations)
     assert len(observed_calls[105]) == 2
-

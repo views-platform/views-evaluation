@@ -42,7 +42,11 @@ def adversarial_data_factory(mock_data_factory):
         predictions_list.append(preds)
 
         # 3. Config
-        config = {'steps': list(range(1, num_steps + 1))}
+        config = {
+            'steps': list(range(1, num_steps + 1)),
+            'regression_targets': [target_name],
+            'regression_point_metrics': ['RMSLE'],
+        }
 
         return actuals, predictions_list, target_name, config
 
@@ -65,7 +69,7 @@ class TestAdversarialInputs:
             actuals_value=np.nan,
             predictions_value=[[10.0]]
         )
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         with pytest.raises(ValueError, match="Input contains NaN"):
@@ -86,7 +90,7 @@ class TestAdversarialInputs:
             actuals_value=10.0,
             predictions_value=[[np.nan]]
         )
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         with pytest.raises(ValueError, match="Input contains NaN"):
@@ -107,7 +111,7 @@ class TestAdversarialInputs:
             actuals_value=np.inf,
             predictions_value=[[10.0]]
         )
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         with pytest.raises(ValueError, match="Input contains infinity"):
@@ -128,7 +132,7 @@ class TestAdversarialInputs:
             actuals_value=10.0,
             predictions_value=[[np.inf]]
         )
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         with pytest.raises(ValueError, match="Input contains infinity"):
@@ -147,7 +151,7 @@ class TestAdversarialInputs:
         # Arrange
         actuals, _, target, config = adversarial_data_factory()
         empty_predictions = []
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         with pytest.raises(ValueError, match="No objects to concatenate"):
@@ -166,7 +170,7 @@ class TestAdversarialInputs:
         # Arrange
         _, predictions, target, config = adversarial_data_factory()
         empty_actuals = pd.DataFrame()
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         with pytest.raises(KeyError):
@@ -196,7 +200,7 @@ class TestAdversarialInputs:
         preds = pd.DataFrame({pred_col_name: [[10.0]] * 2}, index=preds_index)
         predictions_non_overlapping = [preds]
         
-        manager = EvaluationManager(metrics_list=['RMSLE'])
+        manager = EvaluationManager()
 
         # Act & Assert
         with pytest.raises(ValueError, match="need at least one array to concatenate"):
