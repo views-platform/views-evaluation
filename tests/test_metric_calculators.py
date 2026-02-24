@@ -1,6 +1,5 @@
 import pytest
 import pandas as pd
-import numpy as np
 from views_evaluation.evaluation.metric_calculators import (
     calculate_mse,
     calculate_rmsle,
@@ -13,7 +12,11 @@ from views_evaluation.evaluation.metric_calculators import (
     calculate_mean_interval_score,
     calculate_mtd,
     POINT_METRIC_FUNCTIONS,
-    UNCERTAINTY_METRIC_FUNCTIONS,
+    SAMPLE_METRIC_FUNCTIONS,
+    REGRESSION_POINT_METRIC_FUNCTIONS,
+    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+    CLASSIFICATION_POINT_METRIC_FUNCTIONS,
+    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
 )
 
 
@@ -30,8 +33,8 @@ def sample_data():
 
 
 @pytest.fixture
-def sample_uncertainty_data():
-    """Create sample uncertainty data for testing."""
+def sample_sample_data():
+    """Create sample sample data for testing."""
     actual = pd.DataFrame({
         'target': [[1.0], [2.0], [3.0], [4.0]]
     })
@@ -63,18 +66,20 @@ def test_calculate_crps_point(sample_data):
     assert result >= 0
 
 
-def test_calculate_crps_uncertainty(sample_uncertainty_data):
+def test_calculate_crps_sample(sample_sample_data):
     """Test CRPS calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_crps(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_ap(sample_data):
-    """Test Average Precision calculation."""
-    actual, pred = sample_data
-    result = calculate_ap(actual, pred, 'target', threshold=2.5)
+def test_calculate_ap():
+    """Test Average Precision calculation with pre-binarised actuals and probability scores."""
+    # Binary actuals (0/1) and probability scores as predictions
+    actual = pd.DataFrame({'target': [[1], [0], [1], [0]]})
+    pred = pd.DataFrame({'pred_target': [[0.9], [0.4], [0.3], [0.1]]})
+    result = calculate_ap(actual, pred, 'target')
     assert isinstance(result, float)
     assert 0 <= result <= 1
 
@@ -110,62 +115,109 @@ def test_calculate_mtd_with_power(sample_data):
     result_15 = calculate_mtd(actual, pred, 'target', power=1.5)
     assert isinstance(result_15, float)
     assert result_15 >= 0
-    
+
     # Test with power=2 (Gamma)
     result_2 = calculate_mtd(actual, pred, 'target', power=2.0)
     assert isinstance(result_2, float)
     assert result_2 >= 0
 
 
-def test_calculate_coverage_uncertainty(sample_uncertainty_data):
+def test_calculate_coverage_sample(sample_sample_data):
     """Test Coverage calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_coverage(actual, pred, 'target')
     assert isinstance(result, float)
     assert 0 <= result <= 1
 
 
-def test_calculate_ignorance_score_uncertainty(sample_uncertainty_data):
+def test_calculate_ignorance_score_sample(sample_sample_data):
     """Test Ignorance Score calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_ignorance_score(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_mis_uncertainty(sample_uncertainty_data):
+def test_calculate_mis_sample(sample_sample_data):
     """Test Mean Interval Score calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_mean_interval_score(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
 def test_point_metric_functions():
-    """Test that all point metric functions are available."""
+    """Test that all point metric functions are available in the deprecated POINT_METRIC_FUNCTIONS."""
     expected_metrics = [
-        "MSE", "MSLE", "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
+        "MSE", "MSLE", "RMSLE", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
     ]
-    
+
     for metric in expected_metrics:
         assert metric in POINT_METRIC_FUNCTIONS
         assert callable(POINT_METRIC_FUNCTIONS[metric])
 
 
-def test_uncertainty_metric_functions():
-    """Test that all uncertainty metric functions are available."""
+def test_sample_metric_functions():
+    """Test that all sample metric functions are available in the deprecated SAMPLE_METRIC_FUNCTIONS."""
     expected_metrics = ["CRPS", "MIS", "Ignorance", "Brier", "Jeffreys", "Coverage"]
-    
+
     for metric in expected_metrics:
-        assert metric in UNCERTAINTY_METRIC_FUNCTIONS
-        assert callable(UNCERTAINTY_METRIC_FUNCTIONS[metric])
+        assert metric in SAMPLE_METRIC_FUNCTIONS
+        assert callable(SAMPLE_METRIC_FUNCTIONS[metric])
+
+
+def test_regression_point_metric_functions():
+    """Test that all regression point metric functions are available in REGRESSION_POINT_METRIC_FUNCTIONS."""
+    expected_metrics = ["MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"]
+
+    for metric in expected_metrics:
+        assert metric in REGRESSION_POINT_METRIC_FUNCTIONS
+        assert callable(REGRESSION_POINT_METRIC_FUNCTIONS[metric])
+
+    # AP must NOT be in regression point functions
+    assert "AP" not in REGRESSION_POINT_METRIC_FUNCTIONS
+    # CRPS must NOT be in regression point functions
+    assert "CRPS" not in REGRESSION_POINT_METRIC_FUNCTIONS
+
+
+def test_regression_sample_metric_functions():
+    """Test that all regression sample metric functions are available."""
+    expected_metrics = ["CRPS", "MIS", "Coverage", "Ignorance", "y_hat_bar"]
+
+    for metric in expected_metrics:
+        assert metric in REGRESSION_SAMPLE_METRIC_FUNCTIONS
+        assert callable(REGRESSION_SAMPLE_METRIC_FUNCTIONS[metric])
+
+    # AP must NOT be in regression sample functions
+    assert "AP" not in REGRESSION_SAMPLE_METRIC_FUNCTIONS
+
+
+def test_classification_point_metric_functions():
+    """Test that AP is in CLASSIFICATION_POINT_METRIC_FUNCTIONS."""
+    assert "AP" in CLASSIFICATION_POINT_METRIC_FUNCTIONS
+    assert callable(CLASSIFICATION_POINT_METRIC_FUNCTIONS["AP"])
+
+    # RMSLE must NOT be in classification point functions
+    assert "RMSLE" not in CLASSIFICATION_POINT_METRIC_FUNCTIONS
+
+
+def test_classification_sample_metric_functions():
+    """Test that classification sample metric functions are available."""
+    expected_metrics = ["CRPS", "Brier", "Jeffreys"]
+
+    for metric in expected_metrics:
+        assert metric in CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
+        assert callable(CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS[metric])
+
+    # RMSLE must NOT be in classification sample functions
+    assert "RMSLE" not in CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
 
 
 def test_not_implemented_metrics():
     """Test that unimplemented metrics raise NotImplementedError."""
     actual = pd.DataFrame({'target': [[1.0]]})
     pred = pd.DataFrame({'pred_target': [[1.0]]})
-    
+
     from views_evaluation.evaluation.metric_calculators import (
         calculate_brier,
         calculate_jeffreys,
@@ -173,7 +225,7 @@ def test_not_implemented_metrics():
         calculate_pEMDiv,
         calculate_variogram,
     )
-    
+
     unimplemented_functions = [
         calculate_brier,
         calculate_jeffreys,
@@ -181,7 +233,7 @@ def test_not_implemented_metrics():
         calculate_pEMDiv,
         calculate_variogram,
     ]
-    
+
     for func in unimplemented_functions:
         with pytest.raises(NotImplementedError):
-            func(actual, pred, 'target') 
+            func(actual, pred, 'target')

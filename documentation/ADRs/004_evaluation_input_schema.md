@@ -26,7 +26,7 @@ Both the actual and prediction DataFrames must use a multi-index of `(month_id, 
 
 The number of prediction DataFrames is flexible. However, the standard practice is to evaluate **12 sequences**. When more than two predictions are provided, the evaluation will behave similarly to a **rolling origin evaluation** with a **fixed holdout size of 1**. For further reference, see the [ADR 002](https://github.com/views-platform/views-evaluation/blob/main/documentation/ADRs/002_evaluation_strategy.md) on rolling origin methodology.
 
-The class automatically determines the evaluation type (point or uncertainty) and aligns `month_id` values between the actuals and each prediction. By default, the evaluation is performed **month-wise**, **step-wise**, **time-series-wise** (more information in [ADR 003](https://github.com/views-platform/views-evaluation/blob/main/documentation/ADRs/003_metric_calculation.md))
+The class automatically determines the evaluation type (point or sample) and aligns `month_id` values between the actuals and each prediction. By default, the evaluation is performed **month-wise**, **step-wise**, **time-series-wise** (more information in [ADR 003](https://github.com/views-platform/views-evaluation/blob/main/documentation/ADRs/003_metric_calculation.md))
 
 
 ## Consequences

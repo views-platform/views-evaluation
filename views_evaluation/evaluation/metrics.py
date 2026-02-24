@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, Optional
+from typing import Optional
 from dataclasses import dataclass
 import pandas as pd
 
@@ -133,10 +133,10 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
 
   
 @dataclass
-class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
+class SampleEvaluationMetrics(BaseEvaluationMetrics):
     """
-    A data class for storing and managing uncertainty evaluation metrics for time series forecasting models.
-    
+    A data class for storing and managing sample-based evaluation metrics for time series forecasting models.
+
     Attributes:
         CRPS (Optional[float]): Continuous Ranked Probability Score.
     """
@@ -149,4 +149,48 @@ class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
     Brier: Optional[float] = None
     Jeffreys: Optional[float] = None
     y_hat_bar: Optional[float] = None
-    
+
+
+# ---------------------------------------------------------------------------
+# New 2×2 dataclasses: {regression, classification} × {point, sample}
+# These replace PointEvaluationMetrics and SampleEvaluationMetrics for
+# all new code. The legacy classes above are retained for backward compat.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RegressionPointEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for regression targets evaluated with point predictions."""
+    MSE:       Optional[float] = None
+    MSLE:      Optional[float] = None
+    RMSLE:     Optional[float] = None
+    EMD:       Optional[float] = None
+    SD:        Optional[float] = None
+    pEMDiv:    Optional[float] = None
+    Pearson:   Optional[float] = None
+    Variogram: Optional[float] = None
+    MTD:       Optional[float] = None
+    y_hat_bar: Optional[float] = None
+
+
+@dataclass
+class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for regression targets evaluated with sample-based predictions."""
+    CRPS:      Optional[float] = None
+    MIS:       Optional[float] = None
+    Coverage:  Optional[float] = None
+    Ignorance: Optional[float] = None
+    y_hat_bar: Optional[float] = None
+
+
+@dataclass
+class ClassificationPointEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for classification targets evaluated with point (probability) predictions."""
+    AP: Optional[float] = None
+
+
+@dataclass
+class ClassificationSampleEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for classification targets evaluated with sample-based predictions."""
+    CRPS:     Optional[float] = None
+    Brier:    Optional[float] = None
+    Jeffreys: Optional[float] = None

@@ -14,6 +14,10 @@ In the context of the VIEWS pipeline, it is necessary to evaluate the models usi
 
 
 ## Decision
+> **Note:** This ADR reflects the architectural goal. As of Jan 2026, several metrics are defined in the ADR but not yet implemented in the code.
+> - **Not Implemented:** `Sinkhorn Distance (SD)`, `pEMDiv`, `Variogram`, `Brier Score`, `Jeffreys Divergence`.
+> This discrepancy should be resolved in a future development cycle.
+
 Below are the evaluation metrics that will be used to assess the performance of models in the VIEWS pipeline:
 
 | Metric                              | Abbreviation          | Task             | Notes                                                                            |
@@ -45,7 +49,7 @@ The selected metrics are designed to address the unique characteristics of confl
 Relying solely on traditional error metrics such as MSE (MSLE) can result in poor performance on relevant tasks like identifying onsets of conflict.
 
 Using a mix of probabilistic and point-based metrics will allow us to:
-- Better capture the range of possible outcomes and assess predictions in terms of uncertainty.
+- Better capture the range of possible outcomes and assess predictions in terms of sample.
 - Focus evaluation on onsets of conflict, which are often the most critical and hardest to predict.
 - Ensure consistency and calibration across different spatial and temporal resolutions, from grid-level to country-level predictions.
 

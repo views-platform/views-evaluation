@@ -1,15 +1,19 @@
-from typing import List, Dict, Tuple, Optional
+from typing import List, Tuple
 import logging
 import pandas as pd
 import numpy as np
 from views_evaluation.evaluation.metrics import (
     BaseEvaluationMetrics,
-    PointEvaluationMetrics,
-    UncertaintyEvaluationMetrics,
+    RegressionPointEvaluationMetrics,
+    RegressionSampleEvaluationMetrics,
+    ClassificationPointEvaluationMetrics,
+    ClassificationSampleEvaluationMetrics,
 )
 from views_evaluation.evaluation.metric_calculators import (
-    POINT_METRIC_FUNCTIONS,
-    UNCERTAINTY_METRIC_FUNCTIONS,
+    REGRESSION_POINT_METRIC_FUNCTIONS,
+    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+    CLASSIFICATION_POINT_METRIC_FUNCTIONS,
+    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,48 +25,44 @@ class EvaluationManager:
     Refer to https://github.com/prio-data/views_pipeline/blob/eval_docs/documentation/evaluation/schema.MD for more details on three evaluation schemas.
     """
 
-    def __init__(self, metrics_list: list):
+    def __init__(self):
         """
-        Initialize the manager with a list of metric names to calculate.
+        Initialize the EvaluationManager.
 
-        Args:
-            metrics_list (List[str]): A list of metric names to evaluate.
+        Metrics to compute and targets to evaluate are declared in the config
+        passed to evaluate(). No metric list is accepted here.
         """
 
-        self.metrics_list = metrics_list
-        self.point_metric_functions = POINT_METRIC_FUNCTIONS
-        self.uncertainty_metric_functions = UNCERTAINTY_METRIC_FUNCTIONS
+        self.regression_point_functions           = REGRESSION_POINT_METRIC_FUNCTIONS
+        self.regression_sample_functions          = REGRESSION_SAMPLE_METRIC_FUNCTIONS
+        self.classification_point_functions       = CLASSIFICATION_POINT_METRIC_FUNCTIONS
+        self.classification_sample_functions      = CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
 
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
         """
-        Transform the data.
+        DEPRECATED. Apply legacy inverse transformations based on target name prefix.
+
+        This method will be removed once all model repos have migrated to returning
+        predictions on the original scale. Do not add new logic here.
         """
         if isinstance(target, str):
             target = [target]
         for t in target:
             if t.startswith("ln") or t.startswith("pred_ln"):
-                df[[t]] = df[[t]].applymap(
-                    lambda x: (
-                        np.exp(x) - 1
-                        if isinstance(x, (list, np.ndarray))
-                        else np.exp(x) - 1
-                    )
-                )
+                df[[t]] = df[[t]].applymap(lambda x: np.exp(x) - 1)
             elif t.startswith("lx") or t.startswith("pred_lx"):
-                df[[t]] = df[[t]].applymap(
-                    lambda x: (
-                        np.exp(x) - np.exp(100)
-                        if isinstance(x, (list, np.ndarray))
-                        else np.exp(x) - np.exp(100)
-                    )
-                )
+                df[[t]] = df[[t]].applymap(lambda x: np.exp(x) - np.exp(100))
             elif t.startswith("lr") or t.startswith("pred_lr"):
-                df[[t]] = df[[t]].applymap(
-                    lambda x: x if isinstance(x, (list, np.ndarray)) else x
-                )
+                pass  # identity — lr_ targets are already on the original scale
             else:
-                raise ValueError(f"Target {t} is not a valid target")
+                logger.warning(
+                    f"transform_data: unrecognised prefix for target '{t}'. "
+                    "Applying identity (no transformation). "
+                    "If this target requires inverse transformation it must be applied "
+                    "by the model manager before calling evaluate(). "
+                    "This fallback will be removed when transform_data is deprecated."
+                )
         return df
 
     @staticmethod
@@ -108,22 +108,22 @@ class EvaluationManager:
     def get_evaluation_type(predictions: List[pd.DataFrame], target: str) -> bool:
         """
         Validates the values in each DataFrame in the list.
-        The return value indicates whether all DataFrames are for uncertainty evaluation.
+        The return value indicates whether all DataFrames are for sample evaluation.
 
         Args:
             predictions (List[pd.DataFrame]): A list of DataFrames to check.
 
         Returns:
-            bool: True if all DataFrames are for uncertainty evaluation,
+            bool: True if all DataFrames are for sample evaluation,
                   False if all DataFrame are for point evaluation.
 
         Raises:
             ValueError: If there is a mix of single and multiple values in the lists,
                       or if uncertainty lists have different lengths.
         """
-        is_uncertainty = False
+        is_sample = False
         is_point = False
-        uncertainty_length = None
+        sample_length = None
 
         for df in predictions:
             for value in df[target].values.flatten():
@@ -133,27 +133,27 @@ class EvaluationManager:
                     )
 
                 if len(value) > 1:
-                    is_uncertainty = True
-                    # For uncertainty evaluation, check that all lists have the same length
-                    if uncertainty_length is None:
-                        uncertainty_length = len(value)
-                    elif len(value) != uncertainty_length:
+                    is_sample = True
+                    # For sample evaluation, check that all lists have the same length
+                    if sample_length is None:
+                        sample_length = len(value)
+                    elif len(value) != sample_length:
                         raise ValueError(
-                            f"Inconsistent list lengths in uncertainty evaluation. "
-                            f"Found lengths {uncertainty_length} and {len(value)}"
+                            f"Inconsistent list lengths in sample evaluation. "
+                            f"Found lengths {sample_length} and {len(value)}"
                         )
                 elif len(value) == 1:
                     is_point = True
                 else:
                     raise ValueError("Empty lists are not allowed")
 
-        if is_uncertainty and is_point:
+        if is_sample and is_point:
             raise ValueError(
                 "Mix of evaluation types detected: some rows contain single values, others contain multiple values. "
                 "Please ensure all rows are consistent in their evaluation type"
             )
 
-        return is_uncertainty
+        return is_sample
 
     @staticmethod
     def validate_predictions(predictions: List[pd.DataFrame], target: str):
@@ -166,17 +166,26 @@ class EvaluationManager:
             target (str): The target column in the actual DataFrame.
         """
         pred_column_name = f"pred_{target}"
+
         if not isinstance(predictions, list):
             raise TypeError("Predictions must be a list of DataFrames.")
 
         for i, df in enumerate(predictions):
+            
             if not isinstance(df, pd.DataFrame):
                 raise TypeError(f"Predictions[{i}] must be a DataFrame.")
+            
             if df.empty:
                 raise ValueError(f"Predictions[{i}] must not be empty.")
+            
+            if len(df.columns) != 1:
+                raise ValueError(
+                    f"Predictions[{i}] must contain exactly one column, but found {len(df.columns)}: {list(df.columns)}" # <--------
+                )
+
             if pred_column_name not in df.columns:
                 raise ValueError(
-                    f"Predictions[{i}] must contain the column named '{pred_column_name}'."
+                    f"Predictions[{i}] must contain the column named '{pred_column_name}'. Columns found: {list(df.columns)}"
                 )
 
     @staticmethod
@@ -229,8 +238,7 @@ class EvaluationManager:
         grouped_month_ids = list(zip(*all_month_ids))
 
         result_dfs = []
-        for i, group in enumerate(grouped_month_ids):
-            step = i + 1
+        for group in grouped_month_ids:
             combined = pd.concat(
                 [df.loc[month_id] for df, month_id in zip(dfs, group)],
                 keys=group,
@@ -258,13 +266,86 @@ class EvaluationManager:
         ]
         return actual, predictions
 
+    @staticmethod
+    def _normalise_config(config: dict) -> dict:
+        """
+        Translate legacy config keys to canonical keys, warning loudly.
+
+        Legacy key 'targets' → 'regression_targets'
+        Legacy key 'metrics' → 'regression_point_metrics'
+        Legacy key 'regression_uncertainty_metrics' → 'regression_sample_metrics'
+        Legacy key 'classification_uncertainty_metrics' → 'classification_sample_metrics'
+        """
+        canonical = config.copy()
+        if "targets" in config and "regression_targets" not in config:
+            logger.warning(
+                "Config key 'targets' is DEPRECATED and will be rejected in a future "
+                "version. It has been treated as 'regression_targets'. "
+                "Update your config."
+            )
+            canonical["regression_targets"] = canonical.pop("targets")
+        if "metrics" in config and "regression_point_metrics" not in config:
+            logger.warning(
+                "Config key 'metrics' is DEPRECATED and will be rejected in a future "
+                "version. It has been treated as 'regression_point_metrics'. "
+                "Update your config."
+            )
+            canonical["regression_point_metrics"] = canonical.pop("metrics")
+
+        if "regression_uncertainty_metrics" in config and "regression_sample_metrics" not in config:
+            logger.warning(
+                "Config key 'regression_uncertainty_metrics' is DEPRECATED and will be rejected in a future "
+                "version. It has been treated as 'regression_sample_metrics'. "
+                "Update your config."
+            )
+            canonical["regression_sample_metrics"] = canonical.pop("regression_uncertainty_metrics")
+
+        if "classification_uncertainty_metrics" in config and "classification_sample_metrics" not in config:
+            logger.warning(
+                "Config key 'classification_uncertainty_metrics' is DEPRECATED and will be rejected in a future "
+                "version. It has been treated as 'classification_sample_metrics'. "
+                "Update your config."
+            )
+            canonical["classification_sample_metrics"] = canonical.pop("classification_uncertainty_metrics")
+
+        return canonical
+
+    @staticmethod
+    def _validate_config(config: dict) -> None:
+        """
+        Fail loud and fast on an invalid or incomplete config.
+
+        Raises KeyError if required keys are absent.
+        """
+        if "steps" not in config:
+            raise KeyError("Config must contain 'steps'.")
+        has_regression     = bool(config.get("regression_targets"))
+        has_classification = bool(config.get("classification_targets"))
+        if not has_regression and not has_classification:
+            raise KeyError(
+                "Config must declare at least one of 'regression_targets' or "
+                "'classification_targets'."
+            )
+        if has_regression and "regression_point_metrics" not in config:
+            raise KeyError(
+                "Config declares 'regression_targets' but is missing "
+                "'regression_point_metrics'."
+            )
+        if has_classification and "classification_point_metrics" not in config:
+            raise KeyError(
+                "Config declares 'classification_targets' but is missing "
+                "'classification_point_metrics'."
+            )
+
     def step_wise_evaluation(
         self,
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
         target: str,
         steps: List[int],
-        is_uncertainty: bool,
+        metrics_list: List[str],
+        metric_functions: dict,
+        metrics_cls: type,
         **kwargs,
     ):
         """
@@ -275,24 +356,14 @@ class EvaluationManager:
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
             steps (List[int]): The steps to evaluate.
-            is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
+            metrics_list (List[str]): Metrics to compute, declared in config.
+            metric_functions (dict): Dispatch dict for the resolved task/pred type.
+            metrics_cls (type): Dataclass to use for result storage.
 
         Returns:
             Tuple: A tuple containing the evaluation dictionary and the evaluation DataFrame.
         """
-        if is_uncertainty:
-            evaluation_dict = (
-                UncertaintyEvaluationMetrics.make_step_wise_evaluation_dict(
-                    steps=max(steps)
-                )
-            )
-            metric_functions = self.uncertainty_metric_functions
-        else:
-            evaluation_dict = PointEvaluationMetrics.make_step_wise_evaluation_dict(
-                steps=max(steps)
-            )
-            metric_functions = self.point_metric_functions
-
+        evaluation_dict = metrics_cls.make_step_wise_evaluation_dict(steps=max(steps))
         result_dfs = EvaluationManager._split_dfs_by_step(predictions)
 
         step_matched_data = {}
@@ -303,21 +374,18 @@ class EvaluationManager:
             )
             step_matched_data[step] = (matched_actual, matched_pred)
 
-        for metric in self.metrics_list:
-            if metric in metric_functions:
-                for step, (matched_actual, matched_pred) in step_matched_data.items():
-                    evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
-                        metric,
-                        metric_functions[metric](
-                            matched_actual, matched_pred, target, **kwargs
-                        ),
-                    )
-            else:
-                logger.warning(f"Metric {metric} is not a default metric, skipping...")
+        for metric in metrics_list:
+            for step, (matched_actual, matched_pred) in step_matched_data.items():
+                evaluation_dict[f"step{str(step).zfill(2)}"].__setattr__(
+                    metric,
+                    metric_functions[metric](
+                        matched_actual, matched_pred, target, **kwargs
+                    ),
+                )
 
         return (
             evaluation_dict,
-            PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
+            metrics_cls.evaluation_dict_to_dataframe(evaluation_dict),
         )
 
     def time_series_wise_evaluation(
@@ -325,7 +393,9 @@ class EvaluationManager:
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
         target: str,
-        is_uncertainty: bool,
+        metrics_list: List[str],
+        metric_functions: dict,
+        metrics_cls: type,
         **kwargs,
     ):
         """
@@ -335,25 +405,16 @@ class EvaluationManager:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
-            is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
+            metrics_list (List[str]): Metrics to compute, declared in config.
+            metric_functions (dict): Dispatch dict for the resolved task/pred type.
+            metrics_cls (type): Dataclass to use for result storage.
 
         Returns:
             Tuple: A tuple containing the evaluation dictionary and the evaluation DataFrame.
         """
-        if is_uncertainty:
-            evaluation_dict = (
-                UncertaintyEvaluationMetrics.make_time_series_wise_evaluation_dict(
-                    len(predictions)
-                )
-            )
-            metric_functions = self.uncertainty_metric_functions
-        else:
-            evaluation_dict = (
-                PointEvaluationMetrics.make_time_series_wise_evaluation_dict(
-                    len(predictions)
-                )
-            )
-            metric_functions = self.point_metric_functions
+        evaluation_dict = metrics_cls.make_time_series_wise_evaluation_dict(
+            len(predictions)
+        )
 
         ts_matched_data = {}
         for i, pred in enumerate(predictions):
@@ -362,21 +423,18 @@ class EvaluationManager:
             )
             ts_matched_data[i] = (matched_actual, matched_pred)
 
-        for metric in self.metrics_list:
-            if metric in metric_functions:
-                for i, (matched_actual, matched_pred) in ts_matched_data.items():
-                    evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
-                        metric,
-                        metric_functions[metric](
-                            matched_actual, matched_pred, target, **kwargs
-                        ),
-                    )
-            else:
-                logger.warning(f"Metric {metric} is not a default metric, skipping...")
+        for metric in metrics_list:
+            for i, (matched_actual, matched_pred) in ts_matched_data.items():
+                evaluation_dict[f"ts{str(i).zfill(2)}"].__setattr__(
+                    metric,
+                    metric_functions[metric](
+                        matched_actual, matched_pred, target, **kwargs
+                    ),
+                )
 
         return (
             evaluation_dict,
-            PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
+            metrics_cls.evaluation_dict_to_dataframe(evaluation_dict),
         )
 
     def month_wise_evaluation(
@@ -384,7 +442,9 @@ class EvaluationManager:
         actual: pd.DataFrame,
         predictions: List[pd.DataFrame],
         target: str,
-        is_uncertainty: bool,
+        metrics_list: List[str],
+        metric_functions: dict,
+        metrics_cls: type,
         **kwargs,
     ):
         """
@@ -394,7 +454,9 @@ class EvaluationManager:
             actual (pd.DataFrame): The actual values.
             predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
             target (str): The target column in the actual DataFrame.
-            is_uncertainty (bool): Flag to indicate if the evaluation is for uncertainty.
+            metrics_list (List[str]): Metrics to compute, declared in config.
+            metric_functions (dict): Dispatch dict for the resolved task/pred type.
+            metrics_cls (type): Dataclass to use for result storage.
 
         Returns:
             Tuple: A tuple containing the evaluation dictionary and the evaluation DataFrame.
@@ -402,45 +464,32 @@ class EvaluationManager:
         pred_concat = pd.concat(predictions)
         month_range = pred_concat.index.get_level_values(0).unique()
         month_start = int(month_range.min())
-        month_end = int(month_range.max()) 
+        month_end   = int(month_range.max())
 
-        if is_uncertainty:
-            evaluation_dict = (
-                UncertaintyEvaluationMetrics.make_month_wise_evaluation_dict(
-                    month_start, month_end
-                )
-            )
-            metric_functions = self.uncertainty_metric_functions
-        else:
-            evaluation_dict = PointEvaluationMetrics.make_month_wise_evaluation_dict(
-                month_start, month_end
-            )
-            metric_functions = self.point_metric_functions
+        evaluation_dict = metrics_cls.make_month_wise_evaluation_dict(
+            month_start, month_end
+        )
 
         matched_actual, matched_pred = EvaluationManager._match_actual_pred(
             actual, pred_concat, target
         )
-        # matched_concat = pd.merge(matched_actual, matched_pred, left_index=True, right_index=True)
-        
+
         g = matched_pred.groupby(level=matched_pred.index.names[0], sort=False, observed=True)
         groups = g.indices  # dict: {month -> np.ndarray of row positions}
 
-        for metric in self.metrics_list:
-            if metric in metric_functions:
-                for month, pos in groups.items():
-                    value = metric_functions[metric](
-                        matched_actual.iloc[pos],
-                        matched_pred.iloc[pos],
-                        target,
-                        **kwargs,
-                    )
-                    evaluation_dict[f"month{str(month)}"].__setattr__(metric, value)
-            else:
-                logger.warning(f"Metric {metric} is not a default metric, skipping...")
-      
+        for metric in metrics_list:
+            for month, pos in groups.items():
+                value = metric_functions[metric](
+                    matched_actual.iloc[pos],
+                    matched_pred.iloc[pos],
+                    target,
+                    **kwargs,
+                )
+                evaluation_dict[f"month{str(month)}"].__setattr__(metric, value)
+
         return (
             evaluation_dict,
-            PointEvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict),
+            metrics_cls.evaluation_dict_to_dataframe(evaluation_dict),
         )
 
     def evaluate(
@@ -452,35 +501,82 @@ class EvaluationManager:
         **kwargs,
     ):
         """
-        Evaluates the predictions and calculates the specified point metrics.
+        Evaluate predictions for a single target.
+
+        Task type (regression / classification) is read from config.
+        Prediction type (point / sample) is detected from data shape.
 
         Args:
-            actual (pd.DataFrame): The actual values.
-            predictions (List[pd.DataFrame]): A list of DataFrames containing the predictions.
-            target (str): The target column in the actual DataFrame.
-            config (dict): The configuration dictionary.
+            actual (pd.DataFrame): Actuals in evaluation-ready form.
+            predictions (List[pd.DataFrame]): Predictions in evaluation-ready form.
+            target (str): The target column name, must be declared in config.
+            config (dict): Evaluation configuration. See _normalise_config and
+                _validate_config for the expected schema.
         """
+        config = EvaluationManager._normalise_config(config)
+        EvaluationManager._validate_config(config)
         EvaluationManager.validate_predictions(predictions, target)
+
+        # Determine task type from config — never inferred
+        regression_targets     = config.get("regression_targets", [])
+        classification_targets = config.get("classification_targets", [])
+
+        if target in regression_targets:
+            task_type = "regression"
+        elif target in classification_targets:
+            task_type = "classification"
+        else:
+            raise ValueError(
+                f"Target '{target}' is not declared in config under "
+                "'regression_targets' or 'classification_targets'."
+            )
+
+        # Determine prediction type from data shape — structural inference, legitimate
         self.actual, self.predictions = self._process_data(actual, predictions, target)
-        self.is_uncertainty = EvaluationManager.get_evaluation_type(
+        self.is_sample = EvaluationManager.get_evaluation_type(
             self.predictions, f"pred_{target}"
         )
+        pred_type = "sample" if self.is_sample else "point"
+
+        # Select the correct metric functions dict, declared metric list, and dataclass
+        if task_type == "regression" and pred_type == "point":
+            metric_functions = self.regression_point_functions
+            metrics_list     = config["regression_point_metrics"]
+            metrics_cls      = RegressionPointEvaluationMetrics
+        elif task_type == "regression" and pred_type == "sample":
+            metric_functions = self.regression_sample_functions
+            metrics_list     = config.get("regression_sample_metrics", [])
+            metrics_cls      = RegressionSampleEvaluationMetrics
+        elif task_type == "classification" and pred_type == "point":
+            metric_functions = self.classification_point_functions
+            metrics_list     = config["classification_point_metrics"]
+            metrics_cls      = ClassificationPointEvaluationMetrics
+        else:  # classification + sample
+            metric_functions = self.classification_sample_functions
+            metrics_list     = config.get("classification_sample_metrics", [])
+            metrics_cls      = ClassificationSampleEvaluationMetrics
+
+        # Validate every declared metric is available for this task/pred combination
+        for metric in metrics_list:
+            if metric not in metric_functions:
+                raise ValueError(
+                    f"Metric '{metric}' is not valid for "
+                    f"task_type='{task_type}', pred_type='{pred_type}'. "
+                    f"Available metrics: {list(metric_functions.keys())}"
+                )
+
         evaluation_results = {}
         evaluation_results["month"] = self.month_wise_evaluation(
-            self.actual, self.predictions, target, self.is_uncertainty, **kwargs
+            self.actual, self.predictions, target,
+            metrics_list, metric_functions, metrics_cls, **kwargs
         )
-
         evaluation_results["time_series"] = self.time_series_wise_evaluation(
-            self.actual, self.predictions, target, self.is_uncertainty, **kwargs
+            self.actual, self.predictions, target,
+            metrics_list, metric_functions, metrics_cls, **kwargs
         )
-
         evaluation_results["step"] = self.step_wise_evaluation(
-            self.actual,
-            self.predictions,
-            target,
-            config["steps"],
-            self.is_uncertainty,
-            **kwargs,
+            self.actual, self.predictions, target,
+            config["steps"], metrics_list, metric_functions, metrics_cls, **kwargs
         )
 
         return evaluation_results

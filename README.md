@@ -11,6 +11,28 @@
 
 > **Part of the [VIEWS Platform](https://github.com/views-platform) ecosystem for large-scale conflict forecasting.**  
 
+---
+
+### ⚠️ **ATTENTION: Migration Notice (v0.4.0+)**
+
+The evaluation ontology has been updated to be more explicit and task-specific. If your pipeline broke after updating, please update your configuration dictionary. The library now distinguishes between **regression** vs **classification** tasks, and **point** vs **sample** predictions.
+
+**Key Changes:**
+* `targets` is now **`regression_targets`** or **`classification_targets`**.
+* `metrics` is now **`regression_point_metrics`**.
+* All **`uncertainty`** keys have been renamed to **`sample`** (reflecting that we evaluate draws/samples from a distribution).
+
+| Legacy Key | New Canonical Key |
+|:--- |:--- |
+| `targets` | `regression_targets` |
+| `metrics` | `regression_point_metrics` |
+| `regression_uncertainty_metrics` | `regression_sample_metrics` |
+| `classification_uncertainty_metrics` | `classification_sample_metrics` |
+
+*Note: Legacy keys still work but will trigger a `DeprecationWarning`.*
+
+---
+
 ## 📚 **Table of Contents**  
 
 1. [Overview](#overview)  
@@ -50,7 +72,7 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
 ---
 
 ## ✨ **Features**  
-* **Comprehensive Evaluation Framework**: The `EvaluationManager` class provides structured methods to evaluate time series predictions based on **point** and **uncertainty** metrics.
+* **Comprehensive Evaluation Framework**: The `EvaluationManager` class provides structured methods to evaluate time series predictions based on **point** and **sample** metrics.
 * **Multiple Evaluation Schemas**:
   * **Step-wise evaluation**: groups and evaluates predictions by the respective steps from all models.
   * **Time-series-wise evaluation**: evaluates predictions for each time-series.
@@ -79,8 +101,40 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
 | Brier Score | `Brier` | Accuracy of probabilistic predictions | ❌ | ✅ |
 | Jeffreys Divergence | `Jeffreys` | Symmetric measure of distribution difference | ❌ | ✅ |
 
-> **Note:** Metrics marked with ✅ in "Supports Distributions" can be used for uncertainty evaluation with ensemble/sample-based predictions.
-* **Data Integrity Checks**: Ensures that input DataFrames conform to expected structures before evaluation based on point and uncertainty evaluation.
+> **Note:** Metrics marked with ✅ in "Supports Distributions" can be used for sample evaluation with ensemble/sample-based predictions.
+
+---
+
+### 📝 **Configuration Schema**
+
+The `EvaluationManager.evaluate()` method expects a configuration dictionary with the following keys:
+
+| Key | Type | Description |
+|:--- |:--- |:--- |
+| `steps` | `List[int]` | List of forecast steps to evaluate (e.g., `[1, 3, 6, 12]`). |
+| `regression_targets` | `List[str]` | List of continuous targets (e.g., `['ged_sb_best']`). |
+| `regression_point_metrics` | `List[str]` | Metrics to compute for regression point predictions. |
+| `regression_sample_metrics` | `List[str]` | Metrics to compute for regression sample predictions (e.g., `['CRPS']`). |
+| `classification_targets` | `List[str]` | List of binary targets (e.g., `['by_sb_best']`). |
+| `classification_point_metrics` | `List[str]` | Metrics to compute for classification probability scores. |
+| `classification_sample_metrics` | `List[str]` | Metrics to compute for classification sample predictions. |
+
+#### **Example Configuration:**
+
+```python
+config = {
+    "steps": [1, 3, 6, 12],
+    "regression_targets": ["lr_ged_sb_best"],
+    "regression_point_metrics": ["MSE", "RMSLE", "Pearson"],
+    "regression_sample_metrics": ["CRPS", "MIS", "Coverage"],
+    "classification_targets": ["by_ged_sb_best"],
+    "classification_point_metrics": ["AP"],
+}
+```
+
+---
+
+* **Data Integrity Checks**: Ensures that input DataFrames conform to expected structures before evaluation based on point and sample evaluation.
 * **Automatic Index Matching**: Aligns actual and predicted values based on MultiIndex structures.
 * **Planned Enhancements**: 
   * **Expanding metric calculations** beyond RMSLE, CRPS, and AP.  
