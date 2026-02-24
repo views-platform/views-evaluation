@@ -5,15 +5,15 @@ import numpy as np
 from views_evaluation.evaluation.metrics import (
     BaseEvaluationMetrics,
     RegressionPointEvaluationMetrics,
-    RegressionUncertaintyEvaluationMetrics,
+    RegressionSampleEvaluationMetrics,
     ClassificationPointEvaluationMetrics,
-    ClassificationUncertaintyEvaluationMetrics,
+    ClassificationSampleEvaluationMetrics,
 )
 from views_evaluation.evaluation.metric_calculators import (
     REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
     CLASSIFICATION_POINT_METRIC_FUNCTIONS,
-    CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS,
+    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,9 +34,9 @@ class EvaluationManager:
         """
 
         self.regression_point_functions           = REGRESSION_POINT_METRIC_FUNCTIONS
-        self.regression_uncertainty_functions     = REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS
+        self.regression_sample_functions          = REGRESSION_SAMPLE_METRIC_FUNCTIONS
         self.classification_point_functions       = CLASSIFICATION_POINT_METRIC_FUNCTIONS
-        self.classification_uncertainty_functions = CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS
+        self.classification_sample_functions      = CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
 
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
@@ -108,22 +108,22 @@ class EvaluationManager:
     def get_evaluation_type(predictions: List[pd.DataFrame], target: str) -> bool:
         """
         Validates the values in each DataFrame in the list.
-        The return value indicates whether all DataFrames are for uncertainty evaluation.
+        The return value indicates whether all DataFrames are for sample evaluation.
 
         Args:
             predictions (List[pd.DataFrame]): A list of DataFrames to check.
 
         Returns:
-            bool: True if all DataFrames are for uncertainty evaluation,
+            bool: True if all DataFrames are for sample evaluation,
                   False if all DataFrame are for point evaluation.
 
         Raises:
             ValueError: If there is a mix of single and multiple values in the lists,
                       or if uncertainty lists have different lengths.
         """
-        is_uncertainty = False
+        is_sample = False
         is_point = False
-        uncertainty_length = None
+        sample_length = None
 
         for df in predictions:
             for value in df[target].values.flatten():
@@ -133,27 +133,27 @@ class EvaluationManager:
                     )
 
                 if len(value) > 1:
-                    is_uncertainty = True
-                    # For uncertainty evaluation, check that all lists have the same length
-                    if uncertainty_length is None:
-                        uncertainty_length = len(value)
-                    elif len(value) != uncertainty_length:
+                    is_sample = True
+                    # For sample evaluation, check that all lists have the same length
+                    if sample_length is None:
+                        sample_length = len(value)
+                    elif len(value) != sample_length:
                         raise ValueError(
-                            f"Inconsistent list lengths in uncertainty evaluation. "
-                            f"Found lengths {uncertainty_length} and {len(value)}"
+                            f"Inconsistent list lengths in sample evaluation. "
+                            f"Found lengths {sample_length} and {len(value)}"
                         )
                 elif len(value) == 1:
                     is_point = True
                 else:
                     raise ValueError("Empty lists are not allowed")
 
-        if is_uncertainty and is_point:
+        if is_sample and is_point:
             raise ValueError(
                 "Mix of evaluation types detected: some rows contain single values, others contain multiple values. "
                 "Please ensure all rows are consistent in their evaluation type"
             )
 
-        return is_uncertainty
+        return is_sample
 
     @staticmethod
     def validate_predictions(predictions: List[pd.DataFrame], target: str):
@@ -273,6 +273,8 @@ class EvaluationManager:
 
         Legacy key 'targets' → 'regression_targets'
         Legacy key 'metrics' → 'regression_point_metrics'
+        Legacy key 'regression_uncertainty_metrics' → 'regression_sample_metrics'
+        Legacy key 'classification_uncertainty_metrics' → 'classification_sample_metrics'
         """
         canonical = config.copy()
         if "targets" in config and "regression_targets" not in config:
@@ -289,6 +291,23 @@ class EvaluationManager:
                 "Update your config."
             )
             canonical["regression_point_metrics"] = canonical.pop("metrics")
+
+        if "regression_uncertainty_metrics" in config and "regression_sample_metrics" not in config:
+            logger.warning(
+                "Config key 'regression_uncertainty_metrics' is DEPRECATED and will be rejected in a future "
+                "version. It has been treated as 'regression_sample_metrics'. "
+                "Update your config."
+            )
+            canonical["regression_sample_metrics"] = canonical.pop("regression_uncertainty_metrics")
+
+        if "classification_uncertainty_metrics" in config and "classification_sample_metrics" not in config:
+            logger.warning(
+                "Config key 'classification_uncertainty_metrics' is DEPRECATED and will be rejected in a future "
+                "version. It has been treated as 'classification_sample_metrics'. "
+                "Update your config."
+            )
+            canonical["classification_sample_metrics"] = canonical.pop("classification_uncertainty_metrics")
+
         return canonical
 
     @staticmethod
@@ -485,7 +504,7 @@ class EvaluationManager:
         Evaluate predictions for a single target.
 
         Task type (regression / classification) is read from config.
-        Prediction type (point / uncertainty) is detected from data shape.
+        Prediction type (point / sample) is detected from data shape.
 
         Args:
             actual (pd.DataFrame): Actuals in evaluation-ready form.
@@ -514,28 +533,28 @@ class EvaluationManager:
 
         # Determine prediction type from data shape — structural inference, legitimate
         self.actual, self.predictions = self._process_data(actual, predictions, target)
-        self.is_uncertainty = EvaluationManager.get_evaluation_type(
+        self.is_sample = EvaluationManager.get_evaluation_type(
             self.predictions, f"pred_{target}"
         )
-        pred_type = "uncertainty" if self.is_uncertainty else "point"
+        pred_type = "sample" if self.is_sample else "point"
 
         # Select the correct metric functions dict, declared metric list, and dataclass
         if task_type == "regression" and pred_type == "point":
             metric_functions = self.regression_point_functions
             metrics_list     = config["regression_point_metrics"]
             metrics_cls      = RegressionPointEvaluationMetrics
-        elif task_type == "regression" and pred_type == "uncertainty":
-            metric_functions = self.regression_uncertainty_functions
-            metrics_list     = config.get("regression_uncertainty_metrics", [])
-            metrics_cls      = RegressionUncertaintyEvaluationMetrics
+        elif task_type == "regression" and pred_type == "sample":
+            metric_functions = self.regression_sample_functions
+            metrics_list     = config.get("regression_sample_metrics", [])
+            metrics_cls      = RegressionSampleEvaluationMetrics
         elif task_type == "classification" and pred_type == "point":
             metric_functions = self.classification_point_functions
             metrics_list     = config["classification_point_metrics"]
             metrics_cls      = ClassificationPointEvaluationMetrics
-        else:  # classification + uncertainty
-            metric_functions = self.classification_uncertainty_functions
-            metrics_list     = config.get("classification_uncertainty_metrics", [])
-            metrics_cls      = ClassificationUncertaintyEvaluationMetrics
+        else:  # classification + sample
+            metric_functions = self.classification_sample_functions
+            metrics_list     = config.get("classification_sample_metrics", [])
+            metrics_cls      = ClassificationSampleEvaluationMetrics
 
         # Validate every declared metric is available for this task/pred combination
         for metric in metrics_list:

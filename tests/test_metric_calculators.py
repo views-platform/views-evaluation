@@ -12,11 +12,11 @@ from views_evaluation.evaluation.metric_calculators import (
     calculate_mean_interval_score,
     calculate_mtd,
     POINT_METRIC_FUNCTIONS,
-    UNCERTAINTY_METRIC_FUNCTIONS,
+    SAMPLE_METRIC_FUNCTIONS,
     REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
     CLASSIFICATION_POINT_METRIC_FUNCTIONS,
-    CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS,
+    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
 )
 
 
@@ -33,8 +33,8 @@ def sample_data():
 
 
 @pytest.fixture
-def sample_uncertainty_data():
-    """Create sample uncertainty data for testing."""
+def sample_sample_data():
+    """Create sample sample data for testing."""
     actual = pd.DataFrame({
         'target': [[1.0], [2.0], [3.0], [4.0]]
     })
@@ -66,9 +66,9 @@ def test_calculate_crps_point(sample_data):
     assert result >= 0
 
 
-def test_calculate_crps_uncertainty(sample_uncertainty_data):
+def test_calculate_crps_sample(sample_sample_data):
     """Test CRPS calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_crps(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
@@ -122,25 +122,25 @@ def test_calculate_mtd_with_power(sample_data):
     assert result_2 >= 0
 
 
-def test_calculate_coverage_uncertainty(sample_uncertainty_data):
+def test_calculate_coverage_sample(sample_sample_data):
     """Test Coverage calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_coverage(actual, pred, 'target')
     assert isinstance(result, float)
     assert 0 <= result <= 1
 
 
-def test_calculate_ignorance_score_uncertainty(sample_uncertainty_data):
+def test_calculate_ignorance_score_sample(sample_sample_data):
     """Test Ignorance Score calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_ignorance_score(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_mis_uncertainty(sample_uncertainty_data):
+def test_calculate_mis_sample(sample_sample_data):
     """Test Mean Interval Score calculation."""
-    actual, pred = sample_uncertainty_data
+    actual, pred = sample_sample_data
     result = calculate_mean_interval_score(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
@@ -157,13 +157,13 @@ def test_point_metric_functions():
         assert callable(POINT_METRIC_FUNCTIONS[metric])
 
 
-def test_uncertainty_metric_functions():
-    """Test that all uncertainty metric functions are available in the deprecated UNCERTAINTY_METRIC_FUNCTIONS."""
+def test_sample_metric_functions():
+    """Test that all sample metric functions are available in the deprecated SAMPLE_METRIC_FUNCTIONS."""
     expected_metrics = ["CRPS", "MIS", "Ignorance", "Brier", "Jeffreys", "Coverage"]
 
     for metric in expected_metrics:
-        assert metric in UNCERTAINTY_METRIC_FUNCTIONS
-        assert callable(UNCERTAINTY_METRIC_FUNCTIONS[metric])
+        assert metric in SAMPLE_METRIC_FUNCTIONS
+        assert callable(SAMPLE_METRIC_FUNCTIONS[metric])
 
 
 def test_regression_point_metric_functions():
@@ -180,16 +180,16 @@ def test_regression_point_metric_functions():
     assert "CRPS" not in REGRESSION_POINT_METRIC_FUNCTIONS
 
 
-def test_regression_uncertainty_metric_functions():
-    """Test that all regression uncertainty metric functions are available."""
+def test_regression_sample_metric_functions():
+    """Test that all regression sample metric functions are available."""
     expected_metrics = ["CRPS", "MIS", "Coverage", "Ignorance", "y_hat_bar"]
 
     for metric in expected_metrics:
-        assert metric in REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS
-        assert callable(REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS[metric])
+        assert metric in REGRESSION_SAMPLE_METRIC_FUNCTIONS
+        assert callable(REGRESSION_SAMPLE_METRIC_FUNCTIONS[metric])
 
-    # AP must NOT be in regression uncertainty functions
-    assert "AP" not in REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS
+    # AP must NOT be in regression sample functions
+    assert "AP" not in REGRESSION_SAMPLE_METRIC_FUNCTIONS
 
 
 def test_classification_point_metric_functions():
@@ -201,16 +201,16 @@ def test_classification_point_metric_functions():
     assert "RMSLE" not in CLASSIFICATION_POINT_METRIC_FUNCTIONS
 
 
-def test_classification_uncertainty_metric_functions():
-    """Test that classification uncertainty metric functions are available."""
+def test_classification_sample_metric_functions():
+    """Test that classification sample metric functions are available."""
     expected_metrics = ["CRPS", "Brier", "Jeffreys"]
 
     for metric in expected_metrics:
-        assert metric in CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS
-        assert callable(CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS[metric])
+        assert metric in CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
+        assert callable(CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS[metric])
 
-    # RMSLE must NOT be in classification uncertainty functions
-    assert "RMSLE" not in CLASSIFICATION_UNCERTAINTY_METRIC_FUNCTIONS
+    # RMSLE must NOT be in classification sample functions
+    assert "RMSLE" not in CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
 
 
 def test_not_implemented_metrics():

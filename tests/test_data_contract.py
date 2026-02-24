@@ -64,9 +64,9 @@ def test_zero_index_overlap_graceful_failure(mock_data):
     with pytest.raises((ValueError, KeyError)):
         manager.evaluate(actual, [pred_df], target, config)
 
-def test_mixed_point_and_uncertainty_types(mock_data):
+def test_mixed_point_and_sample_types(mock_data):
     actual, target, config, index = mock_data
-    # First is point, second is uncertainty
+    # First is point, second is sample
     pred1 = pd.DataFrame({f"pred_{target}": [[10.5], [19.5]]}, index=index)
     pred2 = pd.DataFrame({f"pred_{target}": [[10, 11, 12], [19, 20, 21]]}, index=index)
 

@@ -49,7 +49,7 @@ The selected metrics are designed to address the unique characteristics of confl
 Relying solely on traditional error metrics such as MSE (MSLE) can result in poor performance on relevant tasks like identifying onsets of conflict.
 
 Using a mix of probabilistic and point-based metrics will allow us to:
-- Better capture the range of possible outcomes and assess predictions in terms of uncertainty.
+- Better capture the range of possible outcomes and assess predictions in terms of sample.
 - Focus evaluation on onsets of conflict, which are often the most critical and hardest to predict.
 - Ensure consistency and calibration across different spatial and temporal resolutions, from grid-level to country-level predictions.
 

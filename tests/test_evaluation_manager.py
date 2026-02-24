@@ -7,11 +7,11 @@ import properscoring as ps
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
 from views_evaluation.evaluation.metric_calculators import (
     REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
+    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
 )
 from views_evaluation.evaluation.metrics import (
     RegressionPointEvaluationMetrics,
-    RegressionUncertaintyEvaluationMetrics,
+    RegressionSampleEvaluationMetrics,
 )
 
 
@@ -79,7 +79,7 @@ def mock_point_predictions(mock_index):
 
 
 @pytest.fixture
-def mock_uncertainty_predictions(mock_index):
+def mock_sample_predictions(mock_index):
     df1 = pd.DataFrame(
         {
             "pred_target": [
@@ -123,12 +123,12 @@ def test_validate_dataframes_valid_columns(mock_point_predictions):
         )
 
 def test_get_evaluation_type():
-    # Test case 1: All DataFrames for uncertainty evaluation
-    predictions_uncertainty = [
+    # Test case 1: All DataFrames for sample evaluation
+    predictions_sample = [
         pd.DataFrame({'pred_target': [[1.0, 2.0], [3.0, 4.0]]}),
         pd.DataFrame({'pred_target': [[5.0, 6.0], [7.0, 8.0]]}),
     ]
-    assert EvaluationManager.get_evaluation_type(predictions_uncertainty, "pred_target") is True
+    assert EvaluationManager.get_evaluation_type(predictions_sample, "pred_target") is True
 
     # Test case 2: All DataFrames for point evaluation
     predictions_point = [
@@ -154,7 +154,7 @@ def test_get_evaluation_type():
 
 
 def test_match_actual_pred_point(
-    mock_actual, mock_point_predictions, mock_uncertainty_predictions, mock_index
+    mock_actual, mock_point_predictions, mock_sample_predictions, mock_index
 ):
     df_matched = [
         pd.DataFrame({"target": [[1.0], [2.0], [2.0], [3.0], [3.0], [4.0]]}, index=mock_index[0]),
@@ -166,18 +166,18 @@ def test_match_actual_pred_point(
                 mock_actual, mock_point_predictions[i], "target"
             )
         )
-        df_matched_actual_uncertainty, df_matched_uncertainty = (
+        df_matched_actual_sample, df_matched_sample = (
             EvaluationManager._match_actual_pred(
-                mock_actual, mock_uncertainty_predictions[i], "target"
+                mock_actual, mock_sample_predictions[i], "target"
             )
         )
         assert df_matched[i].equals(df_matched_actual_point)
         assert df_matched_point.equals(mock_point_predictions[i])
-        assert df_matched[i].equals(df_matched_actual_uncertainty)
-        assert df_matched_uncertainty.equals(mock_uncertainty_predictions[i])
+        assert df_matched[i].equals(df_matched_actual_sample)
+        assert df_matched_sample.equals(mock_sample_predictions[i])
 
 
-def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions):
+def test_split_dfs_by_step(mock_point_predictions, mock_sample_predictions):
     df_splitted_point = [
         EvaluationManager.convert_to_array(pd.DataFrame(
             {"pred_target": [[1.0], [3.0], [2.0], [4.0]]},
@@ -198,7 +198,7 @@ def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions)
             ),
         ), "pred_target"),
     ]
-    df_splitted_uncertainty = [
+    df_splitted_sample = [
         EvaluationManager.convert_to_array(pd.DataFrame(
             {"pred_target": [[1.0, 2.0, 3.0], [2.0, 3.0, 4.0], [4.0, 6.0, 8.0], [5.0, 7.0, 9.0]]},
             index=pd.MultiIndex.from_tuples(
@@ -221,12 +221,12 @@ def test_split_dfs_by_step(mock_point_predictions, mock_uncertainty_predictions)
     df_splitted_point_test = EvaluationManager._split_dfs_by_step(
         mock_point_predictions
     )
-    df_splitted_uncertainty_test = EvaluationManager._split_dfs_by_step(
-        mock_uncertainty_predictions
+    df_splitted_sample_test = EvaluationManager._split_dfs_by_step(
+        mock_sample_predictions
     )
     for df1, df2 in zip(df_splitted_point, df_splitted_point_test):
         assert df1.equals(df2)
-    for df1, df2 in zip(df_splitted_uncertainty, df_splitted_uncertainty_test):
+    for df1, df2 in zip(df_splitted_sample, df_splitted_sample_test):
         assert df1.equals(df2)
 
 
@@ -255,13 +255,13 @@ def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
     assert np.allclose(df_evaluation, df_evaluation_test, atol=0.000001)
 
 
-def test_step_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
+def test_step_wise_evaluation_sample(mock_actual, mock_sample_predictions):
     manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.step_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "target", [1, 2, 3],
+        mock_actual, mock_sample_predictions, "target", [1, 2, 3],
         metrics_list=["CRPS"],
-        metric_functions=REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
-        metrics_cls=RegressionUncertaintyEvaluationMetrics,
+        metric_functions=REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+        metrics_cls=RegressionSampleEvaluationMetrics,
     )
     actuals = [[1, 2, 2, 3], [2, 3, 3, 4], [3, 4, 4, 5]]
     preds = [
@@ -308,13 +308,13 @@ def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
     assert np.allclose(df_evaluation, df_evaluation_test, atol=0.000001)
 
 
-def test_time_series_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
+def test_time_series_wise_evaluation_sample(mock_actual, mock_sample_predictions):
     manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "target",
+        mock_actual, mock_sample_predictions, "target",
         metrics_list=["CRPS"],
-        metric_functions=REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
-        metrics_cls=RegressionUncertaintyEvaluationMetrics,
+        metric_functions=REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+        metrics_cls=RegressionSampleEvaluationMetrics,
     )
 
     actuals = [[1, 2, 2, 3, 3, 4], [2, 3, 3, 4, 4, 5]]
@@ -362,13 +362,13 @@ def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
     assert np.allclose(df_evaluation, df_evaluation_test, atol=0.000001)
 
 
-def test_month_wise_evaluation_uncertainty(mock_actual, mock_uncertainty_predictions):
+def test_month_wise_evaluation_sample(mock_actual, mock_sample_predictions):
     manager = EvaluationManager()
     evaluation_dict, df_evaluation = manager.month_wise_evaluation(
-        mock_actual, mock_uncertainty_predictions, "target",
+        mock_actual, mock_sample_predictions, "target",
         metrics_list=["CRPS"],
-        metric_functions=REGRESSION_UNCERTAINTY_METRIC_FUNCTIONS,
-        metrics_cls=RegressionUncertaintyEvaluationMetrics,
+        metric_functions=REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+        metrics_cls=RegressionSampleEvaluationMetrics,
     )
 
     actuals = [[1, 2], [2, 3, 2, 3], [3, 4, 3, 4], [4, 5]]
@@ -414,7 +414,7 @@ def test_calculate_ap_point_predictions():
     assert abs(ap_score - expected_ap) < 0.01
 
 
-def test_calculate_ap_uncertainty_predictions():
+def test_calculate_ap_sample_predictions():
     """
     Test calculate_ap with pre-binarised actuals and distributional probability scores.
     Each prediction is a list of probability samples; actuals are 0/1.

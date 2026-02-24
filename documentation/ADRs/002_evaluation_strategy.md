@@ -95,7 +95,7 @@ For further technical details:
 
 - The number of sequences (k) can be tuned depending on evaluation budget or forecast range.
 
-- Consider future support for probabilistic or uncertainty-aware forecasts in the same rolling evaluation framework.
+- Consider future support for probabilistic or sample-aware forecasts in the same rolling evaluation framework.
 
 
 

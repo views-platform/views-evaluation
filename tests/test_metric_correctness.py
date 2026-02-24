@@ -157,8 +157,8 @@ class TestMetricCorrectness:
         actuals_index = pd.MultiIndex.from_product([[500], [10]], names=['month_id', 'country_id'])
         actuals = pd.DataFrame({target_name: [actual_val]}, index=actuals_index)
 
-        # Single-value prediction → point prediction, use regression_uncertainty_metrics
-        # by providing a multi-element ensemble so it's detected as uncertainty type.
+        # Single-value prediction → point prediction, use regression_sample_metrics
+        # by providing a multi-element ensemble so it's detected as sample type.
         # Use the same scalar as a 3-sample degenerate ensemble for CRPS:
         predictions_df = pd.DataFrame({pred_col_name: [[pred_val, pred_val, pred_val]]}, index=actuals_index)
         predictions = [predictions_df]
@@ -167,7 +167,7 @@ class TestMetricCorrectness:
             'steps': [1],
             'regression_targets': [target_name],
             'regression_point_metrics': ['RMSLE'],       # required by _validate_config
-            'regression_uncertainty_metrics': ['CRPS'],  # routed to because predictions are multi-element
+            'regression_sample_metrics': ['CRPS'],  # routed to because predictions are multi-element
         }
         manager = EvaluationManager()
 
@@ -188,13 +188,13 @@ class TestMetricCorrectness:
 
         assert crps_step == pytest.approx(expected_crps)
 
-    def test_crps_golden_dataset_uncertainty_prediction(self):
+    def test_crps_golden_dataset_sample_prediction(self):
         """
-        Tests the CRPS calculation for uncertainty predictions (ensemble of multiple values).
-        Expected: CRPS for uncertainty predictions matches properscoring.
+        Tests the CRPS calculation for sample predictions (ensemble of multiple values).
+        Expected: CRPS for sample predictions matches properscoring.
         """
         # Arrange
-        target_name = "lr_test_crps_uncertainty"
+        target_name = "lr_test_crps_sample"
         pred_col_name = f"pred_{target_name}"
 
         # Simple dataset: one actual, one prediction ensemble
@@ -204,7 +204,7 @@ class TestMetricCorrectness:
         actuals_index = pd.MultiIndex.from_product([[500], [10]], names=['month_id', 'country_id'])
         actuals = pd.DataFrame({target_name: [actual_val]}, index=actuals_index)
 
-        # Uncertainty prediction is a list of multiple values
+        # Sample prediction is a list of multiple values
         predictions_df = pd.DataFrame({pred_col_name: [prediction_ensemble]}, index=actuals_index)
         predictions = [predictions_df]
 
@@ -212,7 +212,7 @@ class TestMetricCorrectness:
             'steps': [1],
             'regression_targets': [target_name],
             'regression_point_metrics': ['RMSLE'],       # required by _validate_config
-            'regression_uncertainty_metrics': ['CRPS'],  # routed to because predictions are multi-element
+            'regression_sample_metrics': ['CRPS'],  # routed to because predictions are multi-element
         }
         manager = EvaluationManager()
 

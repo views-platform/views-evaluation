@@ -71,9 +71,9 @@ This must be a **Python `list`** where each element is a `pandas` DataFrame. Eac
 -   **Index:** Must be the same `MultiIndex` format as `actuals`.
 -   **Columns:** Each DataFrame must contain **exactly one column**. The `EvaluationManager` will raise a `ValueError` if extra or duplicate columns are detected.
     -   The column name **must** be formatted as `f"pred_{target_name}"`. For the example above, this would be `pred_lr_ged_sb_best`.
--   **Values (Crucial for Evaluation Type):** The data type of the values in the prediction column determines whether a point or uncertainty evaluation is performed.
+-   **Values (Crucial for Evaluation Type):** The data type of the values in the prediction column determines whether a point or sample evaluation is performed.
     -   **Point Evaluation:** Each value must be a list or `np.ndarray` containing a **single** float (e.g., `[10.5]`).
-    -   **Uncertainty Evaluation:** Each value must be a list or `np.ndarray` containing **multiple** floats that represent the predictive distribution (e.g., `[8.1, 9.5, 10.5, 11.2]`).
+    -   **Sample Evaluation:** Each value must be a list or `np.ndarray` containing **multiple** floats that represent the predictive distribution (e.g., `[8.1, 9.5, 10.5, 11.2]`).
 
 > [!IMPORTANT]
 > **Common Pitfall:** Do **not** include `month_id` or `location_id` as standard columns in your DataFrames. These must reside in the `MultiIndex`. Including them as columns will violate the "Exactly One Column" contract and cause a validation error.
@@ -116,27 +116,31 @@ Once your data is correctly formatted, running the evaluation is a three-step pr
 
 ### 3.1. Instantiate `EvaluationManager`
 
-Create an instance of the manager, passing a list of the metrics you want to calculate.
-
-**Available Metrics:** `RMSLE`, `CRPS`, `AP`, `MSE`, `MSLE`, `EMD`, `Pearson`, `Coverage`, `MIS`, `Ignorance`, `y_hat_bar`.
-*(Note: `SD`, `Variogram`, `Brier`, `Jeffreys`, `pEMDiv` are defined in the ADRs but not yet implemented).*
+Create an instance of the manager. Note that metrics are no longer declared at instantiation; they are provided in the configuration dictionary when calling `.evaluate()`.
 
 ```python
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
 
-# Choose the metrics you want
-metrics_to_run = ["RMSLE", "CRPS", "AP"]
-
-manager = EvaluationManager(metrics_list=metrics_to_run)
+manager = EvaluationManager()
 ```
 
 ### 3.2. Prepare the `config` Dictionary
 
-The evaluation method requires a simple configuration dictionary to specify the forecast steps.
+The evaluation method requires a configuration dictionary. This dictionary must specify the forecast steps and which metrics to compute for each task type (regression or classification).
+
+**Available Metric Categories:**
+*   `regression_point_metrics`: e.g., `MSE`, `RMSLE`, `Pearson`, `MTD`.
+*   `regression_sample_metrics`: e.g., `CRPS`, `MIS`, `Coverage`.
+*   `classification_point_metrics`: e.g., `AP`.
+*   `classification_sample_metrics`: e.g., `CRPS`.
 
 ```python
-# This should match the number of steps in your prediction sequences
-config = {'steps': [1, 2]}
+# Configure steps and metrics
+config = {
+    'steps': [1, 2],
+    'regression_targets': ['lr_ged_sb_best'],
+    'regression_point_metrics': ['MSE', 'RMSLE', 'Pearson']
+}
 ```
 
 ### 3.3. Call `.evaluate()`
@@ -223,9 +227,12 @@ predictions_list.append(df_preds_2)
 
 
 # 4. Configure and Run Evaluation
-metrics_to_run = ["RMSLE", "Pearson"]
-manager = EvaluationManager(metrics_list=metrics_to_run)
-config = {'steps': [1, 2, 3]} # 3 steps per sequence
+manager = EvaluationManager()
+config = {
+    'steps': [1, 2, 3], # 3 steps per sequence
+    'regression_targets': [target_name],
+    'regression_point_metrics': ["RMSLE", "Pearson"]
+}
 
 print("Running evaluation...")
 evaluation_results = manager.evaluate(

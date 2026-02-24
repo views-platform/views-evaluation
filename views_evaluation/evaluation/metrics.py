@@ -133,9 +133,9 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
 
   
 @dataclass
-class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
+class SampleEvaluationMetrics(BaseEvaluationMetrics):
     """
-    A data class for storing and managing uncertainty evaluation metrics for time series forecasting models.
+    A data class for storing and managing sample-based evaluation metrics for time series forecasting models.
 
     Attributes:
         CRPS (Optional[float]): Continuous Ranked Probability Score.
@@ -152,8 +152,8 @@ class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
 
 
 # ---------------------------------------------------------------------------
-# New 2×2 dataclasses: {regression, classification} × {point, uncertainty}
-# These replace PointEvaluationMetrics and UncertaintyEvaluationMetrics for
+# New 2×2 dataclasses: {regression, classification} × {point, sample}
+# These replace PointEvaluationMetrics and SampleEvaluationMetrics for
 # all new code. The legacy classes above are retained for backward compat.
 # ---------------------------------------------------------------------------
 
@@ -173,8 +173,8 @@ class RegressionPointEvaluationMetrics(BaseEvaluationMetrics):
 
 
 @dataclass
-class RegressionUncertaintyEvaluationMetrics(BaseEvaluationMetrics):
-    """Metrics for regression targets evaluated with distributional predictions."""
+class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for regression targets evaluated with sample-based predictions."""
     CRPS:      Optional[float] = None
     MIS:       Optional[float] = None
     Coverage:  Optional[float] = None
@@ -189,8 +189,8 @@ class ClassificationPointEvaluationMetrics(BaseEvaluationMetrics):
 
 
 @dataclass
-class ClassificationUncertaintyEvaluationMetrics(BaseEvaluationMetrics):
-    """Metrics for classification targets evaluated with distributional predictions."""
+class ClassificationSampleEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for classification targets evaluated with sample-based predictions."""
     CRPS:     Optional[float] = None
     Brier:    Optional[float] = None
     Jeffreys: Optional[float] = None
