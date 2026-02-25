@@ -75,3 +75,39 @@ To replace pandas while preserving behavior, the `EvaluationFrame` must explicit
 *   Current State: `y_pred` is a Series where each cell is `List[float]` or `np.ndarray`.
 *   Detection: `isinstance(x, list)` checks on every element.
 *   Target State: `y_pred` is a dense `(N, S)` numpy array (S=samples). Point forecasts are `(N, 1)`.
+
+## 7. Audit of List-Sniffing & Performance Bottlenecks
+
+**Date:** 2026-02-25
+**Work Stream:** 1.3
+
+### 7.1. The "Lists-in-Cells" Pattern
+The codebase ubiquitously stores prediction data as lists or numpy arrays *inside* DataFrame cells. This breaks pandas' columnar efficiency and forces row-wise iteration.
+
+*   **Normalization**: `EvaluationManager.convert_to_array` forces all inputs into this format.
+*   **Type Detection**: `EvaluationManager.get_evaluation_type` iterates through values to check `isinstance(x, (list, np.ndarray))`.
+    *   *Risk*: A 1-element list `[0.5]` is classified as "point", while `[0.5, 0.6]` is "sample". This makes generic handling of $N_{samples}=1$ difficult.
+
+### 7.2. Metric Calculation Inefficiencies
+Metric calculators handle this structure via two slow patterns:
+
+1.  **Expansion (Memory Intensive)**:
+    Used by `MSE`, `RMSLE`, `Pearson`, `MTD`.
+    \`\`\`python
+    actual_expanded = np.repeat(actual_values, [len(x) for x in preds])
+    \`\`\`
+    *   *Cost*: Allocates a massive new array for `actuals` matching the total sample count.
+    *   *O(N)* iteration to compute lengths.
+
+2.  **Row-Wise Iteration (CPU Intensive)**:
+    Used by `CRPS`, `EMD`, `Coverage`.
+    \`\`\`python
+    [metric_func(actual, pred) for actual, pred in zip(df[target], df[pred])]
+    \`\`\`
+    *   *Cost*: Python loop overhead for every single data point. Prevents SIMD/vectorization.
+    *   *Scale*: For 1M rows, this is 1M Python function calls.
+
+### 7.3. Conclusion
+The `EvaluationFrame` must replace `Series[List[float]]` with a dense `(N_rows, N_samples)` numpy array (`y_pred`). This allows:
+*   `y_true` (shape `(N_rows, 1)`) to be broadcasted against `y_pred` without expansion.
+*   Metrics to be computed via `axis=1` operations (e.g., `np.mean((y_true - y_pred)**2, axis=0)`).
