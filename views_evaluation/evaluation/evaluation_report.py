@@ -54,7 +54,11 @@ class EvaluationReport:
     def to_dataframe(self, schema: str):
         """
         Converts a specific schema's results into a Pandas DataFrame.
+        If schema='raw', returns the dictionary of mapped metrics dataclasses.
         """
+        if schema == "raw":
+            return self._results # Return all raw results
+            
         import pandas as pd
         mapped_results = self.get_schema_results(schema)
         if not mapped_results:
@@ -62,6 +66,7 @@ class EvaluationReport:
         
         metrics_cls = self._get_metrics_cls()
         return metrics_cls.evaluation_dict_to_dataframe(mapped_results)
+
 
     def to_dict(self) -> Dict[str, Any]:
         """Converts the entire report into a nested dictionary."""

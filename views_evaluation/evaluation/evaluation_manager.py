@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from views_evaluation.adapters.pandas import PandasAdapter
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
+from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.metrics import (
     BaseEvaluationMetrics,
 )
@@ -514,42 +515,60 @@ class EvaluationManager:
 
     def evaluate(
         self,
-        actual: pd.DataFrame,
-        predictions: List[pd.DataFrame],
-        target: str,
-        config: dict,
+        actual: pd.DataFrame = None,
+        predictions: List[pd.DataFrame] = None,
+        target: str = None,
+        config: dict = None,
+        ef: EvaluationFrame = None,
+        verify_parity: bool = False,
         **kwargs,
     ):
         """
-        DEPRECATED. Evaluate predictions using legacy DataFrame inputs.
-        
-        This method is now a wrapper around the NativeEvaluator. 
-        Users are encouraged to migrate to NativeEvaluator(config).evaluate(ef)
-        for significant performance gains and stricter contract enforcement.
+        Evaluate predictions. Supports legacy DataFrame inputs OR Native EvaluationFrame.
 
         Args:
-            actual (pd.DataFrame): Actuals in evaluation-ready form.
-            predictions (List[pd.DataFrame]): Predictions in evaluation-ready form.
-            target (str): The target column name, must be declared in config.
+            actual (pd.DataFrame): Optional. Legacy actuals.
+            predictions (List[pd.DataFrame]): Optional. Legacy predictions.
+            target (str): Target column name.
             config (dict): Evaluation configuration.
+            ef (EvaluationFrame): Optional. Pre-adapted native frame.
+            verify_parity (bool): If True and both ef and legacy inputs are provided,
+                verifies bit-wise parity between them.
         """
-        logger.warning(
-            "EvaluationManager.evaluate() with DataFrames is DEPRECATED. "
-            "Please migrate to NativeEvaluator and EvaluationFrame. "
-            "See documentation/ADRs/010_ontology_of_evaluation.md for details."
-        )
         config = EvaluationManager._normalise_config(config)
-
         EvaluationManager._validate_config(config)
-        EvaluationManager.validate_predictions(predictions, target)
 
-        # ADR-010: Adapt legacy DataFrames to canonical EvaluationFrame
-        ef = PandasAdapter.from_dataframes(actual, predictions, target)
+        if ef is not None:
+            # PATH B: Direct Native Evaluation
+            if not isinstance(ef, EvaluationFrame):
+                raise TypeError("Provided 'ef' must be an EvaluationFrame instance.")
+            target = ef.metadata.get('target', target)
+            
+            if verify_parity and actual is not None and predictions is not None:
+                # ADR-024 Shadow Run: Verify external adaptation matches internal
+                ef_internal = PandasAdapter.from_dataframes(actual, predictions, target)
+                # Check data parity
+                if not np.array_equal(ef.y_true, ef_internal.y_true):
+                    raise ValueError("Parity Failure: y_true mismatch between external and internal adaptation.")
+                if not np.array_equal(ef.y_pred, ef_internal.y_pred):
+                    raise ValueError("Parity Failure: y_pred mismatch between external and internal adaptation.")
+                for key in ef.identifiers:
+                    if not np.array_equal(ef.identifiers[key], ef_internal.identifiers[key]):
+                        raise ValueError(f"Parity Failure: identifier '{key}' mismatch.")
+        else:
+            # PATH A: Legacy Adaptation
+            if actual is None or predictions is None or target is None:
+                raise ValueError("If 'ef' is not provided, 'actual', 'predictions', and 'target' are required.")
+            
+            EvaluationManager.validate_predictions(predictions, target)
+            # ADR-010: Adapt legacy DataFrames to canonical EvaluationFrame
+            ef = PandasAdapter.from_dataframes(actual, predictions, target)
+            
+            # Restore internal state for backward compatibility with reflective tests
+            self.actual, self.predictions = self._process_data(actual, predictions, target)
         
-        # Restore internal state for backward compatibility with reflective tests
-        # Use _process_data to ensure they are normalized to arrays-in-cells
-        self.actual, self.predictions = self._process_data(actual, predictions, target)
         self.is_sample = ef.is_sample
+
 
         # ADR-010: Delegate to the NativeEvaluator (Pure Math Engine)
         evaluator = NativeEvaluator(config)
@@ -568,6 +587,7 @@ class EvaluationManager:
             if "Target" in str(e) and "not found in config" in str(e):
                 raise ValueError(f"Target '{target}' is not declared in config")
             raise e
+
 
 
 
