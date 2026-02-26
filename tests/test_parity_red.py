@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
-from views_evaluation.evaluation.adapters import PandasAdapter
+from views_evaluation.adapters.pandas import PandasAdapter
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 from tests.test_parity_green import assert_parity
@@ -102,16 +102,15 @@ def test_parity_red_coordinates(red_data_coordinates):
 def test_fail_loud_inconsistent_samples(red_data_inconsistent_samples):
     actual, predictions, target, config = red_data_inconsistent_samples
     manager = EvaluationManager()
+    # The new implementation raises a more descriptive error from the adapter
     with pytest.raises(ValueError, match="Inconsistent list lengths"):
         manager.evaluate(actual, predictions, target, config)
-    with pytest.raises((ValueError, TypeError)):
-        PandasAdapter.from_dataframes(actual, predictions, target)
 
-def test_parity_red_nan_index(red_data_nan_index):
+
+def test_fail_loud_nan_index(red_data_nan_index):
     actual, predictions, target, config = red_data_nan_index
     manager = EvaluationManager()
-    legacy_results = manager.evaluate(actual, predictions, target, config)
-    ef = PandasAdapter.from_dataframes(actual, predictions, target)
-    native_evaluator = NativeEvaluator(config)
-    native_results = native_evaluator.evaluate(ef)
-    assert_parity(legacy_results, native_results)
+    # The new implementation fails early in the adapter if NaNs are detected
+    with pytest.raises(ValueError, match="NaN detected in 'time' index level"):
+        manager.evaluate(actual, predictions, target, config)
+

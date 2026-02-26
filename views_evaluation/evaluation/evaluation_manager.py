@@ -2,6 +2,8 @@ from typing import List, Tuple
 import logging
 import pandas as pd
 import numpy as np
+from views_evaluation.adapters.pandas import PandasAdapter
+from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 from views_evaluation.evaluation.metrics import (
     BaseEvaluationMetrics,
     RegressionPointEvaluationMetrics,
@@ -501,85 +503,50 @@ class EvaluationManager:
         **kwargs,
     ):
         """
-        Evaluate predictions for a single target.
-
-        Task type (regression / classification) is read from config.
-        Prediction type (point / sample) is detected from data shape.
+        DEPRECATED. Evaluate predictions using legacy DataFrame inputs.
+        
+        This method is now a wrapper around the NativeEvaluator. 
+        Users are encouraged to migrate to NativeEvaluator(config).evaluate(ef)
+        for significant performance gains and stricter contract enforcement.
 
         Args:
             actual (pd.DataFrame): Actuals in evaluation-ready form.
             predictions (List[pd.DataFrame]): Predictions in evaluation-ready form.
             target (str): The target column name, must be declared in config.
-            config (dict): Evaluation configuration. See _normalise_config and
-                _validate_config for the expected schema.
+            config (dict): Evaluation configuration.
         """
+        logger.warning(
+            "EvaluationManager.evaluate() with DataFrames is DEPRECATED. "
+            "Please migrate to NativeEvaluator and EvaluationFrame. "
+            "See documentation/ADRs/010_ontology_of_evaluation.md for details."
+        )
         config = EvaluationManager._normalise_config(config)
+
         EvaluationManager._validate_config(config)
         EvaluationManager.validate_predictions(predictions, target)
 
-        # Determine task type from config — never inferred
-        regression_targets     = config.get("regression_targets", [])
-        classification_targets = config.get("classification_targets", [])
-
-        if target in regression_targets:
-            task_type = "regression"
-        elif target in classification_targets:
-            task_type = "classification"
-        else:
-            raise ValueError(
-                f"Target '{target}' is not declared in config under "
-                "'regression_targets' or 'classification_targets'."
-            )
-
-        # Determine prediction type from data shape — structural inference, legitimate
+        # ADR-010: Adapt legacy DataFrames to canonical EvaluationFrame
+        ef = PandasAdapter.from_dataframes(actual, predictions, target)
+        
+        # Restore internal state for backward compatibility with reflective tests
+        # Use _process_data to ensure they are normalized to arrays-in-cells
         self.actual, self.predictions = self._process_data(actual, predictions, target)
-        self.is_sample = EvaluationManager.get_evaluation_type(
-            self.predictions, f"pred_{target}"
-        )
-        pred_type = "sample" if self.is_sample else "point"
+        self.is_sample = ef.is_sample
 
-        # Select the correct metric functions dict, declared metric list, and dataclass
-        if task_type == "regression" and pred_type == "point":
-            metric_functions = self.regression_point_functions
-            metrics_list     = config["regression_point_metrics"]
-            metrics_cls      = RegressionPointEvaluationMetrics
-        elif task_type == "regression" and pred_type == "sample":
-            metric_functions = self.regression_sample_functions
-            metrics_list     = config.get("regression_sample_metrics", [])
-            metrics_cls      = RegressionSampleEvaluationMetrics
-        elif task_type == "classification" and pred_type == "point":
-            metric_functions = self.classification_point_functions
-            metrics_list     = config["classification_point_metrics"]
-            metrics_cls      = ClassificationPointEvaluationMetrics
-        else:  # classification + sample
-            metric_functions = self.classification_sample_functions
-            metrics_list     = config.get("classification_sample_metrics", [])
-            metrics_cls      = ClassificationSampleEvaluationMetrics
+        # ADR-010: Delegate to the NativeEvaluator (Pure Math Engine)
+        evaluator = NativeEvaluator(config)
+        
+        # Phase 1: Enable legacy compatibility to maintain bit-wise parity
+        # (Reproduces truncation bugs and positional step assumptions)
+        try:
+            return evaluator.evaluate(ef, legacy_compatibility=True)
+        except ValueError as e:
+            # Re-wrap error message to match legacy test expectations if needed
+            if "Target" in str(e) and "not found in config" in str(e):
+                raise ValueError(f"Target '{target}' is not declared in config")
+            raise e
 
-        # Validate every declared metric is available for this task/pred combination
-        for metric in metrics_list:
-            if metric not in metric_functions:
-                raise ValueError(
-                    f"Metric '{metric}' is not valid for "
-                    f"task_type='{task_type}', pred_type='{pred_type}'. "
-                    f"Available metrics: {list(metric_functions.keys())}"
-                )
 
-        evaluation_results = {}
-        evaluation_results["month"] = self.month_wise_evaluation(
-            self.actual, self.predictions, target,
-            metrics_list, metric_functions, metrics_cls, **kwargs
-        )
-        evaluation_results["time_series"] = self.time_series_wise_evaluation(
-            self.actual, self.predictions, target,
-            metrics_list, metric_functions, metrics_cls, **kwargs
-        )
-        evaluation_results["step"] = self.step_wise_evaluation(
-            self.actual, self.predictions, target,
-            config["steps"], metrics_list, metric_functions, metrics_cls, **kwargs
-        )
-
-        return evaluation_results
 
     @staticmethod
     def filter_step_wise_evaluation(

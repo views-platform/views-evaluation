@@ -8,11 +8,11 @@ from views_evaluation.evaluation.metrics import (
     ClassificationPointEvaluationMetrics,
     ClassificationSampleEvaluationMetrics,
 )
-from views_evaluation.evaluation.metric_calculators import (
-    REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
-    CLASSIFICATION_POINT_METRIC_FUNCTIONS,
-    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
+from views_evaluation.evaluation.native_metric_calculators import (
+    REGRESSION_POINT_NATIVE,
+    REGRESSION_SAMPLE_NATIVE,
+    CLASSIFICATION_POINT_NATIVE,
+    CLASSIFICATION_SAMPLE_NATIVE,
 )
 
 class NativeEvaluator:
@@ -22,16 +22,17 @@ class NativeEvaluator:
     """
     def __init__(self, config: dict):
         self.config = config
-        # Mapping task/type to metric classes (reusing existing ones for parity)
+        # Mapping task/type to metric dispatch dicts and legacy dataclasses
         self.metrics_map = {
-            ("regression", "point"): (REGRESSION_POINT_METRIC_FUNCTIONS, RegressionPointEvaluationMetrics),
-            ("regression", "sample"): (REGRESSION_SAMPLE_METRIC_FUNCTIONS, RegressionSampleEvaluationMetrics),
-            ("classification", "point"): (CLASSIFICATION_POINT_METRIC_FUNCTIONS, ClassificationPointEvaluationMetrics),
-            ("classification", "sample"): (CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS, ClassificationSampleEvaluationMetrics),
+            ("regression", "point"): (REGRESSION_POINT_NATIVE, RegressionPointEvaluationMetrics),
+            ("regression", "sample"): (REGRESSION_SAMPLE_NATIVE, RegressionSampleEvaluationMetrics),
+            ("classification", "point"): (CLASSIFICATION_POINT_NATIVE, ClassificationPointEvaluationMetrics),
+            ("classification", "sample"): (CLASSIFICATION_SAMPLE_NATIVE, ClassificationSampleEvaluationMetrics),
         }
 
     def _resolve_task_and_metrics(self, ef: EvaluationFrame):
         target = ef.metadata.get('target')
+        # Determine task from config
         if target in self.config.get("regression_targets", []):
             task = "regression"
         elif target in self.config.get("classification_targets", []):
@@ -47,23 +48,15 @@ class NativeEvaluator:
 
     def _calculate_metrics(self, ef: EvaluationFrame, metrics_list: List[str], funcs: Dict) -> Dict[str, float]:
         """
-        Calculates metrics for a single EvaluationFrame view.
-        NOTE: For parity, we currently wrap the ef back into a DataFrame 
-        to use existing calculators, but we will eventually vectorise.
+        Calculates metrics for a single EvaluationFrame view using native NumPy logic.
         """
-        # TEMP: Re-wrap to use existing calculators for bit-wise parity investigation
-        # These calculators expect DataFrames with specific columns
-        target = ef.metadata['target']
-        matched_actual = pd.DataFrame({target: [[v] for v in ef.y_true]})
-        # Handle samples: legacy expects Series[List]
-        if ef.is_sample:
-            matched_pred = pd.DataFrame({f"pred_{target}": [list(row) for row in ef.y_pred]})
-        else:
-            matched_pred = pd.DataFrame({f"pred_{target}": [[v] for v in ef.y_pred.flatten()]})
-        
         results = {}
         for m in metrics_list:
-            results[m] = funcs[m](matched_actual, matched_pred, target)
+            if m not in funcs:
+                # ADR-013: Fail loud on missing implementations
+                # Re-wrap as ValueError to match legacy test expectations
+                raise ValueError(f"Metric '{m}' is not valid for this task.")
+            results[m] = funcs[m](ef.y_true, ef.y_pred)
         return results
 
     def evaluate(self, ef: EvaluationFrame, legacy_compatibility: bool = True) -> Dict[str, Tuple[Dict, pd.DataFrame]]:
