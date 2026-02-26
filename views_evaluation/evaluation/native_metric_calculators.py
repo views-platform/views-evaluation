@@ -1,9 +1,6 @@
 import numpy as np
 import properscoring as ps
 from sklearn.metrics import (
-    root_mean_squared_log_error,
-    mean_squared_error,
-    mean_squared_log_error,
     average_precision_score,
     mean_tweedie_deviance,
 )

@@ -6,10 +6,6 @@ from views_evaluation.adapters.pandas import PandasAdapter
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 from views_evaluation.evaluation.metrics import (
     BaseEvaluationMetrics,
-    RegressionPointEvaluationMetrics,
-    RegressionSampleEvaluationMetrics,
-    ClassificationPointEvaluationMetrics,
-    ClassificationSampleEvaluationMetrics,
 )
 from views_evaluation.evaluation.native_metric_calculators import (
     REGRESSION_POINT_NATIVE,

@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import List, Union
+from typing import List
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 
 class PandasAdapter:

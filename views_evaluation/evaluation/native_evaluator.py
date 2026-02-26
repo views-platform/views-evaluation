@@ -1,13 +1,7 @@
 import numpy as np
-from typing import Dict, Tuple, List
+from typing import Dict, List
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.evaluation_report import EvaluationReport
-from views_evaluation.evaluation.metrics import (
-    RegressionPointEvaluationMetrics,
-    RegressionSampleEvaluationMetrics,
-    ClassificationPointEvaluationMetrics,
-    ClassificationSampleEvaluationMetrics,
-)
 from views_evaluation.evaluation.native_metric_calculators import (
     REGRESSION_POINT_NATIVE,
     REGRESSION_SAMPLE_NATIVE,

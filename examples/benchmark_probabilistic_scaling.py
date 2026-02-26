@@ -27,7 +27,7 @@ def benchmark_scaling():
     df_actual = pd.DataFrame({'true': [[v] for v in y_true]})
     
     start = time.time()
-    legacy_crps = np.mean([
+    np.mean([
         ps.crps_ensemble(actual[0], np.array(pred))
         for actual, pred in zip(df_actual['true'], df_pred['pred'])
     ])
@@ -36,7 +36,7 @@ def benchmark_scaling():
     
     # Native CRPS
     start = time.time()
-    native_crps = np.mean(ps.crps_ensemble(y_true, y_pred, axis=1))
+    np.mean(ps.crps_ensemble(y_true, y_pred, axis=1))
     native_duration = time.time() - start
     print(f"Native CRPS Time: {native_duration:.4f}s")
     print(f"CRPS Speedup: {legacy_duration / native_duration:.1f}x")

@@ -1,9 +1,7 @@
 import pytest
 import pandas as pd
-import numpy as np
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
 from views_evaluation.adapters.pandas import PandasAdapter
-from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 
 def assert_parity(legacy_results, native_report, tolerance=1e-9):

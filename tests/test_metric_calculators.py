@@ -13,8 +13,6 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_mtd_native,
     REGRESSION_POINT_NATIVE,
     REGRESSION_SAMPLE_NATIVE,
-    REGRESSION_POINT_NATIVE,
-    REGRESSION_SAMPLE_NATIVE,
     CLASSIFICATION_POINT_NATIVE,
     CLASSIFICATION_SAMPLE_NATIVE,
 )

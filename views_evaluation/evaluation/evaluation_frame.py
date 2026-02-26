@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 class EvaluationFrame:
     """
@@ -33,17 +33,17 @@ class EvaluationFrame:
         def check_corrupted(arr, name):
             if arr.dtype.kind in 'fc': # float or complex
                 if np.any(np.isnan(arr)):
-                    raise ValueError(f"Input contains NaN")
+                    raise ValueError("Input contains NaN")
                 if np.any(np.isinf(arr)):
-                    raise ValueError(f"Input contains infinity")
+                    raise ValueError("Input contains infinity")
             elif arr.dtype.kind == 'O': # object
                 # Attempt to convert to float for checking if possible
                 try:
                     float_arr = arr.astype(float)
                     if np.any(np.isnan(float_arr)):
-                        raise ValueError(f"Input contains NaN")
+                        raise ValueError("Input contains NaN")
                     if np.any(np.isinf(float_arr)):
-                        raise ValueError(f"Input contains infinity")
+                        raise ValueError("Input contains infinity")
                 except (ValueError, TypeError):
                     pass # Not numeric data
 
@@ -57,7 +57,7 @@ class EvaluationFrame:
             # ADR-012: No NaNs in identifiers
             if arr.dtype.kind in 'f' and np.any(np.isnan(arr)):
                 raise ValueError(f"Identifier '{key}' contains NaN values. This is forbidden.")
-            if arr.dtype.kind in 'O' and np.any(arr == None):
+            if arr.dtype.kind in 'O' and np.any(np.equal(arr, None)):
                 raise ValueError(f"Identifier '{key}' contains None values. This is forbidden.")
 
     @property

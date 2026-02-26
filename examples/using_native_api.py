@@ -6,8 +6,7 @@ using the NativeEvaluator and EvaluationFrame. This path is up to 14x
 faster for probabilistic forecasts.
 """
 import pandas as pd
-import numpy as np
-from views_evaluation import PandasAdapter, NativeEvaluator, EvaluationFrame
+from views_evaluation import PandasAdapter, NativeEvaluator
 
 # 1. Prepare dummy data (The legacy format)
 index = pd.MultiIndex.from_product([[100, 101], [1, 2]], names=['month', 'unit'])

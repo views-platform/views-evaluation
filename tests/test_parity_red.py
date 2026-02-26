@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
 from views_evaluation.adapters.pandas import PandasAdapter
-from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 from tests.test_parity_green import assert_parity
 
