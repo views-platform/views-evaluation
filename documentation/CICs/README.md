@@ -52,6 +52,7 @@ Contracts must be clear enough that:
 
 - `EvaluationFrame.md`
 - `NativeEvaluator.md`
+- `EvaluationReport.md`
 - `PandasAdapter.md`
 - `ModelRunner.md`
 - `VolumeHandler.md`

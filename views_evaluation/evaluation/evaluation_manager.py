@@ -539,7 +539,12 @@ class EvaluationManager:
         # Phase 1: Enable legacy compatibility to maintain bit-wise parity
         # (Reproduces truncation bugs and positional step assumptions)
         try:
-            return evaluator.evaluate(ef, legacy_compatibility=True)
+            report = evaluator.evaluate(ef, legacy_compatibility=True)
+            # Map report back to legacy dictionary structure for backward compatibility
+            return {
+                schema: (report.get_schema_results(schema), report.to_dataframe(schema))
+                for schema in ["month", "time_series", "step"]
+            }
         except ValueError as e:
             # Re-wrap error message to match legacy test expectations if needed
             if "Target" in str(e) and "not found in config" in str(e):

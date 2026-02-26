@@ -73,6 +73,39 @@ def calculate_mean_interval_score_native(y_true: np.ndarray, y_pred: np.ndarray,
     interval_score = interval_width + lower_coverage + upper_coverage
     return np.mean(interval_score)
 
+def calculate_ignorance_score_native(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    bins=[0, 0.5, 2.5, 5.5, 10.5, 25.5, 50.5, 100.5, 250.5, 500.5, 1000.5],
+    low_bin=0,
+    high_bin=10000,
+) -> float:
+    
+    def digitize_minus_one(x, edges):
+        return np.digitize(x, edges, right=False) - 1
+
+    scores = []
+    for i in range(len(y_true)):
+        preds = y_pred[i]
+        truth = float(y_true[i])
+
+        edges = np.histogram_bin_edges(preds, bins=bins, range=(low_bin, high_bin))
+        
+        # Predicted bins
+        binned_preds = digitize_minus_one(preds, edges)
+        # Observed bin
+        binned_obs = digitize_minus_one([truth], edges)[0]
+
+        # Laplace smoothing (add 1 to each bin)
+        n_bins = len(edges) - 1
+        bin_counts = np.bincount(binned_preds, minlength=n_bins)
+        smoothed_counts = bin_counts + 1
+        
+        prob = smoothed_counts[binned_obs] / np.sum(smoothed_counts)
+        scores.append(-np.log2(prob))
+
+    return np.mean(scores)
+
 # Dispatch dicts
 REGRESSION_POINT_NATIVE = {
     "MSE":       calculate_mse_native,
@@ -88,6 +121,7 @@ REGRESSION_SAMPLE_NATIVE = {
     "CRPS":      calculate_crps_native,
     "MIS":       calculate_mean_interval_score_native,
     "Coverage":  calculate_coverage_native,
+    "Ignorance": calculate_ignorance_score_native,
     "y_hat_bar": calculate_mean_prediction_native,
 }
 

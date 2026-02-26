@@ -1,7 +1,7 @@
 import numpy as np
-import pandas as pd
 from typing import Dict, Tuple, List
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
+from views_evaluation.evaluation.evaluation_report import EvaluationReport
 from views_evaluation.evaluation.metrics import (
     RegressionPointEvaluationMetrics,
     RegressionSampleEvaluationMetrics,
@@ -59,7 +59,7 @@ class NativeEvaluator:
             results[m] = funcs[m](ef.y_true, ef.y_pred)
         return results
 
-    def evaluate(self, ef: EvaluationFrame, legacy_compatibility: bool = True) -> Dict[str, Tuple[Dict, pd.DataFrame]]:
+    def evaluate(self, ef: EvaluationFrame, legacy_compatibility: bool = True) -> EvaluationReport:
         metrics_list, funcs, metrics_cls = self._resolve_task_and_metrics(ef)
         
         results = {}
@@ -74,7 +74,7 @@ class NativeEvaluator:
             for k, v in m_results.items():
                 setattr(container, k, v)
             month_dict[f"month{month}"] = container
-        results["month"] = (month_dict, metrics_cls.evaluation_dict_to_dataframe(month_dict))
+        results["month"] = month_dict
         
         # 2. Sequence-wise (Time-Series)
         ts_dict = {}
@@ -86,7 +86,7 @@ class NativeEvaluator:
             for k, v in ts_results.items():
                 setattr(container, k, v)
             ts_dict[f"ts{str(origin).zfill(2)}"] = container
-        results["time_series"] = (ts_dict, metrics_cls.evaluation_dict_to_dataframe(ts_dict))
+        results["time_series"] = ts_dict
         
         # 3. Step-wise
         step_dict = {}
@@ -117,6 +117,6 @@ class NativeEvaluator:
                 container = step_dict[key]
                 for k, v in s_results.items():
                     setattr(container, k, v)
-        results["step"] = (step_dict, metrics_cls.evaluation_dict_to_dataframe(step_dict))
+        results["step"] = step_dict
         
-        return results
+        return EvaluationReport(target=ef.metadata.get('target', 'unknown'), results=results)

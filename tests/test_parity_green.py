@@ -6,15 +6,15 @@ from views_evaluation.adapters.pandas import PandasAdapter
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 
-def assert_parity(legacy_results, native_results, tolerance=1e-9):
+def assert_parity(legacy_results, native_report, tolerance=1e-9):
     """
     Asserts bit-wise (or within tolerance) parity between legacy and native results.
     legacy_results: output of EvaluationManager.evaluate()
-    native_results: output of NativeEvaluator.evaluate()
+    native_report: EvaluationReport object from NativeEvaluator.evaluate()
     """
     for schema in ["month", "time_series", "step"]:
         legacy_df = legacy_results[schema][1]
-        native_df = native_results[schema][1]
+        native_df = native_report.to_dataframe(schema)
         
         # Check index parity
         pd.testing.assert_index_equal(legacy_df.index, native_df.index)
@@ -82,17 +82,17 @@ def test_parity_green_happy_path(green_data):
     # 3. Assert Parity
     assert_parity(legacy_results, native_results)
 
-def test_parity_green_samples(green_data_samples):
+def test_parity_green_ignorance(green_data_samples):
     actual, predictions, target, config = green_data_samples
+    # Update config to use Ignorance score
+    config['regression_sample_metrics'] = ['Ignorance']
     
-    # 1. Run Legacy
     manager = EvaluationManager()
     legacy_results = manager.evaluate(actual, predictions, target, config)
     
-    # 2. Run Native (New Path)
     ef = PandasAdapter.from_dataframes(actual, predictions, target)
     native_evaluator = NativeEvaluator(config)
     native_results = native_evaluator.evaluate(ef)
     
-    # 3. Assert Parity
     assert_parity(legacy_results, native_results)
+
