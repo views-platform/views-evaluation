@@ -22,12 +22,12 @@ class NativeEvaluator:
     """
     def __init__(self, config: dict):
         self.config = config
-        # Mapping task/type to metric dispatch dicts and legacy dataclasses
+        # Mapping task/type to metric dispatch dicts (No dataclasses here)
         self.metrics_map = {
-            ("regression", "point"): (REGRESSION_POINT_NATIVE, RegressionPointEvaluationMetrics),
-            ("regression", "sample"): (REGRESSION_SAMPLE_NATIVE, RegressionSampleEvaluationMetrics),
-            ("classification", "point"): (CLASSIFICATION_POINT_NATIVE, ClassificationPointEvaluationMetrics),
-            ("classification", "sample"): (CLASSIFICATION_SAMPLE_NATIVE, ClassificationSampleEvaluationMetrics),
+            ("regression", "point"): REGRESSION_POINT_NATIVE,
+            ("regression", "sample"): REGRESSION_SAMPLE_NATIVE,
+            ("classification", "point"): CLASSIFICATION_POINT_NATIVE,
+            ("classification", "sample"): CLASSIFICATION_SAMPLE_NATIVE,
         }
 
     def _resolve_task_and_metrics(self, ef: EvaluationFrame):
@@ -43,8 +43,8 @@ class NativeEvaluator:
         pred_type = "sample" if ef.is_sample else "point"
         metrics_list = self.config.get(f"{task}_{pred_type}_metrics", [])
         
-        funcs, cls = self.metrics_map[(task, pred_type)]
-        return metrics_list, funcs, cls
+        funcs = self.metrics_map[(task, pred_type)]
+        return metrics_list, funcs, task, pred_type
 
     def _calculate_metrics(self, ef: EvaluationFrame, metrics_list: List[str], funcs: Dict) -> Dict[str, float]:
         """
@@ -60,40 +60,33 @@ class NativeEvaluator:
         return results
 
     def evaluate(self, ef: EvaluationFrame, legacy_compatibility: bool = True) -> EvaluationReport:
-        metrics_list, funcs, metrics_cls = self._resolve_task_and_metrics(ef)
+        metrics_list, funcs, task, pred_type = self._resolve_task_and_metrics(ef)
         
         results = {}
         
         # 1. Month-wise
-        month_dict = {}
+        month_results = {}
         month_indices = ef.get_group_indices('time')
         for month, idx in month_indices.items():
             sub_ef = ef.select_indices(idx)
-            m_results = self._calculate_metrics(sub_ef, metrics_list, funcs)
-            container = metrics_cls()
-            for k, v in m_results.items():
-                setattr(container, k, v)
-            month_dict[f"month{month}"] = container
-        results["month"] = month_dict
+            month_results[f"month{month}"] = self._calculate_metrics(sub_ef, metrics_list, funcs)
+        results["month"] = month_results
         
         # 2. Sequence-wise (Time-Series)
-        ts_dict = {}
+        ts_results = {}
         origin_indices = ef.get_group_indices('origin')
         for origin, idx in origin_indices.items():
             sub_ef = ef.select_indices(idx)
-            ts_results = self._calculate_metrics(sub_ef, metrics_list, funcs)
-            container = metrics_cls()
-            for k, v in ts_results.items():
-                setattr(container, k, v)
-            ts_dict[f"ts{str(origin).zfill(2)}"] = container
-        results["time_series"] = ts_dict
+            ts_results[f"ts{str(origin).zfill(2)}"] = self._calculate_metrics(sub_ef, metrics_list, funcs)
+        results["time_series"] = ts_results
         
         # 3. Step-wise
-        step_dict = {}
+        step_results = {}
         config_steps = self.config.get("steps", [])
         if config_steps:
             max_step = max(config_steps)
-            step_dict = {f"step{str(i).zfill(2)}": metrics_cls() for i in range(1, max_step + 1)}
+            # Pre-initialize with empty results for all steps up to max
+            step_results = {f"step{str(i).zfill(2)}": {} for i in range(1, max_step + 1)}
         
         # LEGACY PARITY: Truncate steps to the shortest sequence length if in compat mode
         max_allowed_step = 999
@@ -111,12 +104,15 @@ class NativeEvaluator:
                 continue
                 
             key = f"step{str(step).zfill(2)}"
-            if key in step_dict:
+            if key in step_results:
                 sub_ef = ef.select_indices(idx)
-                s_results = self._calculate_metrics(sub_ef, metrics_list, funcs)
-                container = step_dict[key]
-                for k, v in s_results.items():
-                    setattr(container, k, v)
-        results["step"] = step_dict
+                step_results[key] = self._calculate_metrics(sub_ef, metrics_list, funcs)
+        results["step"] = step_results
         
-        return EvaluationReport(target=ef.metadata.get('target', 'unknown'), results=results)
+        return EvaluationReport(
+            target=ef.metadata.get('target', 'unknown'), 
+            task=task,
+            pred_type=pred_type,
+            results=results
+        )
+

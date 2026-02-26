@@ -11,11 +11,11 @@ from views_evaluation.evaluation.metrics import (
     ClassificationPointEvaluationMetrics,
     ClassificationSampleEvaluationMetrics,
 )
-from views_evaluation.evaluation.metric_calculators import (
-    REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
-    CLASSIFICATION_POINT_METRIC_FUNCTIONS,
-    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
+from views_evaluation.evaluation.native_metric_calculators import (
+    REGRESSION_POINT_NATIVE,
+    REGRESSION_SAMPLE_NATIVE,
+    CLASSIFICATION_POINT_NATIVE,
+    CLASSIFICATION_SAMPLE_NATIVE,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,10 +35,11 @@ class EvaluationManager:
         passed to evaluate(). No metric list is accepted here.
         """
 
-        self.regression_point_functions           = REGRESSION_POINT_METRIC_FUNCTIONS
-        self.regression_sample_functions          = REGRESSION_SAMPLE_METRIC_FUNCTIONS
-        self.classification_point_functions       = CLASSIFICATION_POINT_METRIC_FUNCTIONS
-        self.classification_sample_functions      = CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
+        self.regression_point_functions           = REGRESSION_POINT_NATIVE
+        self.regression_sample_functions          = REGRESSION_SAMPLE_NATIVE
+        self.classification_point_functions       = CLASSIFICATION_POINT_NATIVE
+        self.classification_sample_functions      = CLASSIFICATION_SAMPLE_NATIVE
+
 
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
@@ -338,6 +339,27 @@ class EvaluationManager:
                 "Config declares 'classification_targets' but is missing "
                 "'classification_point_metrics'."
             )
+
+        # Validate that metrics are valid for the task type (ADR-014)
+        from views_evaluation.evaluation.native_metric_calculators import (
+            REGRESSION_POINT_NATIVE, REGRESSION_SAMPLE_NATIVE,
+            CLASSIFICATION_POINT_NATIVE, CLASSIFICATION_SAMPLE_NATIVE
+        )
+        
+        for metric in config.get("regression_point_metrics", []):
+            if metric not in REGRESSION_POINT_NATIVE or metric == "AP":
+                raise ValueError(f"Metric '{metric}' is not valid for regression point tasks.")
+
+        for metric in config.get("regression_sample_metrics", []):
+            if metric not in REGRESSION_SAMPLE_NATIVE:
+                raise ValueError(f"Metric '{metric}' is not valid for regression sample tasks.")
+        for metric in config.get("classification_point_metrics", []):
+            if metric not in CLASSIFICATION_POINT_NATIVE:
+                raise ValueError(f"Metric '{metric}' is not valid for classification point tasks.")
+        for metric in config.get("classification_sample_metrics", []):
+            if metric not in CLASSIFICATION_SAMPLE_NATIVE:
+                raise ValueError(f"Metric '{metric}' is not valid for classification sample tasks.")
+
 
     def step_wise_evaluation(
         self,

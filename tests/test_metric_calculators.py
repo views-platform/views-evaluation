@@ -1,22 +1,22 @@
 import pytest
 import pandas as pd
-from views_evaluation.evaluation.metric_calculators import (
-    calculate_mse,
-    calculate_rmsle,
-    calculate_crps,
-    calculate_ap,
-    calculate_emd,
-    calculate_pearson,
-    calculate_coverage,
-    calculate_ignorance_score,
-    calculate_mean_interval_score,
-    calculate_mtd,
-    POINT_METRIC_FUNCTIONS,
-    SAMPLE_METRIC_FUNCTIONS,
-    REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
-    CLASSIFICATION_POINT_METRIC_FUNCTIONS,
-    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
+from views_evaluation.evaluation.native_metric_calculators import (
+    calculate_mse_native,
+    calculate_rmsle_native,
+    calculate_crps_native,
+    calculate_ap_native,
+    calculate_emd_native,
+    calculate_pearson_native,
+    calculate_coverage_native,
+    calculate_ignorance_score_native,
+    calculate_mean_interval_score_native,
+    calculate_mtd_native,
+    REGRESSION_POINT_NATIVE,
+    REGRESSION_SAMPLE_NATIVE,
+    REGRESSION_POINT_NATIVE,
+    REGRESSION_SAMPLE_NATIVE,
+    CLASSIFICATION_POINT_NATIVE,
+    CLASSIFICATION_SAMPLE_NATIVE,
 )
 
 
@@ -44,96 +44,96 @@ def sample_sample_data():
     return actual, pred
 
 
-def test_calculate_mse(sample_data):
+def test_calculate_mse_native(sample_data):
     """Test MSE calculation."""
     actual, pred = sample_data
-    result = calculate_mse(actual, pred, 'target')
+    result = calculate_mse_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
-def test_calculate_rmsle_point(sample_data):
+def test_calculate_rmsle_native_point(sample_data):
     """Test RMSLE calculation."""
     actual, pred = sample_data
-    result = calculate_rmsle(actual, pred, 'target')
+    result = calculate_rmsle_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
-def test_calculate_crps_point(sample_data):
+def test_calculate_crps_native_point(sample_data):
     """Test CRPS calculation."""
     actual, pred = sample_data
-    result = calculate_crps(actual, pred, 'target')
+    result = calculate_crps_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_crps_sample(sample_sample_data):
+def test_calculate_crps_native_sample(sample_sample_data):
     """Test CRPS calculation."""
     actual, pred = sample_sample_data
-    result = calculate_crps(actual, pred, 'target')
+    result = calculate_crps_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_ap():
+def test_calculate_ap_native():
     """Test Average Precision calculation with pre-binarised actuals and probability scores."""
     # Binary actuals (0/1) and probability scores as predictions
     actual = pd.DataFrame({'target': [[1], [0], [1], [0]]})
     pred = pd.DataFrame({'pred_target': [[0.9], [0.4], [0.3], [0.1]]})
-    result = calculate_ap(actual, pred, 'target')
+    result = calculate_ap_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert 0 <= result <= 1
 
 
-def test_calculate_emd(sample_data):
+def test_calculate_emd_native(sample_data):
     """Test Earth Mover's Distance calculation."""
     actual, pred = sample_data
-    result = calculate_emd(actual, pred, 'target')
+    result = calculate_emd_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_pearson(sample_data):
+def test_calculate_pearson_native(sample_data):
     """Test Pearson correlation calculation."""
     actual, pred = sample_data
-    result = calculate_pearson(actual, pred, 'target')
+    result = calculate_pearson_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert -1 <= result <= 1
 
 
-def test_calculate_mtd(sample_data):
+def test_calculate_mtd_native(sample_data):
     """Test Mean Tweedie Deviance calculation."""
     actual, pred = sample_data
-    result = calculate_mtd(actual, pred, 'target')
+    result = calculate_mtd_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_mtd_with_power(sample_data):
+def test_calculate_mtd_native_with_power(sample_data):
     """Test Mean Tweedie Deviance calculation with different power values."""
     actual, pred = sample_data
     # Test with power=1.5 (compound Poisson-Gamma)
-    result_15 = calculate_mtd(actual, pred, 'target', power=1.5)
+    result_15 = calculate_mtd_native(actual, pred, 'target', power=1.5)
     assert isinstance(result_15, float)
     assert result_15 >= 0
 
     # Test with power=2 (Gamma)
-    result_2 = calculate_mtd(actual, pred, 'target', power=2.0)
+    result_2 = calculate_mtd_native(actual, pred, 'target', power=2.0)
     assert isinstance(result_2, float)
     assert result_2 >= 0
 
 
-def test_calculate_coverage_sample(sample_sample_data):
+def test_calculate_coverage_native_sample(sample_sample_data):
     """Test Coverage calculation."""
     actual, pred = sample_sample_data
-    result = calculate_coverage(actual, pred, 'target')
+    result = calculate_coverage_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert 0 <= result <= 1
 
 
-def test_calculate_ignorance_score_sample(sample_sample_data):
+def test_calculate_ignorance_score_native_sample(sample_sample_data):
     """Test Ignorance Score calculation."""
     actual, pred = sample_sample_data
-    result = calculate_ignorance_score(actual, pred, 'target')
+    result = calculate_ignorance_score_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
@@ -141,43 +141,44 @@ def test_calculate_ignorance_score_sample(sample_sample_data):
 def test_calculate_mis_sample(sample_sample_data):
     """Test Mean Interval Score calculation."""
     actual, pred = sample_sample_data
-    result = calculate_mean_interval_score(actual, pred, 'target')
+    result = calculate_mean_interval_score_native(actual, pred, 'target')
     assert isinstance(result, float)
     assert result >= 0
 
 
 def test_point_metric_functions():
-    """Test that all point metric functions are available in the deprecated POINT_METRIC_FUNCTIONS."""
+    """Test that all point metric functions are available in the deprecated REGRESSION_POINT_NATIVE."""
     expected_metrics = [
-        "MSE", "MSLE", "RMSLE", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
+        "MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
     ]
 
+
     for metric in expected_metrics:
-        assert metric in POINT_METRIC_FUNCTIONS
-        assert callable(POINT_METRIC_FUNCTIONS[metric])
+        assert metric in REGRESSION_POINT_NATIVE
+        assert callable(REGRESSION_POINT_NATIVE[metric])
 
 
 def test_sample_metric_functions():
-    """Test that all sample metric functions are available in the deprecated SAMPLE_METRIC_FUNCTIONS."""
+    """Test that all sample metric functions are available in the deprecated REGRESSION_SAMPLE_NATIVE."""
     expected_metrics = ["CRPS", "MIS", "Ignorance", "Brier", "Jeffreys", "Coverage"]
 
     for metric in expected_metrics:
-        assert metric in SAMPLE_METRIC_FUNCTIONS
-        assert callable(SAMPLE_METRIC_FUNCTIONS[metric])
+        assert metric in REGRESSION_SAMPLE_NATIVE
+        assert callable(REGRESSION_SAMPLE_NATIVE[metric])
 
 
 def test_regression_point_metric_functions():
-    """Test that all regression point metric functions are available in REGRESSION_POINT_METRIC_FUNCTIONS."""
+    """Test that all regression point metric functions are available in REGRESSION_POINT_NATIVE."""
     expected_metrics = ["MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"]
 
     for metric in expected_metrics:
-        assert metric in REGRESSION_POINT_METRIC_FUNCTIONS
-        assert callable(REGRESSION_POINT_METRIC_FUNCTIONS[metric])
+        assert metric in REGRESSION_POINT_NATIVE
+        assert callable(REGRESSION_POINT_NATIVE[metric])
 
     # AP must NOT be in regression point functions
-    assert "AP" not in REGRESSION_POINT_METRIC_FUNCTIONS
+    assert "AP" not in REGRESSION_POINT_NATIVE
     # CRPS must NOT be in regression point functions
-    assert "CRPS" not in REGRESSION_POINT_METRIC_FUNCTIONS
+    assert "CRPS" not in REGRESSION_POINT_NATIVE
 
 
 def test_regression_sample_metric_functions():
@@ -185,20 +186,20 @@ def test_regression_sample_metric_functions():
     expected_metrics = ["CRPS", "MIS", "Coverage", "Ignorance", "y_hat_bar"]
 
     for metric in expected_metrics:
-        assert metric in REGRESSION_SAMPLE_METRIC_FUNCTIONS
-        assert callable(REGRESSION_SAMPLE_METRIC_FUNCTIONS[metric])
+        assert metric in REGRESSION_SAMPLE_NATIVE
+        assert callable(REGRESSION_SAMPLE_NATIVE[metric])
 
     # AP must NOT be in regression sample functions
-    assert "AP" not in REGRESSION_SAMPLE_METRIC_FUNCTIONS
+    assert "AP" not in REGRESSION_SAMPLE_NATIVE
 
 
 def test_classification_point_metric_functions():
-    """Test that AP is in CLASSIFICATION_POINT_METRIC_FUNCTIONS."""
-    assert "AP" in CLASSIFICATION_POINT_METRIC_FUNCTIONS
-    assert callable(CLASSIFICATION_POINT_METRIC_FUNCTIONS["AP"])
+    """Test that AP is in CLASSIFICATION_POINT_NATIVE."""
+    assert "AP" in CLASSIFICATION_POINT_NATIVE
+    assert callable(CLASSIFICATION_POINT_NATIVE["AP"])
 
     # RMSLE must NOT be in classification point functions
-    assert "RMSLE" not in CLASSIFICATION_POINT_METRIC_FUNCTIONS
+    assert "RMSLE" not in CLASSIFICATION_POINT_NATIVE
 
 
 def test_classification_sample_metric_functions():
@@ -206,11 +207,11 @@ def test_classification_sample_metric_functions():
     expected_metrics = ["CRPS", "Brier", "Jeffreys"]
 
     for metric in expected_metrics:
-        assert metric in CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
-        assert callable(CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS[metric])
+        assert metric in CLASSIFICATION_SAMPLE_NATIVE
+        assert callable(CLASSIFICATION_SAMPLE_NATIVE[metric])
 
     # RMSLE must NOT be in classification sample functions
-    assert "RMSLE" not in CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
+    assert "RMSLE" not in CLASSIFICATION_SAMPLE_NATIVE
 
 
 def test_not_implemented_metrics():
@@ -218,20 +219,20 @@ def test_not_implemented_metrics():
     actual = pd.DataFrame({'target': [[1.0]]})
     pred = pd.DataFrame({'pred_target': [[1.0]]})
 
-    from views_evaluation.evaluation.metric_calculators import (
-        calculate_brier,
-        calculate_jeffreys,
-        calculate_sd,
-        calculate_pEMDiv,
-        calculate_variogram,
+    from views_evaluation.evaluation.native_metric_calculators import (
+        calculate_brier_native,
+        calculate_jeffreys_native,
+        calculate_sd_native,
+        calculate_pEMDiv_native,
+        calculate_variogram_native,
     )
 
     unimplemented_functions = [
-        calculate_brier,
-        calculate_jeffreys,
-        calculate_sd,
-        calculate_pEMDiv,
-        calculate_variogram,
+        calculate_brier_native,
+        calculate_jeffreys_native,
+        calculate_sd_native,
+        calculate_pEMDiv_native,
+        calculate_variogram_native,
     ]
 
     for func in unimplemented_functions:
