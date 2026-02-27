@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from views_evaluation.evaluation.metric_calculators import (
     calculate_mse,
+    calculate_msle,
     calculate_rmsle,
     calculate_crps,
     calculate_ap,
@@ -13,6 +14,7 @@ from views_evaluation.evaluation.metric_calculators import (
     calculate_mean_interval_score,
     calculate_mtd,
     calculate_bcd,
+    calculate_cgm,
     POINT_METRIC_FUNCTIONS,
     UNCERTAINTY_METRIC_FUNCTIONS,
 )
@@ -156,6 +158,65 @@ def test_calculate_bcd_with_power(sample_data):
     assert result_15 != result_2
 
 
+def test_calculate_cgm(sample_data):
+    """Test CGM calculation returns a non-negative float."""
+    actual, pred = sample_data
+    result = calculate_cgm(actual, pred, 'target')
+    assert isinstance(result, float)
+    assert result >= 0
+    assert np.isfinite(result)
+
+
+def test_calculate_cgm_is_geometric_mean(sample_data):
+    """Test that CGM equals the cube-root of MSLE * MTD * MSE."""
+    actual, pred = sample_data
+    cgm = calculate_cgm(actual, pred, 'target')
+
+    msle = calculate_msle(actual, pred, 'target')
+    mtd = calculate_mtd(actual, pred, 'target', power=1.5)
+    mse = calculate_mse(actual, pred, 'target')
+
+    expected = np.power(msle * mtd * mse, 1.0 / 3.0)
+    assert abs(cgm - expected) < 1e-8
+
+
+def test_calculate_cgm_with_power(sample_data):
+    """Test CGM with different Tweedie power values."""
+    actual, pred = sample_data
+    result_15 = calculate_cgm(actual, pred, 'target', power=1.5)
+    result_2 = calculate_cgm(actual, pred, 'target', power=2.0)
+    assert isinstance(result_15, float)
+    assert isinstance(result_2, float)
+    assert result_15 >= 0
+    assert result_2 >= 0
+    assert result_15 != result_2
+
+
+def test_calculate_cgm_perfect_prediction():
+    """Test CGM is near-zero when predictions are perfect."""
+    actual = pd.DataFrame({'target': [[1.0], [2.0], [3.0]]})
+    pred = pd.DataFrame({'pred_target': [[1.0], [2.0], [3.0]]})
+    result = calculate_cgm(actual, pred, 'target')
+    assert result < 1e-3
+
+
+def test_calculate_cgm_worse_than_components(sample_data):
+    """CGM must sit between the smallest and largest of its three components."""
+    actual, pred = sample_data
+    cgm = calculate_cgm(actual, pred, 'target')
+    msle = calculate_msle(actual, pred, 'target')
+    mtd = calculate_mtd(actual, pred, 'target', power=1.5)
+    mse = calculate_mse(actual, pred, 'target')
+    assert cgm >= min(msle, mtd, mse) - 1e-10
+    assert cgm <= max(msle, mtd, mse) + 1e-10
+
+
+def test_calculate_cgm_in_point_metric_functions():
+    """Test that CGM is registered in POINT_METRIC_FUNCTIONS."""
+    assert "CGM" in POINT_METRIC_FUNCTIONS
+    assert callable(POINT_METRIC_FUNCTIONS["CGM"])
+
+
 def test_calculate_coverage_uncertainty(sample_uncertainty_data):
     """Test Coverage calculation."""
     actual, pred = sample_uncertainty_data
@@ -183,7 +244,7 @@ def test_calculate_mis_uncertainty(sample_uncertainty_data):
 def test_point_metric_functions():
     """Test that all point metric functions are available."""
     expected_metrics = [
-        "MSE", "MSLE", "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "BCD", "y_hat_bar"
+        "MSE", "MSLE", "RMSLE", "CRPS", "AP", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "BCD", "CGM", "y_hat_bar"
     ]
     
     for metric in expected_metrics:
