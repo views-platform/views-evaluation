@@ -1,3 +1,8 @@
+"""
+PHASE-3-DELETE: Tests the legacy EvaluationManager path.
+Will be deleted when Phase 3 of the orchestrator migration is complete.
+See reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+"""
 import logging
 import pandas as pd
 import numpy as np

@@ -1,5 +1,18 @@
+"""
+PHASE-3-DELETE
+This module is TEMPORARY and will be deleted in Phase 3 of the orchestrator migration.
+See: reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+
+After Phase 3:
+  - Adapters live in views-pipeline-core (or in the calling repository)
+  - EvaluationManager is fully replaced by NativeEvaluator in pipeline-core
+  - This file will not exist in this repository
+
+Do not add new functionality to this file.
+"""
 from typing import List, Tuple
 import logging
+import warnings
 import pandas as pd
 import numpy as np
 from views_evaluation.adapters.pandas import PandasAdapter
@@ -32,6 +45,13 @@ class EvaluationManager:
         passed to evaluate(). No metric list is accepted here.
         """
 
+        warnings.warn(
+            "EvaluationManager is deprecated and will be removed in Phase 3 of the "
+            "orchestrator migration. Use NativeEvaluator directly with an adapter. "
+            "See documentation/integration_guide.md.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.regression_point_functions           = REGRESSION_POINT_NATIVE
         self.regression_sample_functions          = REGRESSION_SAMPLE_NATIVE
         self.classification_point_functions       = CLASSIFICATION_POINT_NATIVE

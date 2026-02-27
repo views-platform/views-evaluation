@@ -1,3 +1,8 @@
+"""
+PHASE-3-DELETE: Parity tests between the legacy EvaluationManager and native paths.
+Will be deleted when Phase 3 of the orchestrator migration is complete.
+See reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+"""
 import pytest
 import pandas as pd
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager

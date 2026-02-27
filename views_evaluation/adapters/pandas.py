@@ -1,3 +1,16 @@
+"""
+PHASE-3-DELETE
+This module is TEMPORARY and will be deleted in Phase 3 of the orchestrator migration.
+See: reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+
+After Phase 3:
+  - Adapters live in views-pipeline-core (or in the calling repository)
+  - This repo has no knowledge of any specific data framework
+  - This file will not exist in this repository
+
+Do not add new functionality to this file.
+"""
+import warnings
 import numpy as np
 import pandas as pd
 from typing import List
@@ -26,6 +39,12 @@ class PandasAdapter:
             target: The name of the target column
         """
         
+        warnings.warn(
+            "PandasAdapter is deprecated and will be removed from this repo in Phase 3. "
+            "Adapters belong in the calling repository (e.g. views-pipeline-core).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         all_y_true = []
         all_y_pred = []
         all_times = []

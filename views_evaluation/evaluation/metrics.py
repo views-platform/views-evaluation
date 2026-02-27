@@ -1,6 +1,5 @@
 from typing import Optional
 from dataclasses import dataclass
-import pandas as pd
 
 
 @dataclass
@@ -79,7 +78,7 @@ class BaseEvaluationMetrics:
         return {f"month{str(i)}": cls() for i in range(month_start, month_end + 1)}
 
     @staticmethod
-    def evaluation_dict_to_dataframe(evaluation_dict: dict) -> pd.DataFrame:
+    def evaluation_dict_to_dataframe(evaluation_dict: dict):
         """
         Converts a dictionary of EvaluationMetrics instances into a pandas DataFrame for easy analysis.
 
@@ -95,6 +94,7 @@ class BaseEvaluationMetrics:
             >>> evaluation_df = EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
 
         """
+        import pandas as pd
         df = pd.DataFrame.from_dict(evaluation_dict, orient='index')
         return df.loc[:, df.notna().any()]
 
