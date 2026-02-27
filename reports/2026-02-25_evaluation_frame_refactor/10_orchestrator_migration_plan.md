@@ -26,3 +26,9 @@ Once parity is confirmed:
 2. **Cleanup**: Remove `PandasAdapter`, `EvaluationManager`, and the `pandas` dependency from the Evaluation repository.
 
 The system will then be a "Pure Math Engine."
+
+## 5. Implementation Nuance: The Defensive Bridge
+Note that `views_evaluation/evaluation/native_metric_calculators.py` currently contains a `_guard_shapes` utility that handles both pure NumPy and legacy Pandas/Object-dtype data. 
+
+**Post-Migration Task**: Once the orchestrator is passing only pure `EvaluationFrame` objects, the `_guard_shapes` function should be simplified to remove all `hasattr` and `dtype == object` checks, enforcing pure NumPy exclusively.
+
