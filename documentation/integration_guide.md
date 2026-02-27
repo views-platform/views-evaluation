@@ -1,254 +1,246 @@
 # Integration Guide for `views-evaluation`
 
-This guide provides a step-by-step walkthrough for integrating a new forecasting model with the `views-evaluation` library. The key to successful integration is formatting your model's outputs and the ground truth data into the specific `pandas` DataFrame structures that the library expects.
-
-## 1. Prerequisites
-
-First, ensure you have the library and its dependencies installed.
-
-```bash
-# Install the library (from PyPI)
-pip install views_evaluation
-
-# You will also need pandas and numpy
-pip install pandas numpy
-```
+This guide explains how to use the `views-evaluation` library to evaluate conflict forecasting models.
+It covers the architecture, the native API (recommended), the legacy API, identifier semantics, and
+what the library does and does not do with your data.
 
 ---
 
+## 1. Architecture Overview
 
-## 2. The Data Contract: Formatting Your Data
+The library has three layers:
 
-The `EvaluationManager` expects two main inputs: a single DataFrame for the ground truth (`actuals`) and a list of DataFrames for your model's rolling predictions (`predictions`).
+```
+  ┌─────────────────────────────────────────────┐
+  │             Adapters (Bridge Layer)          │
+  │  PandasAdapter — converts List[DataFrame]   │
+  │  to EvaluationFrame; synthesises identifiers│
+  └───────────────────┬─────────────────────────┘
+                      │
+  ┌───────────────────▼─────────────────────────┐
+  │          EvaluationFrame (Core)              │
+  │  Pure NumPy container: y_true, y_pred,      │
+  │  identifiers {time, unit, origin, step}     │
+  └───────────────────┬─────────────────────────┘
+                      │
+  ┌───────────────────▼─────────────────────────┐
+  │         NativeEvaluator (Pure Math)          │
+  │  Stateless engine: executes month-wise,     │
+  │  sequence-wise, and step-wise schemas        │
+  └───────────────────┬─────────────────────────┘
+                      │
+  ┌───────────────────▼─────────────────────────┐
+  │        EvaluationReport (Results)            │
+  │  Framework-agnostic results container;      │
+  │  exposes to_dict(), to_dataframe(),         │
+  │  get_schema_results()                        │
+  └─────────────────────────────────────────────┘
+```
 
-### 2.1. The Ground Truth DataFrame (`actuals`)
+`EvaluationManager` is a **legacy orchestrator** that wraps all four layers behind a single
+`evaluate()` call. It is retained for backward compatibility and will be removed in Phase 3 of the
+orchestrator migration (see `reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md`).
 
-This is a single `pandas` DataFrame containing the observed, true values for your target variable.
+**New integrations should use the native API (§2). The legacy API is documented in §3.**
 
--   **Index:** Must be a `pandas.MultiIndex` with two levels:
-    1.  `month_id` (integer, e.g., `500`)
-    2.  `location_id` (integer, e.g., `country_id` or `priogrid_gid`)
--   **Columns:** Must contain a column with the **exact name of the target variable**.
-    -   **Important:** The name should reflect any transformations. For example, if your model predicts log-transformed values, the target name should be `ln_ged_sb_best`. The `transform_data` method uses these prefixes to correctly handle the data:
-        -   `ln_`: Reverses a log transformation (`np.exp(x) - 1`).
-        -   `lr_`: Assumes a raw value with no transformation. Use this if your data is not transformed.
-        -   `lx_`: Reverses a custom log transformation.
+---
 
-**Example `actuals` DataFrame:**
+## 2. The Native API (Recommended)
+
+### 2.1. Prerequisites
+
+```bash
+pip install views_evaluation
+pip install pandas numpy  # only needed to prepare input DataFrames
+```
+
+### 2.2. Identifier Glossary
+
+All evaluation logic operates on four identifiers that `PandasAdapter` synthesises from your input.
+Understanding them is required:
+
+| Identifier | Type    | Meaning                                                                 |
+|------------|---------|-------------------------------------------------------------------------|
+| `time`     | int     | Calendar month id (e.g. `500`). Direct from the DataFrame MultiIndex.   |
+| `unit`     | int     | Spatial entity id (e.g. `country_id`, `priogrid_gid`). From MultiIndex. |
+| `origin`   | int     | 0-indexed position of the prediction DataFrame in the input list.       |
+|            |         | Origin 0 = first sequence, origin 1 = second sequence, etc.            |
+|            |         | In a rolling-origin evaluation, this encodes *which forecast was made*. |
+| `step`     | int     | 1-indexed positional ordinal within a sequence (step 1 = first month    |
+|            |         | of that forecast, step 2 = second, …). Equivalent to lead time for      |
+|            |         | regular sequences. Synthesised by the adapter; not from your input.     |
+
+### 2.3. Formatting Your Input Data
+
+**Ground truth** — a single `pandas.DataFrame`:
+- Index: `MultiIndex` of `(month_id, entity_id)`
+- Columns: exactly one column named with the target variable (e.g. `ged_sb_best` or `by_sb_best`)
+
+**Predictions** — a `list` of `pandas.DataFrame`:
+- Each DataFrame covers one forecast sequence (all lead times from one rolling origin)
+- Index: same `MultiIndex` format as actuals
+- Column: exactly one column named `f"pred_{target_name}"`
+- Values for point evaluation: each cell is a list/array with **one** float, e.g. `[10.5]`
+- Values for sample evaluation: each cell is a list/array with **multiple** floats, e.g. `[8.1, 9.5, 10.5]`
+- Order matters: list position determines `origin`. Pass sequences in chronological order.
+
+> **No transforms**: The native evaluator does not apply any inverse transformations. Pass data
+> on the original scale. Target names do not need transformation prefixes (e.g. `ged_sb_best`,
+> not `ln_ged_sb_best`).
+
+### 2.4. Configuration Dictionary
 
 ```python
-import pandas as pd
-import numpy as np
+config = {
+    # Exactly which step positions to evaluate (1-indexed, must match sequence length)
+    'steps': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
 
-# Define the index
-actuals_index = pd.MultiIndex.from_tuples(
-    [
-        (500, 101), (500, 102),
-        (501, 101), (501, 102),
-    ],
+    # Declare which targets are regression vs classification
+    'regression_targets': ['ged_sb_best'],
+    # 'classification_targets': ['by_sb_best'],
+
+    # Metrics to compute — choose the right category for your task and pred type
+    'regression_point_metrics': ['MSE', 'RMSLE', 'Pearson'],
+    # 'regression_sample_metrics': ['CRPS', 'MIS', 'Coverage'],
+    # 'classification_point_metrics': ['AP'],
+    # 'classification_sample_metrics': ['CRPS'],
+}
+```
+
+`steps` declares the **exact** step positions to evaluate. If your sequences are 12 months long,
+use `[1, 2, ..., 12]`. Sparse configs (e.g. `[1, 3, 6, 12]`) evaluate only those four positions.
+
+### 2.5. Running the Evaluation
+
+```python
+import numpy as np
+import pandas as pd
+from views_evaluation.evaluation.adapters.pandas import PandasAdapter
+from views_evaluation.evaluation.native_evaluator import NativeEvaluator
+
+# --- 1. Prepare actuals ---
+actuals_index = pd.MultiIndex.from_product(
+    [range(500, 513), [101, 102]],
     names=['month_id', 'country_id']
 )
-
-# Create the DataFrame
 actuals = pd.DataFrame(
-    {'lr_ged_sb_best': [10, 0, 12, 1]},
+    {'ged_sb_best': np.random.randint(0, 20, size=26)},
     index=actuals_index
 )
 
-print(actuals)
-#                      lr_ged_sb_best
-# month_id country_id
-# 500      101                      10
-#          102                       0
-# 501      101                      12
-#          102                       1
+# --- 2. Prepare predictions list (2 sequences, 12 steps each) ---
+target = 'ged_sb_best'
+pred_col = f'pred_{target}'
+predictions_list = []
+
+for origin_offset in range(2):
+    months = range(500 + origin_offset, 512 + origin_offset)
+    idx = pd.MultiIndex.from_product([months, [101, 102]], names=['month_id', 'country_id'])
+    preds = pd.DataFrame({pred_col: [[v] for v in np.random.rand(len(idx)) * 20]}, index=idx)
+    predictions_list.append(preds)
+
+# --- 3. Configure ---
+config = {
+    'steps': list(range(1, 13)),
+    'regression_targets': [target],
+    'regression_point_metrics': ['MSE', 'RMSLE', 'Pearson'],
+}
+
+# --- 4. Adapt and evaluate ---
+adapter = PandasAdapter()
+ef = adapter.adapt(actuals=actuals, predictions=predictions_list, target=target)
+
+evaluator = NativeEvaluator(config)
+report = evaluator.evaluate(ef)   # legacy_compatibility=True by default
+
+# --- 5. Access results ---
+print(report.to_dataframe('step'))         # step-wise DataFrame (MSE, RMSLE, Pearson per step)
+print(report.to_dataframe('month'))        # month-wise DataFrame
+print(report.to_dataframe('time_series'))  # sequence-wise DataFrame
+print(report.to_dict())                    # full nested dict
 ```
 
-### 2.2. The Predictions DataFrames (`predictions`)
+### 2.6. The `legacy_compatibility` Flag
 
-This must be a **Python `list`** where each element is a `pandas` DataFrame. Each DataFrame in the list represents a single forecast sequence from a rolling-origin evaluation.
+`NativeEvaluator.evaluate(ef, legacy_compatibility=True)` (default) caps step-wise evaluation to
+the shortest sequence in the frame. If origin 0 has 12 steps and origin 1 has only 10 steps,
+legacy mode evaluates steps 1–10 and leaves steps 11–12 empty. This reproduces a historic zip
+truncation behaviour required for parity with the legacy system.
 
--   **Index:** Must be the same `MultiIndex` format as `actuals`.
--   **Columns:** Each DataFrame must contain **exactly one column**. The `EvaluationManager` will raise a `ValueError` if extra or duplicate columns are detected.
-    -   The column name **must** be formatted as `f"pred_{target_name}"`. For the example above, this would be `pred_lr_ged_sb_best`.
--   **Values (Crucial for Evaluation Type):** The data type of the values in the prediction column determines whether a point or sample evaluation is performed.
-    -   **Point Evaluation:** Each value must be a list or `np.ndarray` containing a **single** float (e.g., `[10.5]`).
-    -   **Sample Evaluation:** Each value must be a list or `np.ndarray` containing **multiple** floats that represent the predictive distribution (e.g., `[8.1, 9.5, 10.5, 11.2]`).
+Set `legacy_compatibility=False` to evaluate all steps that have any data, regardless of whether
+shorter sequences exist.
 
-> [!IMPORTANT]
-> **Common Pitfall:** Do **not** include `month_id` or `location_id` as standard columns in your DataFrames. These must reside in the `MultiIndex`. Including them as columns will violate the "Exactly One Column" contract and cause a validation error.
-
-**Example `predictions` List (for a Point Evaluation):**
+### 2.7. The `EvaluationReport` API
 
 ```python
-# This list represents two forecast sequences
-predictions_list = []
-target_name = "lr_ged_sb_best"
-pred_col_name = f"pred_{target_name}"
+report.target        # str: target variable name
+report.task          # str: 'regression' or 'classification'
+report.pred_type     # str: 'point' or 'sample'
 
-# Sequence 1 (e.g., forecast made at t=499 for months 500-501)
-preds_index_1 = pd.MultiIndex.from_tuples(
-    [(500, 101), (500, 102), (501, 101), (501, 102)],
-    names=['month_id', 'country_id']
-)
-# Note that each prediction is a list with a single value
-pred_values_1 = [[9.8], [0.2], [11.5], [1.1]]
-df_preds_1 = pd.DataFrame({pred_col_name: pred_values_1}, index=preds_index_1)
-predictions_list.append(df_preds_1)
+report.to_dict()     # {'target': ..., 'task': ..., 'pred_type': ...,
+                     #  'schemas': {'month': {...}, 'time_series': {...}, 'step': {...}}}
 
+report.to_dataframe('month')        # pd.DataFrame, index = group keys
+report.to_dataframe('time_series')  # pd.DataFrame
+report.to_dataframe('step')         # pd.DataFrame
+report.to_dataframe('raw')          # passthrough to internal results dict
 
-# Sequence 2 (e.g., forecast made at t=500 for months 501-502)
-preds_index_2 = pd.MultiIndex.from_tuples(
-    [(501, 101), (501, 102), (502, 101), (502, 102)],
-    names=['month_id', 'country_id']
-)
-pred_values_2 = [[12.1], [0.9], [5.5], [5.8]]
-df_preds_2 = pd.DataFrame({pred_col_name: pred_values_2}, index=preds_index_2)
-predictions_list.append(df_preds_2)
+report.get_schema_results('month')  # dict mapping key → typed metrics dataclass
 ```
 
 ---
 
+## 3. The Legacy API (`EvaluationManager`)
 
-## 3. Running the Evaluation
+> **Deprecation notice:** `EvaluationManager` will be removed in Phase 3 of the orchestrator
+> migration. New integrations must use the native API (§2). This section is retained for teams
+> currently using the legacy path.
 
-Once your data is correctly formatted, running the evaluation is a three-step process.
+### 3.1. Differences from the Native API
 
-### 3.1. Instantiate `EvaluationManager`
+- Accepts the same DataFrame inputs and config as §2.
+- Applies **inverse transforms** based on target name prefixes:
+  - `ln_` prefix: applies `exp(x) - 1` to both actuals and predictions
+  - `lx_` prefix: applies a custom inverse log transform
+  - `lr_` prefix: no transform (raw values)
+  - No prefix: no transform
+  This behaviour is **absent** from the native path, which always operates on data as provided.
+- Returns a dict of `{schema: (dict, DataFrame)}` tuples, not an `EvaluationReport`.
+- `legacy_compatibility` is hardcoded to `True` (cannot be changed).
 
-Create an instance of the manager. Note that metrics are no longer declared at instantiation; they are provided in the configuration dictionary when calling `.evaluate()`.
+### 3.2. Usage
 
 ```python
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
 
 manager = EvaluationManager()
-```
-
-### 3.2. Prepare the `config` Dictionary
-
-The evaluation method requires a configuration dictionary. This dictionary must specify the forecast steps and which metrics to compute for each task type (regression or classification).
-
-**Available Metric Categories:**
-*   `regression_point_metrics`: e.g., `MSE`, `RMSLE`, `Pearson`, `MTD`.
-*   `regression_sample_metrics`: e.g., `CRPS`, `MIS`, `Coverage`.
-*   `classification_point_metrics`: e.g., `AP`.
-*   `classification_sample_metrics`: e.g., `CRPS`.
-
-```python
-# Configure steps and metrics
 config = {
-    'steps': [1, 2],
+    'steps': [1, 2, 3],
     'regression_targets': ['lr_ged_sb_best'],
     'regression_point_metrics': ['MSE', 'RMSLE', 'Pearson']
 }
-```
 
-### 3.3. Call `.evaluate()`
-
-Call the main evaluation method with your prepared data.
-
-```python
-# Assume actuals, predictions_list, target_name, and config are defined
-evaluation_results = manager.evaluate(
-    actual=actuals,
+results = manager.evaluate(
+    actual=actuals,         # same format as §2.3
     predictions=predictions_list,
-    target=target_name,
+    target='lr_ged_sb_best',
     config=config
 )
+
+# Access results (tuple format — not EvaluationReport)
+step_df = results['step'][1]         # index 1 = DataFrame
+step_dict = results['step'][0]       # index 0 = raw dict
 ```
 
 ---
 
+## 4. What This Library Does NOT Do
 
-## 4. Understanding the Output
-
-The `evaluate()` method returns a nested dictionary containing the results for all three schemas.
-
-```
-evaluation_results = {
-    'month': (month_wise_dict, month_wise_df),
-    'time_series': (time_series_dict, time_series_df),
-    'step': (step_wise_dict, step_wise_df)
-}
-```
-
-You can easily access the results for a specific schema. For example, to get the step-wise results as a DataFrame:
-
-```python
-step_wise_results_df = evaluation_results['step'][1]
-print(step_wise_results_df)
-```
-
-For the full specification of the JSON output that is ultimately generated by the wider VIEWS pipeline, see `ADR-005`.
-
----
-
-
-## 5. Putting It All Together: A Complete Example
-
-This script demonstrates the full end-to-end process.
-
-```python
-import pandas as pd
-import numpy as np
-from views_evaluation.evaluation.evaluation_manager import EvaluationManager
-
-# 1. Define constants
-target_name = "lr_ged_sb_best"
-pred_col_name = f"pred_{target_name}"
-
-# 2. Create Ground Truth ('actuals') DataFrame
-actuals_index = pd.MultiIndex.from_product(
-    [range(500, 504), [101, 102]],
-    names=['month_id', 'country_id']
-)
-actuals = pd.DataFrame(
-    {target_name: np.random.randint(0, 20, size=len(actuals_index))},
-    index=actuals_index
-)
-
-# 3. Create Predictions List (2 sequences of 3 steps each)
-predictions_list = []
-# Sequence 1
-preds_index_1 = pd.MultiIndex.from_product(
-    [range(500, 503), [101, 102]], names=['month_id', 'country_id']
-)
-pred_values_1 = [[v] for v in np.random.rand(len(preds_index_1)) * 20]
-df_preds_1 = pd.DataFrame({pred_col_name: pred_values_1}, index=preds_index_1)
-predictions_list.append(df_preds_1)
-
-# Sequence 2
-preds_index_2 = pd.MultiIndex.from_product(
-    [range(501, 504), [101, 102]], names=['month_id', 'country_id']
-)
-pred_values_2 = [[v] for v in np.random.rand(len(preds_index_2)) * 20]
-df_preds_2 = pd.DataFrame({pred_col_name: pred_values_2}, index=preds_index_2)
-predictions_list.append(df_preds_2)
-
-
-# 4. Configure and Run Evaluation
-manager = EvaluationManager()
-config = {
-    'steps': [1, 2, 3], # 3 steps per sequence
-    'regression_targets': [target_name],
-    'regression_point_metrics': ["RMSLE", "Pearson"]
-}
-
-print("Running evaluation...")
-evaluation_results = manager.evaluate(
-    actual=actuals,
-    predictions=predictions_list,
-    target=target_name,
-    config=config
-)
-print("Evaluation complete.")
-
-# 5. Access and Display Results
-print("\n--- Step-wise Evaluation Results ---")
-step_wise_df = evaluation_results['step'][1]
-print(step_wise_df)
-
-print("\n--- Time-series-wise Evaluation Results ---")
-ts_wise_df = evaluation_results['time_series'][1]
-print(ts_wise_df)
-```
+- **Does not load or save data.** Pass DataFrames in; get an `EvaluationReport` (or dict) out.
+- **Does not enforce k=12 or 36-month sequences.** The VIEWS standard (ADR-030) recommends
+  k=12 rolling origins over 36-month evaluation windows, but this library accepts any sequence
+  count and length.
+- **Does not validate spatial or temporal alignment.** The adapter performs index intersection, but
+  it does not verify that sequences are in chronological order or that all origins cover the same
+  calendar range.
+- **Does not produce output files.** Persistence is handled by `views-pipeline-core` per ADR-041.

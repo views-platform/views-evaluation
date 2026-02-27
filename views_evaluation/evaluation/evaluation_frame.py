@@ -50,6 +50,15 @@ class EvaluationFrame:
         check_corrupted(y_true, "y_true")
         check_corrupted(y_pred, "y_pred")
 
+        # ADR-014: Enforce required identifier keys
+        required_keys = {'time', 'unit', 'origin', 'step'}
+        missing_keys = required_keys - set(identifiers.keys())
+        if missing_keys:
+            raise ValueError(
+                f"EvaluationFrame identifiers missing required keys: {sorted(missing_keys)}. "
+                f"Required: {sorted(required_keys)}"
+            )
+
         for key, arr in identifiers.items():
             if len(arr) != n_rows:
                 raise ValueError(f"Identifier '{key}' length ({len(arr)}) mismatch y_true ({n_rows})")

@@ -26,7 +26,8 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 
 - **Schema Preservation**: Guarantees that month-wise, sequence-wise, and step-wise regrouping logic is consistent with established Views standards (ADR-032).
 - **Stateless Execution**: Operates as a pure function of (Configuration + EvaluationFrame).
-- **Legacy Compatibility**: Provides an explicit flag to reproduce legacy truncation bugs when needed for parity.
+- **Legacy Compatibility**: Provides an explicit `legacy_compatibility` flag (default `True`) that caps step-wise evaluation to the shortest sequence in the frame, reproducing the historic zip-truncation behaviour required for parity with the legacy system. Set `False` to evaluate all steps with available data.
+- **Exact Step Filtering**: Evaluates only the step positions explicitly declared in `config['steps']`. Sparse configs (e.g. `[1, 3, 6, 12]`) produce exactly four step keys, not one key per step up to the maximum.
 - **Fail-Loud Dispatch**: Guarantees that it fails immediately if a requested metric or configuration is invalid for the provided data.
 
 ---
@@ -49,7 +50,7 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 ## 6. Failure Modes and Loudness
 
 - Raises `ValueError` if the target name in metadata is not declared in the config.
-- Raises `KeyError` if a requested metric is not implement for the task type.
+- Raises `ValueError` if a requested metric name is not valid for the task type, or is defined but not yet implemented.
 - Fails loud if the `EvaluationFrame` lacks the required identifiers for a schema.
 
 ---
@@ -66,6 +67,10 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 
 ```python
 evaluator = NativeEvaluator(config)
-results = evaluator.evaluate(ef, legacy_compatibility=True)
-month_df = results['month'][1]
+report = evaluator.evaluate(ef, legacy_compatibility=True)  # returns EvaluationReport
+
+# Access results
+month_df = report.to_dataframe('month')        # pd.DataFrame indexed by group keys
+step_dict = report.to_dict()['schemas']['step']  # raw nested dict
+schema = report.get_schema_results('time_series')  # dict → typed metrics dataclass
 ```

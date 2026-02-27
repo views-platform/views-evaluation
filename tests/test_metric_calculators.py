@@ -234,5 +234,5 @@ def test_not_implemented_metrics():
     ]
 
     for func in unimplemented_functions:
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError, match="not yet implemented"):
             func(actual, pred, 'target')

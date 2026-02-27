@@ -78,9 +78,8 @@ class NativeEvaluator:
         step_results = {}
         config_steps = self.config.get("steps", [])
         if config_steps:
-            max_step = max(config_steps)
-            # Pre-initialize with empty results for all steps up to max
-            step_results = {f"step{str(i).zfill(2)}": {} for i in range(1, max_step + 1)}
+            # Pre-initialize only the explicitly declared steps (not all steps up to max)
+            step_results = {f"step{str(s).zfill(2)}": {} for s in config_steps}
         
         # LEGACY PARITY: Truncate steps to the shortest sequence length if in compat mode
         max_allowed_step = 999

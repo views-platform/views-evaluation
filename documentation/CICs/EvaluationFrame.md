@@ -49,8 +49,9 @@ The canonical, framework-agnostic internal representation of a forecasting evalu
 ## 6. Failure Modes and Loudness
 
 - Raises `ValueError` if input arrays have mismatched lengths during initialization.
-- Raises `KeyError` if requested grouping identifiers are missing.
-- Fails loud if any identifier contains `NaN` (as per ADR-012).
+- Raises `ValueError` if required identifiers (`time`, `unit`, `origin`, `step`) are absent.
+- Raises `ValueError` if any identifier array contains `NaN` or `None` (as per ADR-012).
+- Raises `ValueError` if `y_true` or `y_pred` contain `NaN` or infinity (as per ADR-013).
 
 ---
 
@@ -67,8 +68,14 @@ The canonical, framework-agnostic internal representation of a forecasting evalu
 ```python
 ef = EvaluationFrame(
     y_true=np.array([0, 1]),
-    y_pred=np.array([[0.1, 0.2], [0.8, 0.9]]), # 2 samples
-    identifiers={'time': np.array([100, 100]), 'unit': np.array([1, 2])}
+    y_pred=np.array([[0.1, 0.2], [0.8, 0.9]]),  # 2 samples
+    identifiers={
+        'time':   np.array([100, 100]),  # calendar month id
+        'unit':   np.array([1, 2]),      # spatial entity id
+        'origin': np.array([0, 0]),      # 0-indexed sequence position
+        'step':   np.array([1, 1]),      # 1-indexed lead time within sequence
+    },
+    metadata={'target': 'ged_sb_best'},
 )
 month_groups = ef.get_group_indices('time')
 sub_ef = ef.select_indices(month_groups[100])

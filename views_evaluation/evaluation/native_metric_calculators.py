@@ -27,22 +27,22 @@ def _guard_shapes(y_true: np.ndarray, y_pred: np.ndarray):
     if y_pred.dtype == object:
         y_pred = np.array([ensure_array(x).flatten() for x in y_pred])
 
+    # Shape validation — unconditional, runs for all dtypes (ADR-013)
+    if y_true.ndim == 2 and y_true.shape[1] == 1:
+        y_true = y_true.flatten()
+    if y_true.ndim != 1:
+        raise ValueError(f"y_true must be 1D, got shape {y_true.shape}")
 
-        if y_true.ndim == 2 and y_true.shape[1] == 1:
-            y_true = y_true.flatten()
-        if y_true.ndim != 1:
-            raise ValueError(f"y_true must be 1D, got shape {y_true.shape}")
-        
-        if y_pred.ndim == 1:
-            # Reshape to (N, 1) for point forecasts passed as 1D
-            y_pred = y_pred.reshape(-1, 1)
-        
-        if y_pred.ndim != 2:
-            raise ValueError(f"y_pred must be 2D (N, S), got shape {y_pred.shape}")
-    
+    if y_pred.ndim == 1:
+        # Reshape to (N, 1) for point forecasts passed as 1D
+        y_pred = y_pred.reshape(-1, 1)
+
+    if y_pred.ndim != 2:
+        raise ValueError(f"y_pred must be 2D (N, S), got shape {y_pred.shape}")
+
     if y_true.shape[0] != y_pred.shape[0]:
         raise ValueError(f"Row mismatch: y_true={y_true.shape[0]}, y_pred={y_pred.shape[0]}")
-    
+
     return y_true, y_pred
 
 def calculate_mse_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
@@ -143,12 +143,19 @@ def calculate_ignorance_score_native(
 
     return np.mean(scores)
 
-# Placeholder functions for unimplemented metrics to satisfy tests
-def calculate_sd_native(*args, **kwargs): raise NotImplementedError()
-def calculate_pEMDiv_native(*args, **kwargs): raise NotImplementedError()
-def calculate_variogram_native(*args, **kwargs): raise NotImplementedError()
-def calculate_brier_native(*args, **kwargs): raise NotImplementedError()
-def calculate_jeffreys_native(*args, **kwargs): raise NotImplementedError()
+# Placeholder functions for metrics that are planned but not yet implemented.
+# ADR-013: Raise ValueError (not NotImplementedError) so callers get a consistent,
+# user-facing message rather than a bare exception type.
+def calculate_sd_native(*args, **kwargs):
+    raise ValueError("Metric 'SD' is defined but not yet implemented. Remove it from your config.")
+def calculate_pEMDiv_native(*args, **kwargs):
+    raise ValueError("Metric 'pEMDiv' is defined but not yet implemented. Remove it from your config.")
+def calculate_variogram_native(*args, **kwargs):
+    raise ValueError("Metric 'Variogram' is defined but not yet implemented. Remove it from your config.")
+def calculate_brier_native(*args, **kwargs):
+    raise ValueError("Metric 'Brier' is defined but not yet implemented. Remove it from your config.")
+def calculate_jeffreys_native(*args, **kwargs):
+    raise ValueError("Metric 'Jeffreys' is defined but not yet implemented. Remove it from your config.")
 
 # Legacy aliases for backward compatibility with tests
 calculate_mse = calculate_mse_native
