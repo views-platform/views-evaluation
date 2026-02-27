@@ -66,6 +66,7 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
 | Root Mean Squared Log Error | `RMSLE` | Square root of MSLE | ✅ | ❌ |
 | Mean Tweedie Deviance | `MTD` | Tweedie deviance with power=1.5, ideal for zero-inflated data | ✅ | ❌ |
 | Balanced Conflict Deviation | `BCD` | Geometric mean of MTD, MSLE, and log(1+MSE), balancing all three metrics | ✅ | ❌ |
+| Composite Geometric Metric | `CGM` | Geometric mean of MSLE, MTD, and MSE — scale-invariant sweep objective for zero-inflated conflict data | ✅ | ❌ |
 | Level Ratio | `LevelRatio` | Ratio of mean predictions to mean actuals; detects systematic under-prediction (disqualify if < 0.90) | ✅ | ❌ |
 | Baseline Deviation | `BaselineDeviation` | Normalized deviation from no-change baseline; disqualifies baseline-equivalent models (requires baseline kwarg) | ✅ | ❌ |
 | Average Precision | `AP` | Area under precision-recall curve for binary classification | ✅ | ❌ |

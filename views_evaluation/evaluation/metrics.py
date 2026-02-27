@@ -133,6 +133,7 @@ class PointEvaluationMetrics(BaseEvaluationMetrics):
     Variogram: Optional[float] = None
     MTD: Optional[float] = None
     BCD: Optional[float] = None
+    CGM: Optional[float] = None
     LevelRatio: Optional[float] = None
     BaselineDeviation: Optional[float] = None
     y_hat_bar: Optional[float] = None

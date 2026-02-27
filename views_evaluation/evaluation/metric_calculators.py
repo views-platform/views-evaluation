@@ -592,7 +592,7 @@ def calculate_bcd(
     matched_actual: pd.DataFrame,
     matched_pred: pd.DataFrame,
     target: str,
-    tail_quantile: float = 0.99,
+    tail_quantile: float = 0.90,
     power: float = 1.5
 ) -> float:
     """
@@ -626,7 +626,10 @@ def calculate_bcd(
         matched_pred (pd.DataFrame): DataFrame containing predictions with the `pred_{target}` column.
         target (str): The target column name (without the 'pred_' prefix).
         tail_quantile (float): Quantile threshold for identifying tail/extreme events.
-            Default is 0.99 (top 1% of actual values).
+            Default is 0.90 (top 10% of actual values). Using 10% instead of 1%
+            provides a statistically robust tail sample (~650 observations for
+            180 countries x 36 months) rather than ~65 at the 99th percentile,
+            preventing single-conflict dominance of the P_tail component.
         power (float): The power parameter for the Tweedie distribution used in MTD calculation.
             Default is 1.5 (compound Poisson-Gamma distribution).
 
@@ -912,6 +915,77 @@ def calculate_quantile_loss(
     return np.mean(losses)
 
 
+def calculate_cgm(
+    matched_actual: pd.DataFrame,
+    matched_pred: pd.DataFrame,
+    target: str,
+    power: float = 1.5,
+) -> float:
+    """
+    Calculate the Composite Geometric Metric (CGM) between actual and predicted values.
+
+    CGM is the geometric mean of three complementary loss functions:
+
+        CGM = (MSLE × MTD × MSE)^(1/3)
+
+    Each component penalises a distinct failure mode:
+
+        * **MSLE** — relative (log-space) errors; sensitive to under/over-
+          prediction of small counts.
+        * **MTD** (Mean Tweedie Deviance, p=1.5) — compound Poisson-Gamma
+          deviance; natively handles zero-inflation and right-skew.
+        * **MSE** — absolute (squared) errors; heavily penalises large-
+          magnitude misses in the tail.
+
+    The geometric mean is the natural aggregator because:
+        1. It is scale-invariant — the O(10³) MSE cannot dominate the O(10⁻²)
+           MSLE the way an arithmetic mean would.
+        2. All three components must be simultaneously low for the product to
+           shrink — a model cannot "hide" a bad MSE behind a good MSLE.
+
+    Lower values indicate better model performance.
+
+    Args:
+        matched_actual (pd.DataFrame): DataFrame containing actual values with
+            the target column.
+        matched_pred (pd.DataFrame): DataFrame containing predictions with the
+            ``pred_{target}`` column.
+        target (str): The target column name (without the ``pred_`` prefix).
+        power (float): Tweedie power parameter for the MTD sub-component.
+            Default is 1.5 (compound Poisson-Gamma).
+
+    Returns:
+        float: The CGM score.  Lower values indicate better predictions.
+
+    See Also:
+        - calculate_msle: The MSLE sub-component.
+        - calculate_mtd:  The MTD sub-component.
+        - calculate_mse:  The MSE sub-component.
+        - calculate_bcd:  A related composite metric with additional
+          level/tail/shape penalties.
+    """
+    actual_values = np.concatenate(matched_actual[target].values)
+    pred_values = np.concatenate(matched_pred[f"pred_{target}"].values)
+
+    actual_expanded = np.repeat(
+        actual_values, [len(x) for x in matched_pred[f"pred_{target}"]]
+    )
+
+    # Clip predictions for MTD (power > 1 requires strictly positive μ)
+    pred_clipped = np.clip(pred_values, 1e-4, None)
+
+    msle = mean_squared_log_error(actual_expanded, pred_values)
+    mtd = mean_tweedie_deviance(actual_expanded, pred_clipped, power=power)
+    mse = mean_squared_error(actual_expanded, pred_values)
+
+    # Floor each component to avoid log(0) edge-case
+    msle = max(msle, 1e-10)
+    mtd = max(mtd, 1e-10)
+    mse = max(mse, 1e-10)
+
+    return float(np.power(msle * mtd * mse, 1.0 / 3.0))
+
+
 POINT_METRIC_FUNCTIONS = {
     "MSE": calculate_mse,
     "MSLE": calculate_msle,
@@ -925,6 +999,7 @@ POINT_METRIC_FUNCTIONS = {
     "Variogram": calculate_variogram,
     "MTD": calculate_mtd,
     "BCD": calculate_bcd,
+    "CGM": calculate_cgm,
     "LevelRatio": calculate_level_ratio,
     "BaselineDeviation": calculate_baseline_deviation,
     "y_hat_bar": calculate_mean_prediction,
