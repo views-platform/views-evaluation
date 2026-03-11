@@ -4,6 +4,13 @@
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 from views_evaluation.evaluation.evaluation_report import EvaluationReport
+from views_evaluation.evaluation.metric_catalog import (
+    MetricSpec,
+    METRIC_CATALOG,
+    METRIC_MEMBERSHIP,
+    resolve_metric_params,
+)
+from views_evaluation.profiles import PROFILES
 
 # ── Temporary (PHASE-3-DELETE) ────────────────────────────────────────────────
 # These classes exist for backward compatibility and parity testing while the
@@ -18,6 +25,11 @@ __all__ = [
     "EvaluationFrame",
     "NativeEvaluator",
     "EvaluationReport",
+    "MetricSpec",
+    "METRIC_CATALOG",
+    "METRIC_MEMBERSHIP",
+    "resolve_metric_params",
+    "PROFILES",
     # Temporary — PHASE-3-DELETE
     "EvaluationManager",
     "PandasAdapter",

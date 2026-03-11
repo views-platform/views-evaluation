@@ -142,7 +142,9 @@ class SampleEvaluationMetrics(BaseEvaluationMetrics):
     """
 
     CRPS: Optional[float] = None
+    twCRPS: Optional[float] = None
     MIS: Optional[float] = None
+    QIS: Optional[float] = None
     Ignorance: Optional[float] = None
     Coverage: Optional[float] = None
     pEMDiv: Optional[float] = None
@@ -176,7 +178,9 @@ class RegressionPointEvaluationMetrics(BaseEvaluationMetrics):
 class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
     """Metrics for regression targets evaluated with sample-based predictions."""
     CRPS:      Optional[float] = None
+    twCRPS:    Optional[float] = None
     MIS:       Optional[float] = None
+    QIS:       Optional[float] = None
     Coverage:  Optional[float] = None
     Ignorance: Optional[float] = None
     y_hat_bar: Optional[float] = None
@@ -192,5 +196,6 @@ class ClassificationPointEvaluationMetrics(BaseEvaluationMetrics):
 class ClassificationSampleEvaluationMetrics(BaseEvaluationMetrics):
     """Metrics for classification targets evaluated with sample-based predictions."""
     CRPS:     Optional[float] = None
+    twCRPS:   Optional[float] = None
     Brier:    Optional[float] = None
     Jeffreys: Optional[float] = None
