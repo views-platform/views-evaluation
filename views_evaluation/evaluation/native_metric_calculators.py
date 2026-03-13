@@ -121,6 +121,23 @@ def calculate_mtd_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, *,
 def calculate_mean_prediction_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
     return np.mean(y_pred)
 
+def calculate_mcr_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
+    """
+    Magnitude Calibration Ratio: mean(y_pred) / mean(y_true).
+
+    MCR = 1 → perfect aggregate calibration.
+    MCR < 1 → systematic underprediction.
+    MCR > 1 → systematic overprediction.
+
+    Returns np.inf if mean(y_true) == 0 and mean(y_pred) > 0, np.nan if both are 0.
+    """
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
+    mean_true = np.mean(y_true)
+    mean_pred = np.mean(y_pred)
+    if mean_true == 0.0:
+        return float(np.inf) if mean_pred > 0.0 else float(np.nan)
+    return float(mean_pred / mean_true)
+
 def calculate_coverage_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, *, alpha: float, **kwargs) -> float:
     y_true, y_pred = _guard_shapes(y_true, y_pred)
     lower = np.quantile(y_pred, alpha / 2, axis=1)
@@ -260,6 +277,7 @@ REGRESSION_POINT_NATIVE = {
     "Pearson":   calculate_pearson_native,
     "MTD":       calculate_mtd_native,
     "y_hat_bar": calculate_mean_prediction_native,
+    "MCR_point": calculate_mcr_native,
     "SD":        calculate_sd_native,
     "pEMDiv":    calculate_pEMDiv_native,
     "Variogram": calculate_variogram_native,
@@ -276,6 +294,7 @@ REGRESSION_SAMPLE_NATIVE = {
     "Coverage":  calculate_coverage_native,
     "Ignorance": calculate_ignorance_score_native,
     "y_hat_bar": calculate_mean_prediction_native,
+    "MCR_sample": calculate_mcr_native,
     "Brier":     calculate_brier_native,
     "Jeffreys":  calculate_jeffreys_native,
 }

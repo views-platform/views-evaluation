@@ -20,7 +20,9 @@ from views_evaluation.evaluation.native_metric_calculators import (
     REGRESSION_SAMPLE_NATIVE,
     CLASSIFICATION_POINT_NATIVE,
     CLASSIFICATION_SAMPLE_NATIVE,
+    calculate_mcr_native,
 )
+import numpy as np
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +219,88 @@ class TestProfiles:
         }
         result = resolve_metric_params("Coverage", {}, custom)
         assert result == {"alpha": BASE_PROFILE["Coverage"]["alpha"]}
+
+    def test_hydranet_ucdp_profile_registered(self):
+        """The 'hydranet_ucdp' profile must be available."""
+        assert "hydranet_ucdp" in PROFILES
+
+    def test_hydranet_ucdp_resolves_twcrps(self):
+        """hydranet_ucdp profile resolves twCRPS threshold."""
+        profile = PROFILES["hydranet_ucdp"]
+        result = resolve_metric_params("twCRPS", {}, profile)
+        assert "threshold" in result
+
+    def test_hydranet_ucdp_resolves_mis(self):
+        """hydranet_ucdp profile resolves MIS alpha."""
+        profile = PROFILES["hydranet_ucdp"]
+        result = resolve_metric_params("MIS", {}, profile)
+        assert "alpha" in result
+
+    def test_hydranet_ucdp_resolves_qis(self):
+        """hydranet_ucdp profile resolves QIS quantile levels."""
+        profile = PROFILES["hydranet_ucdp"]
+        result = resolve_metric_params("QIS", {}, profile)
+        assert "lower_quantile" in result
+        assert "upper_quantile" in result
+
+    def test_hydranet_ucdp_inherits_base_coverage(self):
+        """hydranet_ucdp inherits Coverage from base (not explicitly overridden)."""
+        profile = PROFILES["hydranet_ucdp"]
+        result = resolve_metric_params("Coverage", {}, profile)
+        assert result == {"alpha": BASE_PROFILE["Coverage"]["alpha"]}
+
+
+# ---------------------------------------------------------------------------
+# Green/Red: MCR (Magnitude Calibration Ratio)
+# ---------------------------------------------------------------------------
+
+class TestMCR:
+
+    def test_perfect_calibration(self):
+        """MCR = 1.0 when predictions match observations."""
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([[1.0], [2.0], [3.0]])
+        assert calculate_mcr_native(y_true, y_pred) == 1.0
+
+    def test_overprediction(self):
+        """MCR > 1 when systematically overpredicting."""
+        y_true = np.array([1.0, 1.0, 1.0])
+        y_pred = np.array([[2.0], [2.0], [2.0]])
+        assert calculate_mcr_native(y_true, y_pred) == 2.0
+
+    def test_underprediction(self):
+        """MCR < 1 when systematically underpredicting."""
+        y_true = np.array([2.0, 2.0, 2.0])
+        y_pred = np.array([[1.0], [1.0], [1.0]])
+        assert calculate_mcr_native(y_true, y_pred) == 0.5
+
+    def test_sample_predictions(self):
+        """MCR averages over samples correctly."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[1.0, 3.0], [1.0, 3.0]])  # mean(y_pred) = 2.0
+        assert calculate_mcr_native(y_true, y_pred) == 2.0
+
+    def test_zero_true_positive_pred_returns_inf(self):
+        """MCR returns inf when mean(y_true) == 0 and mean(y_pred) > 0."""
+        y_true = np.array([0.0, 0.0, 0.0])
+        y_pred = np.array([[1.0], [1.0], [1.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert result == np.inf
+
+    def test_zero_both_returns_nan(self):
+        """MCR returns nan when both means are 0."""
+        y_true = np.array([0.0, 0.0])
+        y_pred = np.array([[0.0], [0.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_mcr_point_in_catalog(self):
+        """MCR_point is registered in METRIC_CATALOG."""
+        assert "MCR_point" in METRIC_CATALOG
+
+    def test_mcr_sample_in_catalog(self):
+        """MCR_sample is registered in METRIC_CATALOG."""
+        assert "MCR_sample" in METRIC_CATALOG
 
 
 # ---------------------------------------------------------------------------

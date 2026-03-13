@@ -172,6 +172,7 @@ class RegressionPointEvaluationMetrics(BaseEvaluationMetrics):
     Variogram: Optional[float] = None
     MTD:       Optional[float] = None
     y_hat_bar: Optional[float] = None
+    MCR_point: Optional[float] = None
 
 
 @dataclass
@@ -182,8 +183,11 @@ class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
     MIS:       Optional[float] = None
     QIS:       Optional[float] = None
     Coverage:  Optional[float] = None
-    Ignorance: Optional[float] = None
-    y_hat_bar: Optional[float] = None
+    Ignorance:  Optional[float] = None
+    Brier:      Optional[float] = None
+    Jeffreys:   Optional[float] = None
+    y_hat_bar:  Optional[float] = None
+    MCR_sample: Optional[float] = None
 
 
 @dataclass

@@ -8,13 +8,6 @@ from views_evaluation.evaluation.metric_catalog import (
     resolve_metric_params,
 )
 from views_evaluation.profiles import PROFILES
-# PHASE-3-DELETE: Legacy dispatch dicts retained for EvaluationManager backward compat
-from views_evaluation.evaluation.native_metric_calculators import (
-    REGRESSION_POINT_NATIVE,
-    REGRESSION_SAMPLE_NATIVE,
-    CLASSIFICATION_POINT_NATIVE,
-    CLASSIFICATION_SAMPLE_NATIVE,
-)
 
 class NativeEvaluator:
     """
@@ -43,14 +36,6 @@ class NativeEvaluator:
             )
         self.profile = PROFILES[profile_name]
         self.metric_overrides = config.get("metric_hyperparameters", {})
-
-        # PHASE-3-DELETE: Legacy dispatch dicts for EvaluationManager compat
-        self.metrics_map = {
-            ("regression", "point"): REGRESSION_POINT_NATIVE,
-            ("regression", "sample"): REGRESSION_SAMPLE_NATIVE,
-            ("classification", "point"): CLASSIFICATION_POINT_NATIVE,
-            ("classification", "sample"): CLASSIFICATION_SAMPLE_NATIVE,
-        }
 
     def _resolve_task_and_metrics(self, ef: EvaluationFrame):
         target = ef.metadata.get('target')

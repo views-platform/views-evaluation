@@ -27,6 +27,7 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_pearson_native,
     calculate_mtd_native,
     calculate_mean_prediction_native,
+    calculate_mcr_native,
     calculate_coverage_native,
     calculate_mean_interval_score_native,
     calculate_ignorance_score_native,
@@ -63,8 +64,10 @@ METRIC_CATALOG: Dict[str, MetricSpec] = {
     "EMD":       MetricSpec(function=calculate_emd_native,       genome=()),
     "Pearson":   MetricSpec(function=calculate_pearson_native,   genome=()),
     "MTD":       MetricSpec(function=calculate_mtd_native,       genome=("power",)),
-    "y_hat_bar": MetricSpec(function=calculate_mean_prediction_native, genome=()),
-    "SD":        MetricSpec(function=calculate_sd_native,        genome=(), implemented=False),
+    "y_hat_bar":  MetricSpec(function=calculate_mean_prediction_native, genome=()),
+    "MCR_point":  MetricSpec(function=calculate_mcr_native,             genome=()),
+    "MCR_sample": MetricSpec(function=calculate_mcr_native,             genome=()),
+    "SD":         MetricSpec(function=calculate_sd_native,              genome=(), implemented=False),
     "pEMDiv":    MetricSpec(function=calculate_pEMDiv_native,    genome=(), implemented=False),
     "Variogram": MetricSpec(function=calculate_variogram_native, genome=(), implemented=False),
 
@@ -87,9 +90,9 @@ METRIC_CATALOG: Dict[str, MetricSpec] = {
 
 METRIC_MEMBERSHIP: Dict[Tuple[str, str], set] = {
     ("regression", "point"):      {"MSE", "MSLE", "RMSLE", "EMD", "Pearson", "MTD",
-                                    "y_hat_bar", "SD", "pEMDiv", "Variogram"},
+                                    "y_hat_bar", "MCR_point", "SD", "pEMDiv", "Variogram"},
     ("regression", "sample"):     {"CRPS", "twCRPS", "MIS", "QIS", "Coverage",
-                                    "Ignorance", "y_hat_bar", "Brier", "Jeffreys"},
+                                    "Ignorance", "y_hat_bar", "MCR_sample", "Brier", "Jeffreys"},
     ("classification", "point"):  {"AP"},
     ("classification", "sample"): {"CRPS", "twCRPS", "Brier", "Jeffreys"},
 }

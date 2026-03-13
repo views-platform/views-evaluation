@@ -11,9 +11,11 @@ To add a new profile:
 """
 
 from views_evaluation.profiles.base import BASE_PROFILE
+from views_evaluation.profiles.hydranet_ucdp import HYDRANET_UCDP_PROFILE
 
 PROFILES = {
     "base": BASE_PROFILE,
+    "hydranet_ucdp": HYDRANET_UCDP_PROFILE,
     # Researchers add target+unit specific profiles here:
     # "sb_best_pgm": SB_BEST_PGM_PROFILE,
     # "sb_best_cm": SB_BEST_CM_PROFILE,

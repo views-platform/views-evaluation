@@ -346,15 +346,19 @@ class EvaluationManager:
                 "Config must declare at least one of 'regression_targets' or "
                 "'classification_targets'."
             )
-        if has_regression and "regression_point_metrics" not in config:
+        if has_regression and not (
+            config.get("regression_point_metrics") or config.get("regression_sample_metrics")
+        ):
             raise KeyError(
-                "Config declares 'regression_targets' but is missing "
-                "'regression_point_metrics'."
+                "Config declares 'regression_targets' but has neither "
+                "'regression_point_metrics' nor 'regression_sample_metrics'."
             )
-        if has_classification and "classification_point_metrics" not in config:
+        if has_classification and not (
+            config.get("classification_point_metrics") or config.get("classification_sample_metrics")
+        ):
             raise KeyError(
-                "Config declares 'classification_targets' but is missing "
-                "'classification_point_metrics'."
+                "Config declares 'classification_targets' but has neither "
+                "'classification_point_metrics' nor 'classification_sample_metrics'."
             )
 
         # Validate that metrics are valid for the task type (ADR-014)

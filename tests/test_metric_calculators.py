@@ -14,6 +14,7 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_ignorance_score_native,
     calculate_mean_interval_score_native,
     calculate_mtd_native,
+    calculate_mcr_native,
     REGRESSION_POINT_NATIVE,
     REGRESSION_SAMPLE_NATIVE,
     CLASSIFICATION_POINT_NATIVE,
@@ -506,3 +507,252 @@ class TestQuantileIntervalScore:
         """QIS must be in regression sample dispatch dict."""
         assert "QIS" in REGRESSION_SAMPLE_NATIVE
         assert callable(REGRESSION_SAMPLE_NATIVE["QIS"])
+
+
+# ---------------------------------------------------------------------------
+# Beige: realistic edge cases (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestTwCRPSBeige:
+
+    def test_single_observation(self):
+        """twCRPS handles N=1, S=1 without error."""
+        result = calculate_twcrps_native(np.array([1.0]), np.array([[1.0]]), threshold=0.0)
+        assert np.isfinite(result)
+
+    def test_large_ensemble_stable(self):
+        """twCRPS is stable with S=1000 samples."""
+        rng = np.random.default_rng(42)
+        y_true = np.array([5.0, 10.0, 0.0])
+        y_pred = rng.normal(loc=y_true[:, None], scale=1.0, size=(3, 1000))
+        result = calculate_twcrps_native(y_true, y_pred, threshold=0.1)
+        assert np.isfinite(result)
+        assert result >= 0
+
+    def test_threshold_at_exact_data_value(self):
+        """twCRPS with threshold equal to an observation value — no crash."""
+        y_true = np.array([5.0, 5.0])
+        y_pred = np.array([[4.0, 6.0], [4.0, 6.0]])
+        result = calculate_twcrps_native(y_true, y_pred, threshold=5.0)
+        assert np.isfinite(result)
+
+    def test_all_zero_with_positive_threshold(self):
+        """All-zero data with τ > 0: both sides clamp to τ, so twCRPS = 0."""
+        y_true = np.array([0.0, 0.0, 0.0])
+        y_pred = np.array([[0.0], [0.0], [0.0]])
+        result = calculate_twcrps_native(y_true, y_pred, threshold=10.0)
+        assert result == pytest.approx(0.0, abs=1e-12)
+
+
+class TestQISBeige:
+
+    def test_single_observation(self):
+        """QIS handles N=1 without error."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[3.0, 4.0, 5.0, 6.0, 7.0]])
+        result = calculate_quantile_interval_score_native(
+            y_true, y_pred, lower_quantile=0.1, upper_quantile=0.9,
+        )
+        assert np.isfinite(result)
+
+    def test_narrow_quantile_levels(self):
+        """Very close quantile levels (0.49, 0.51) — narrow interval, finite result."""
+        y_true = np.array([5.0, 10.0])
+        y_pred = np.array([[4.0, 5.0, 6.0, 7.0, 8.0], [8.0, 9.0, 10.0, 11.0, 12.0]])
+        result = calculate_quantile_interval_score_native(
+            y_true, y_pred, lower_quantile=0.49, upper_quantile=0.51,
+        )
+        assert np.isfinite(result)
+        assert result >= 0
+
+    def test_identical_samples(self):
+        """All ensemble members identical — interval width = 0, penalties if obs differs."""
+        y_true = np.array([10.0])
+        y_pred = np.array([[5.0, 5.0, 5.0, 5.0, 5.0]])
+        result = calculate_quantile_interval_score_native(
+            y_true, y_pred, lower_quantile=0.025, upper_quantile=0.975,
+        )
+        assert np.isfinite(result)
+        assert result > 0  # obs outside collapsed interval → penalty
+
+
+class TestMISBeige:
+
+    def test_single_observation(self):
+        """MIS handles N=1 without error."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[3.0, 4.0, 5.0, 6.0, 7.0]])
+        result = calculate_mean_interval_score_native(y_true, y_pred, alpha=0.05)
+        assert np.isfinite(result)
+
+    def test_identical_predictions(self):
+        """All predictions identical — interval width = 0, penalty if obs differs."""
+        y_true = np.array([10.0])
+        y_pred = np.array([[5.0, 5.0, 5.0, 5.0, 5.0]])
+        result = calculate_mean_interval_score_native(y_true, y_pred, alpha=0.05)
+        assert np.isfinite(result)
+        assert result > 0
+
+    def test_small_alpha(self):
+        """Alpha very close to 0 (wide interval) — large penalty factor but finite."""
+        y_true = np.array([100.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        result = calculate_mean_interval_score_native(y_true, y_pred, alpha=0.001)
+        assert np.isfinite(result)
+        assert result > 0
+
+    def test_large_alpha(self):
+        """Alpha close to 1 (nearly empty interval) — finite result."""
+        y_true = np.array([3.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        result = calculate_mean_interval_score_native(y_true, y_pred, alpha=0.99)
+        assert np.isfinite(result)
+
+
+class TestMCRBeige:
+
+    def test_single_observation(self):
+        """MCR handles N=1, S=1 without error."""
+        result = calculate_mcr_native(np.array([2.0]), np.array([[4.0]]))
+        assert result == 2.0
+
+    def test_near_zero_denominator(self):
+        """Very small mean(y_true) — large but finite MCR."""
+        y_true = np.array([1e-10, 0.0, 0.0])
+        y_pred = np.array([[1.0], [1.0], [1.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert np.isfinite(result)
+        assert result > 1e9  # massive overprediction ratio
+
+    def test_negative_predictions(self):
+        """Negative predictions produce valid (possibly negative) MCR."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[-1.0], [-1.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert result == -1.0
+
+
+# ---------------------------------------------------------------------------
+# Red: adversarial — must fail loud (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestSharedRed:
+    """Adversarial tests that apply to all metrics via _guard_shapes."""
+
+    def test_shape_3d_raises(self):
+        """3D y_pred should raise ValueError from _guard_shapes."""
+        y_true = np.array([1.0, 2.0])
+        y_pred = np.ones((2, 3, 4))
+        with pytest.raises(ValueError, match="y_pred must be 2D"):
+            calculate_twcrps_native(y_true, y_pred, threshold=0.0)
+
+    def test_shape_mismatch_raises(self):
+        """Row mismatch between y_true and y_pred raises ValueError."""
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([[1.0], [2.0]])  # only 2 rows
+        with pytest.raises(ValueError, match="Row mismatch"):
+            calculate_twcrps_native(y_true, y_pred, threshold=0.0)
+        with pytest.raises(ValueError, match="Row mismatch"):
+            calculate_mcr_native(y_true, y_pred)
+        with pytest.raises(ValueError, match="Row mismatch"):
+            calculate_mean_interval_score_native(y_true, y_pred, alpha=0.05)
+        with pytest.raises(ValueError, match="Row mismatch"):
+            calculate_quantile_interval_score_native(
+                y_true, y_pred, lower_quantile=0.025, upper_quantile=0.975,
+            )
+
+
+class TestTwCRPSRed:
+
+    def test_nan_in_y_true_propagates(self):
+        """NaN in y_true propagates to result (not silently ignored)."""
+        y_true = np.array([np.nan, 1.0])
+        y_pred = np.array([[1.0], [1.0]])
+        result = calculate_twcrps_native(y_true, y_pred, threshold=0.0)
+        assert np.isnan(result)
+
+    def test_nan_in_y_pred_propagates(self):
+        """NaN in y_pred propagates to result."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[np.nan], [1.0]])
+        result = calculate_twcrps_native(y_true, y_pred, threshold=0.0)
+        assert np.isnan(result)
+
+    def test_negative_threshold_accepted(self):
+        """Negative threshold is mathematically valid (clamps below τ)."""
+        y_true = np.array([1.0, 2.0])
+        y_pred = np.array([[1.0, 2.0], [2.0, 3.0]])
+        result = calculate_twcrps_native(y_true, y_pred, threshold=-5.0)
+        assert np.isfinite(result)
+
+
+class TestQISRed:
+
+    def test_lower_ge_upper_swapped(self):
+        """lower_quantile > upper_quantile swaps the interval — result is still a number."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]])
+        # np.quantile with lower > upper still returns values — documents behavior
+        result = calculate_quantile_interval_score_native(
+            y_true, y_pred, lower_quantile=0.9, upper_quantile=0.1,
+        )
+        assert np.isfinite(result)  # no crash — behavior is defined but meaningless
+
+    def test_quantile_outside_range_raises(self):
+        """Quantile > 1 raises from np.quantile."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        with pytest.raises(ValueError):
+            calculate_quantile_interval_score_native(
+                y_true, y_pred, lower_quantile=0.025, upper_quantile=1.5,
+            )
+
+    def test_nan_in_y_true_propagates(self):
+        """NaN in y_true propagates to result."""
+        y_true = np.array([np.nan])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        result = calculate_quantile_interval_score_native(
+            y_true, y_pred, lower_quantile=0.025, upper_quantile=0.975,
+        )
+        assert np.isnan(result)
+
+
+class TestMISRed:
+
+    def test_alpha_zero_raises(self):
+        """Alpha = 0 causes ZeroDivisionError in penalty (2/alpha)."""
+        y_true = np.array([100.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        with pytest.raises(ZeroDivisionError):
+            calculate_mean_interval_score_native(y_true, y_pred, alpha=0.0)
+
+    def test_nan_in_y_true_propagates(self):
+        """NaN in y_true propagates to result."""
+        y_true = np.array([np.nan])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        result = calculate_mean_interval_score_native(y_true, y_pred, alpha=0.05)
+        assert np.isnan(result)
+
+
+class TestMCRRed:
+
+    def test_nan_in_y_true_propagates(self):
+        """NaN in y_true propagates to result."""
+        y_true = np.array([np.nan, 1.0])
+        y_pred = np.array([[1.0], [1.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_nan_in_y_pred_propagates(self):
+        """NaN in y_pred propagates to result."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[np.nan], [1.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert np.isnan(result)
+
+    def test_negative_y_true_valid(self):
+        """Negative y_true is mathematically valid — MCR can be negative."""
+        y_true = np.array([-2.0, -2.0])
+        y_pred = np.array([[4.0], [4.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert result == -2.0
