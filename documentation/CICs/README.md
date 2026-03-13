@@ -1,6 +1,6 @@
 # Class Intent Contracts README
 
-This directory contains **Intent Contracts** as defined in ADR-006.
+This directory contains **Intent Contracts** as defined in ADR-021.
 
 An Intent Contract is a human-readable, unambiguous declaration of:
 
@@ -42,9 +42,9 @@ Each contract must define:
 
 Contracts must be clear enough that:
 
-- Tests (ADR-005) can be derived from them.
+- Tests (ADR-020) can be derived from them.
 - Architectural violations can be detected.
-- Silicon-based agents cannot reinterpret intent (ADR-007).
+- Silicon-based agents cannot reinterpret intent (ADR-001).
 
 ---
 
@@ -53,10 +53,7 @@ Contracts must be clear enough that:
 - `EvaluationFrame.md`
 - `NativeEvaluator.md`
 - `EvaluationReport.md`
-- `PandasAdapter.md`
-- `ModelRunner.md`
-- `VolumeHandler.md`
-- `BoundaryValidator.md`
+- `PandasAdapter.md` (PHASE-3-DELETE)
 - (Add entries as they are created)
 
 ---
@@ -65,8 +62,8 @@ Contracts must be clear enough that:
 
 Intent Contracts are governed by:
 
-- ADR-006 (Intent Contracts for Non-Trivial Classes)
-- ADR-003 (Authority of Declarations)
-- ADR-005 (Testing Doctrine)
+- ADR-021 (Intent Contracts for Classes)
+- ADR-012 (Authority over Inference)
+- ADR-020 (Multi-Perspective Testing)
 
 If a class changes meaning, its Intent Contract must be updated.

@@ -1,7 +1,7 @@
 # Logging & Observability Standard
 
 **Status:** Active  
-**Governing ADRs:** ADR-003 (Fail Loud), ADR-005 (Testing), ADR-008 (Explicit Failure)  
+**Governing ADRs:** ADR-013 (Observability and Explicit Failure), ADR-020 (Multi-Perspective Testing)  
 
 ---
 
@@ -16,7 +16,7 @@ This document defines operational standards for:
 
 This standard operationalizes:
 
-> Structural failures must be raised explicitly and logged persistently. (ADR-008)
+> Structural failures must be raised explicitly and logged persistently. (ADR-013)
 
 It does not redefine architectural principles.
 
@@ -125,6 +125,8 @@ The following must be logged:
 * Configuration summaries
 * All structural failures
 
+> **Scope note:** Level 0 pure-math classes (`EvaluationFrame`, `NativeEvaluator`, `EvaluationReport`) rely on exception propagation per ADR-013 and do not maintain their own loggers. Logging responsibility for these components sits at the orchestration layer (e.g. `EvaluationManager` or calling code in `views-pipeline-core`).
+
 ### 5.2 Optional Logging
 
 * Intermediate tensor shapes (DEBUG)
@@ -189,6 +191,6 @@ Logging tests must not rely on manual inspection.
 This document may evolve independently of ADRs.
 
 If logging semantics change in a way that affects system meaning,
-ADR-008 must be revisited.
+ADR-013 must be revisited.
 
 

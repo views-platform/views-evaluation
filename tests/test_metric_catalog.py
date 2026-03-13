@@ -181,6 +181,30 @@ class TestCatalogStructuralIntegrity:
                     f"BASE_PROFILE['{metric_name}']['{param}'] is None"
                 )
 
+    def test_metric_membership_matches_dataclass_fields(self):
+        """Every metric in METRIC_MEMBERSHIP must have a field in its dataclass."""
+        import dataclasses
+        from views_evaluation.evaluation.metrics import (
+            RegressionPointEvaluationMetrics,
+            RegressionSampleEvaluationMetrics,
+            ClassificationPointEvaluationMetrics,
+            ClassificationSampleEvaluationMetrics,
+        )
+        cls_map = {
+            ("regression", "point"): RegressionPointEvaluationMetrics,
+            ("regression", "sample"): RegressionSampleEvaluationMetrics,
+            ("classification", "point"): ClassificationPointEvaluationMetrics,
+            ("classification", "sample"): ClassificationSampleEvaluationMetrics,
+        }
+        for (task, pred_type), metric_names in METRIC_MEMBERSHIP.items():
+            cls = cls_map[(task, pred_type)]
+            fields = {f.name for f in dataclasses.fields(cls)}
+            missing = metric_names - fields
+            assert not missing, (
+                f"METRIC_MEMBERSHIP[({task!r}, {pred_type!r})] contains {sorted(missing)} "
+                f"but {cls.__name__} has no corresponding fields"
+            )
+
     def test_metric_spec_is_frozen(self):
         """MetricSpec instances must be immutable."""
         spec = METRIC_CATALOG["MSE"]
@@ -338,6 +362,12 @@ class TestNativeEvaluatorCatalogIntegration:
         config = {"evaluation_profile": "nonexistent"}
         with pytest.raises(ValueError, match="Unknown evaluation profile"):
             NativeEvaluator(config)
+
+    def test_registry_snapshot_integrity(self):
+        """Registries have expected sizes — catches accidental mutation or deletion."""
+        assert len(METRIC_CATALOG) == 21
+        assert len(METRIC_MEMBERSHIP) == 4
+        assert len(PROFILES) >= 2
 
     def test_evaluator_metric_overrides_stored(self):
         """NativeEvaluator stores metric overrides from config."""

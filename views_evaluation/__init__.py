@@ -10,6 +10,7 @@ from views_evaluation.evaluation.metric_catalog import (
     METRIC_MEMBERSHIP,
     resolve_metric_params,
 )
+from views_evaluation.evaluation.config_schema import EvaluationConfig
 from views_evaluation.profiles import PROFILES
 
 # ── Temporary (PHASE-3-DELETE) ────────────────────────────────────────────────
@@ -29,6 +30,7 @@ __all__ = [
     "METRIC_CATALOG",
     "METRIC_MEMBERSHIP",
     "resolve_metric_params",
+    "EvaluationConfig",
     "PROFILES",
     # Temporary — PHASE-3-DELETE
     "EvaluationManager",

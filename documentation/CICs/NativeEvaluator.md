@@ -2,8 +2,8 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-02-25  
-**Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-032 (Schemas)
+**Last reviewed:** 2026-03-13
+**Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-032 (Schemas), ADR-042 (Metric Catalog)
 
 ---
 
@@ -35,7 +35,12 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 ## 4. Inputs and Assumptions
 
 - **EvaluationFrame**: Assumes the frame is valid and internally consistent.
-- **Configuration**: Requires a valid config dictionary declaring task types and target names.
+- **Configuration** (`EvaluationConfig` TypedDict): Requires a dict with:
+  - `steps` (List[int]): Exact step positions to evaluate (1-indexed)
+  - `regression_targets` / `classification_targets` (List[str]): Target name assignment
+  - `regression_point_metrics`, `regression_sample_metrics`, etc. (List[str]): Metrics to compute
+  - `evaluation_profile` (str, default `"base"`): Named profile for metric hyperparameters (ADR-042)
+  - `metric_hyperparameters` (Dict[str, Dict[str, Any]]): Per-metric overrides, takes precedence over profile
 - **Identifier Presence**: Assumes `time`, `origin`, and `step` identifiers exist in the frame.
 
 ---
@@ -57,7 +62,7 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 
 ## 7. Boundaries and Interactions
 
-- **Upstream**: Orchestrated by `EvaluationManager`.
+- **Upstream**: Called directly or via legacy `EvaluationManager` (PHASE-3-DELETE).
 - **Internal**: Depends on `EvaluationFrame` and `MetricCalculators`.
 - **Isolation**: Must not depend on any IO or dataframe frameworks.
 

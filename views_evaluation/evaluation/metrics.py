@@ -184,8 +184,6 @@ class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
     QIS:       Optional[float] = None
     Coverage:  Optional[float] = None
     Ignorance:  Optional[float] = None
-    Brier:      Optional[float] = None
-    Jeffreys:   Optional[float] = None
     y_hat_bar:  Optional[float] = None
     MCR_sample: Optional[float] = None
 

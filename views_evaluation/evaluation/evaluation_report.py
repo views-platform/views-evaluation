@@ -1,3 +1,5 @@
+import dataclasses
+import warnings
 from typing import Dict, Any
 from views_evaluation.evaluation.metrics import (
     RegressionPointEvaluationMetrics,
@@ -42,10 +44,17 @@ class EvaluationReport:
         raw_results = self._results[schema]
         metrics_cls = self._get_metrics_cls()
         
+        valid_fields = {f.name for f in dataclasses.fields(metrics_cls)}
         mapped_results = {}
         for group_id, metrics in raw_results.items():
             container = metrics_cls()
             for k, v in metrics.items():
+                if k not in valid_fields:
+                    raise ValueError(
+                        f"Metric '{k}' computed for ({self.task}, {self.pred_type}) "
+                        f"but no field exists in {metrics_cls.__name__}. "
+                        f"Add '{k}: Optional[float] = None' to the dataclass."
+                    )
                 setattr(container, k, v)
             mapped_results[group_id] = container
             
@@ -57,7 +66,12 @@ class EvaluationReport:
         If schema='raw', returns the dictionary of mapped metrics dataclasses.
         """
         if schema == "raw":
-            return self._results # Return all raw results
+            warnings.warn(
+                "to_dataframe(schema='raw') is deprecated. Use to_dict()['schemas'] instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self._results
             
         import pandas as pd
         mapped_results = self.get_schema_results(schema)

@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-02-25  
+**Last reviewed:** 2026-03-13  
 **Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-012 (Authority)
 
 ---
@@ -41,8 +41,9 @@ The canonical, framework-agnostic internal representation of a forecasting evalu
 
 ## 5. Outputs and Side Effects
 
-- **Group Indices**: Produces mappings of unique identifier values to integer row indices.
-- **Sub-frames**: Produces new `EvaluationFrame` instances for specific slices of data.
+- **Group Indices**: `get_group_indices(key)` produces mappings of unique identifier values to integer row indices.
+- **Sub-frames**: `select_indices(indices)` produces new `EvaluationFrame` instances for specific slices of data.
+- **Properties**: `n_rows` (int, number of observations), `n_samples` (int, number of prediction columns), `is_sample` (bool, `True` when `n_samples > 1`).
 
 ---
 
@@ -63,7 +64,17 @@ The canonical, framework-agnostic internal representation of a forecasting evalu
 
 ---
 
-## 8. Examples of Correct Usage
+## 8. Step Semantics
+
+The `step` identifier represents **positional lead time** (1-indexed), not an absolute calendar month. Step 1 is the first month of each forecast origin's prediction window, step 2 is the second, and so on. This is assigned positionally by adapters (e.g., `PandasAdapter.from_dataframes()`) based on the order of unique time values within each origin sequence.
+
+**Consequence:** Step 1 in origin A and step 1 in origin B typically refer to *different* calendar months. When `NativeEvaluator` groups data by step, it collects the "diagonals" of the parallelogram — all first-month-ahead predictions together, all second-month-ahead together, etc. This is the correct semantic for forecast-horizon evaluation.
+
+Do not confuse `step` with the `time` identifier, which represents the absolute calendar month.
+
+---
+
+## 9. Examples of Correct Usage
 
 ```python
 ef = EvaluationFrame(

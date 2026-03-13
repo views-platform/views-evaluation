@@ -6,7 +6,11 @@ from sklearn.metrics import (
 from scipy.stats import wasserstein_distance, pearsonr
 
 def _guard_shapes(y_true: np.ndarray, y_pred: np.ndarray):
-    """Internal guard to prevent broadcasting accidents. Handles conversion from legacy pandas."""
+    """Internal guard to prevent broadcasting accidents. Handles conversion from legacy pandas.
+
+    Defense-in-depth: runs even when called via NativeEvaluator, which
+    validates data at construction through EvaluationFrame._validate() first.
+    """
     if hasattr(y_true, "values"):
         # Extract values from Series/DataFrame
         y_true = y_true.values
@@ -248,25 +252,8 @@ def calculate_brier_native(*args, **kwargs):
 def calculate_jeffreys_native(*args, **kwargs):
     raise ValueError("Metric 'Jeffreys' is defined but not yet implemented. Remove it from your config.")
 
-# Legacy aliases for backward compatibility with tests
-calculate_mse = calculate_mse_native
-calculate_msle = calculate_msle_native
-calculate_rmsle = calculate_rmsle_native
-calculate_crps = calculate_crps_native
+# PHASE-3-DELETE: Legacy alias retained for test_evaluation_manager.py
 calculate_ap = calculate_ap_native
-calculate_emd = calculate_emd_native
-calculate_pearson = calculate_pearson_native
-calculate_mtd = calculate_mtd_native
-calculate_coverage = calculate_coverage_native
-calculate_mean_interval_score = calculate_mean_interval_score_native
-calculate_ignorance_score = calculate_ignorance_score_native
-calculate_sd = calculate_sd_native
-calculate_pEMDiv = calculate_pEMDiv_native
-calculate_variogram = calculate_variogram_native
-calculate_twcrps = calculate_twcrps_native
-calculate_quantile_interval_score = calculate_quantile_interval_score_native
-calculate_brier = calculate_brier_native
-calculate_jeffreys = calculate_jeffreys_native
 
 # Dispatch dicts (Framework Agnostic)
 REGRESSION_POINT_NATIVE = {
@@ -295,8 +282,6 @@ REGRESSION_SAMPLE_NATIVE = {
     "Ignorance": calculate_ignorance_score_native,
     "y_hat_bar": calculate_mean_prediction_native,
     "MCR_sample": calculate_mcr_native,
-    "Brier":     calculate_brier_native,
-    "Jeffreys":  calculate_jeffreys_native,
 }
 
 CLASSIFICATION_POINT_NATIVE = {

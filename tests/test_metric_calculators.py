@@ -166,7 +166,7 @@ def test_point_metric_functions():
 
 def test_sample_metric_functions():
     """Test that all sample metric functions are available in the deprecated REGRESSION_SAMPLE_NATIVE."""
-    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Ignorance", "Brier", "Jeffreys", "Coverage"]
+    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Ignorance", "Coverage", "y_hat_bar", "MCR_sample"]
 
     for metric in expected_metrics:
         assert metric in REGRESSION_SAMPLE_NATIVE

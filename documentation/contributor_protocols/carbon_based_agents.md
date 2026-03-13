@@ -4,7 +4,7 @@
 
 **Status:** Active  
 **Applies to:** All human contributors  
-**Authority:** ADR-001 through ADR-007  
+**Authority:** ADR-001, ADR-010 through ADR-014, ADR-020, ADR-021  
 
 ---
 
@@ -47,7 +47,7 @@ Carbon-based agents:
 - and are accountable for their correctness.
 
 If a change alters the *meaning* of a component:
-- its intent contract must be updated (ADR-006), or
+- its intent contract must be updated (ADR-021), or
 - a new ADR must be written, or
 - the change must not be merged.
 
@@ -67,7 +67,7 @@ Introducing:
 is considered a defect, even if tests pass.
 
 Carbon-based agents are responsible for enforcing the **fail-loud invariant**
-defined in ADR-003.
+defined in ADR-013.
 
 Professional discomfort is preferable to silent risk.
 
@@ -88,7 +88,7 @@ Carbon-based agents must ensure appropriate coverage across:
 - 🟫 **Beige team tests** — realistic, neutral, “boring but dangerous” usage
 - 🟩 **Green team tests** — correctness, robustness, and resilience
 
-as defined in ADR-005.
+as defined in ADR-020.
 
 Tests are the executable proof of intent.
 
@@ -117,9 +117,9 @@ Code review is not a cosmetic exercise.
 
 Carbon-based agents reviewing changes are expected to assess:
 - intent alignment,
-- boundary integrity (ADR-002),
-- semantic clarity (ADR-003),
-- and test adequacy (ADR-005).
+- boundary integrity (ADR-011),
+- semantic clarity (ADR-012),
+- and test adequacy (ADR-020).
 
 If a reviewer cannot explain what a change *means*, it should not be approved.
 

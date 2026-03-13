@@ -4,7 +4,7 @@
 
 **Status:** Active  
 **Applies to:** All automated or AI-assisted code modification  
-**Authority:** ADR-007 (Silicon-Based Agents as Untrusted Contributors)
+**Authority:** ADR-001 (Silicon-Based Agent Protocol)
 
 ---
 
@@ -52,12 +52,13 @@ Silicon-based agents:
 
 All silicon-based agent–assisted changes must comply with:
 
-- ADR-001 (Ontology)
-- ADR-002 (Topology)
-- ADR-003 (Authority of Declarations & Fail Loud)
-- ADR-005 (Testing as Critical Infrastructure)
-- ADR-006 (Intent Contracts for Non-Trivial Classes)
-- ADR-007 (Silicon-Based Agents as Untrusted Contributors)
+- ADR-010 (Ontology of Evaluation)
+- ADR-011 (Topology and Dependency Rules)
+- ADR-012 (Authority over Inference)
+- ADR-013 (Observability and Explicit Failure)
+- ADR-020 (Multi-Perspective Testing)
+- ADR-021 (Intent Contracts for Classes)
+- ADR-001 (Silicon-Based Agent Protocol)
 
 ---
 
@@ -81,11 +82,11 @@ Silicon-based agents **must not**:
 
 - Introduce or modify semantics without updating intent contracts
 - Infer behavior from naming conventions, file structure, or heuristics
-- Cross architectural boundaries (ADR-002)
+- Cross architectural boundaries (ADR-011)
 - Remove validation, checks, or fail-loud behavior
 - Convert explicit errors into warnings or fallbacks
 - Refactor multiple architectural layers in a single change
-- Modify ontology implicitly (ADR-001)
+- Modify ontology implicitly (ADR-010)
 - Make “helpful” assumptions when required information is missing
 
 If a silicon-based agent cannot proceed without guessing, it must stop.

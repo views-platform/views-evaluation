@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Dict, List
+from views_evaluation.evaluation.config_schema import EvaluationConfig
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.evaluation_report import EvaluationReport
 from views_evaluation.evaluation.metric_catalog import (
@@ -24,7 +25,7 @@ class NativeEvaluator:
         metric_hyperparameters (dict): Optional per-metric overrides.
             E.g. {"twCRPS": {"threshold": 2.0}, "Coverage": {"alpha": 0.05}}
     """
-    def __init__(self, config: dict):
+    def __init__(self, config: EvaluationConfig):
         self.config = config
 
         # Resolve evaluation profile

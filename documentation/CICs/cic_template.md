@@ -80,7 +80,7 @@ Mandatory questions:
 - What invariants are enforced?
 - What *must never* fail silently?
 
-This section must align with ADR-003 (fail loud on semantic ambiguity).
+This section must align with ADR-013 (fail loud on semantic ambiguity).
 
 ---
 
@@ -91,7 +91,7 @@ Describe:
 - Which components it must not depend on
 - Which abstractions it trusts vs treats as opaque
 
-This anchors the class within ADR-002 (topology).
+This anchors the class within ADR-011 (topology).
 
 ---
 

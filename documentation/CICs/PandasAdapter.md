@@ -1,8 +1,8 @@
 # Class Intent Contract: PandasAdapter
 
-**Status:** Active  
-**Owner:** Adapters Layer  
-**Last reviewed:** 2026-02-25  
+**Status:** Deprecated (PHASE-3-DELETE)
+**Owner:** Adapters Layer
+**Last reviewed:** 2026-03-13  
 **Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-012 (Authority), ADR-040 (Input Schema)
 
 ---
@@ -47,7 +47,7 @@ A framework-specific bridge that transforms Pandas DataFrames into the canonical
 
 ## 6. Failure Modes and Loudness
 
-- Raises `ValueError` if indices are non-overlapping or missing required levels.
+- Silently skips prediction DataFrames whose index has no overlap with actuals (continues to the next sequence).
 - Raises `ValueError` if sample lengths are inconsistent across cells.
 - Fails loud if the input is not a DataFrame.
 
@@ -55,9 +55,10 @@ A framework-specific bridge that transforms Pandas DataFrames into the canonical
 
 ## 7. Boundaries and Interactions
 
-- **Upstream**: Called by users or `EvaluationManager`.
+- **Upstream**: Called by users or legacy `EvaluationManager` (PHASE-3-DELETE).
 - **Downstream**: Produces input for `EvaluationFrame`.
 - **Isolation**: This is one of the few places where a `pandas` import is allowed.
+- **Deprecation**: Emits `DeprecationWarning` on use. Will be removed from this repo in Phase 3; adapters belong in the calling repository (e.g. `views-pipeline-core`).
 
 ---
 

@@ -147,8 +147,7 @@ config = {
 }
 
 # --- 4. Adapt and evaluate ---
-adapter = PandasAdapter()
-ef = adapter.adapt(actuals=actuals, predictions=predictions_list, target=target)
+ef = PandasAdapter.from_dataframes(actual=actuals, predictions=predictions_list, target=target)
 
 evaluator = NativeEvaluator(config)
 report = evaluator.evaluate(ef)   # legacy_compatibility=True by default

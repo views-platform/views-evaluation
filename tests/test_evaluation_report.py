@@ -163,11 +163,17 @@ class TestEvaluationReportBeige:
         assert schema['month100'].MSE == 1.0
         assert schema['month100'].RMSLE == 0.5
 
-    def test_to_dataframe_raw_returns_internal_results_dict(self):
-        """schema='raw' is a passthrough to the raw results dict."""
+    def test_to_dataframe_raw_returns_internal_results_dict_with_deprecation(self):
+        """schema='raw' is a deprecated passthrough to the raw results dict."""
+        import warnings
         results = {'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}}
         report = EvaluationReport('t', 'regression', 'point', results)
-        raw = report.to_dataframe('raw')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            raw = report.to_dataframe('raw')
+            assert len(w) == 1
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "to_dict()" in str(w[0].message)
         assert 'month' in raw
         assert raw['month']['month100']['MSE'] == 42.0
 

@@ -92,7 +92,7 @@ METRIC_MEMBERSHIP: Dict[Tuple[str, str], set] = {
     ("regression", "point"):      {"MSE", "MSLE", "RMSLE", "EMD", "Pearson", "MTD",
                                     "y_hat_bar", "MCR_point", "SD", "pEMDiv", "Variogram"},
     ("regression", "sample"):     {"CRPS", "twCRPS", "MIS", "QIS", "Coverage",
-                                    "Ignorance", "y_hat_bar", "MCR_sample", "Brier", "Jeffreys"},
+                                    "Ignorance", "y_hat_bar", "MCR_sample"},
     ("classification", "point"):  {"AP"},
     ("classification", "sample"): {"CRPS", "twCRPS", "Brier", "Jeffreys"},
 }
