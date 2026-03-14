@@ -1,3 +1,8 @@
+"""
+PHASE-3-DELETE: Tests the legacy EvaluationManager path.
+Will be deleted when Phase 3 of the orchestrator migration is complete.
+See reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+"""
 import logging
 import pandas as pd
 import numpy as np
@@ -5,9 +10,9 @@ import pytest
 from sklearn.metrics import root_mean_squared_log_error, average_precision_score
 import properscoring as ps
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager
-from views_evaluation.evaluation.metric_calculators import (
-    REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+from views_evaluation.evaluation.native_metric_calculators import (
+    REGRESSION_POINT_NATIVE,
+    REGRESSION_SAMPLE_NATIVE,
 )
 from views_evaluation.evaluation.metrics import (
     RegressionPointEvaluationMetrics,
@@ -235,7 +240,7 @@ def test_step_wise_evaluation_point(mock_actual, mock_point_predictions):
     evaluation_dict, df_evaluation = manager.step_wise_evaluation(
         mock_actual, mock_point_predictions, "target", [1, 2, 3],
         metrics_list=["RMSLE"],
-        metric_functions=REGRESSION_POINT_METRIC_FUNCTIONS,
+        metric_functions=REGRESSION_POINT_NATIVE,
         metrics_cls=RegressionPointEvaluationMetrics,
     )
 
@@ -260,7 +265,7 @@ def test_step_wise_evaluation_sample(mock_actual, mock_sample_predictions):
     evaluation_dict, df_evaluation = manager.step_wise_evaluation(
         mock_actual, mock_sample_predictions, "target", [1, 2, 3],
         metrics_list=["CRPS"],
-        metric_functions=REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+        metric_functions=REGRESSION_SAMPLE_NATIVE,
         metrics_cls=RegressionSampleEvaluationMetrics,
     )
     actuals = [[1, 2, 2, 3], [2, 3, 3, 4], [3, 4, 4, 5]]
@@ -288,7 +293,7 @@ def test_time_series_wise_evaluation_point(mock_actual, mock_point_predictions):
     evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
         mock_actual, mock_point_predictions, "target",
         metrics_list=["RMSLE"],
-        metric_functions=REGRESSION_POINT_METRIC_FUNCTIONS,
+        metric_functions=REGRESSION_POINT_NATIVE,
         metrics_cls=RegressionPointEvaluationMetrics,
     )
 
@@ -313,7 +318,7 @@ def test_time_series_wise_evaluation_sample(mock_actual, mock_sample_predictions
     evaluation_dict, df_evaluation = manager.time_series_wise_evaluation(
         mock_actual, mock_sample_predictions, "target",
         metrics_list=["CRPS"],
-        metric_functions=REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+        metric_functions=REGRESSION_SAMPLE_NATIVE,
         metrics_cls=RegressionSampleEvaluationMetrics,
     )
 
@@ -341,7 +346,7 @@ def test_month_wise_evaluation_point(mock_actual, mock_point_predictions):
     evaluation_dict, df_evaluation = manager.month_wise_evaluation(
         mock_actual, mock_point_predictions, "target",
         metrics_list=["RMSLE"],
-        metric_functions=REGRESSION_POINT_METRIC_FUNCTIONS,
+        metric_functions=REGRESSION_POINT_NATIVE,
         metrics_cls=RegressionPointEvaluationMetrics,
     )
 
@@ -367,7 +372,7 @@ def test_month_wise_evaluation_sample(mock_actual, mock_sample_predictions):
     evaluation_dict, df_evaluation = manager.month_wise_evaluation(
         mock_actual, mock_sample_predictions, "target",
         metrics_list=["CRPS"],
-        metric_functions=REGRESSION_SAMPLE_METRIC_FUNCTIONS,
+        metric_functions=REGRESSION_SAMPLE_NATIVE,
         metrics_cls=RegressionSampleEvaluationMetrics,
     )
 
@@ -406,7 +411,7 @@ def test_calculate_ap_point_predictions():
     matched_actual = pd.DataFrame({'target': [[v] for v in actual_binary]})
     matched_pred = pd.DataFrame({'pred_target': [[v] for v in pred_scores]})
 
-    from views_evaluation.evaluation.metric_calculators import calculate_ap
+    from views_evaluation.evaluation.native_metric_calculators import calculate_ap
     ap_score = calculate_ap(matched_actual, matched_pred, 'target')
 
     expected_ap = average_precision_score(actual_binary, pred_scores)
@@ -432,7 +437,7 @@ def test_calculate_ap_sample_predictions():
     matched_actual = pd.DataFrame({'target': [[v] for v in actual_binary]})
     matched_pred = pd.DataFrame({'pred_target': pred_scores})
 
-    from views_evaluation.evaluation.metric_calculators import calculate_ap
+    from views_evaluation.evaluation.native_metric_calculators import calculate_ap
     ap_score = calculate_ap(matched_actual, matched_pred, 'target')
 
     # Expected: actuals expanded to match samples, predictions are the raw samples

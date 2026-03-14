@@ -1,3 +1,8 @@
+"""
+PHASE-3-DELETE: Pytest fixtures for the legacy EvaluationManager test suite.
+Will be deleted when Phase 3 of the orchestrator migration is complete.
+See reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+"""
 import pandas as pd
 import numpy as np
 import pytest

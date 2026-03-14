@@ -1,19 +1,31 @@
+"""
+PHASE-3-DELETE
+This module is TEMPORARY and will be deleted in Phase 3 of the orchestrator migration.
+See: reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+
+After Phase 3:
+  - Adapters live in views-pipeline-core (or in the calling repository)
+  - EvaluationManager is fully replaced by NativeEvaluator in pipeline-core
+  - This file will not exist in this repository
+
+Do not add new functionality to this file.
+"""
 from typing import List, Tuple
 import logging
+import warnings
 import pandas as pd
 import numpy as np
+from views_evaluation.adapters.pandas import PandasAdapter
+from views_evaluation.evaluation.native_evaluator import NativeEvaluator
+from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 from views_evaluation.evaluation.metrics import (
     BaseEvaluationMetrics,
-    RegressionPointEvaluationMetrics,
-    RegressionSampleEvaluationMetrics,
-    ClassificationPointEvaluationMetrics,
-    ClassificationSampleEvaluationMetrics,
 )
-from views_evaluation.evaluation.metric_calculators import (
-    REGRESSION_POINT_METRIC_FUNCTIONS,
-    REGRESSION_SAMPLE_METRIC_FUNCTIONS,
-    CLASSIFICATION_POINT_METRIC_FUNCTIONS,
-    CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS,
+from views_evaluation.evaluation.native_metric_calculators import (
+    REGRESSION_POINT_NATIVE,
+    REGRESSION_SAMPLE_NATIVE,
+    CLASSIFICATION_POINT_NATIVE,
+    CLASSIFICATION_SAMPLE_NATIVE,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,10 +45,18 @@ class EvaluationManager:
         passed to evaluate(). No metric list is accepted here.
         """
 
-        self.regression_point_functions           = REGRESSION_POINT_METRIC_FUNCTIONS
-        self.regression_sample_functions          = REGRESSION_SAMPLE_METRIC_FUNCTIONS
-        self.classification_point_functions       = CLASSIFICATION_POINT_METRIC_FUNCTIONS
-        self.classification_sample_functions      = CLASSIFICATION_SAMPLE_METRIC_FUNCTIONS
+        warnings.warn(
+            "EvaluationManager is deprecated and will be removed in Phase 3 of the "
+            "orchestrator migration. Use NativeEvaluator directly with an adapter. "
+            "See documentation/integration_guide.md.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.regression_point_functions           = REGRESSION_POINT_NATIVE
+        self.regression_sample_functions          = REGRESSION_SAMPLE_NATIVE
+        self.classification_point_functions       = CLASSIFICATION_POINT_NATIVE
+        self.classification_sample_functions      = CLASSIFICATION_SAMPLE_NATIVE
+
 
     @staticmethod
     def transform_data(df: pd.DataFrame, target: str | list[str]) -> pd.DataFrame:
@@ -326,16 +346,41 @@ class EvaluationManager:
                 "Config must declare at least one of 'regression_targets' or "
                 "'classification_targets'."
             )
-        if has_regression and "regression_point_metrics" not in config:
+        if has_regression and not (
+            config.get("regression_point_metrics") or config.get("regression_sample_metrics")
+        ):
             raise KeyError(
-                "Config declares 'regression_targets' but is missing "
-                "'regression_point_metrics'."
+                "Config declares 'regression_targets' but has neither "
+                "'regression_point_metrics' nor 'regression_sample_metrics'."
             )
-        if has_classification and "classification_point_metrics" not in config:
+        if has_classification and not (
+            config.get("classification_point_metrics") or config.get("classification_sample_metrics")
+        ):
             raise KeyError(
-                "Config declares 'classification_targets' but is missing "
-                "'classification_point_metrics'."
+                "Config declares 'classification_targets' but has neither "
+                "'classification_point_metrics' nor 'classification_sample_metrics'."
             )
+
+        # Validate that metrics are valid for the task type (ADR-014)
+        from views_evaluation.evaluation.native_metric_calculators import (
+            REGRESSION_POINT_NATIVE, REGRESSION_SAMPLE_NATIVE,
+            CLASSIFICATION_POINT_NATIVE, CLASSIFICATION_SAMPLE_NATIVE
+        )
+        
+        for metric in config.get("regression_point_metrics", []):
+            if metric not in REGRESSION_POINT_NATIVE or metric == "AP":
+                raise ValueError(f"Metric '{metric}' is not valid for regression point tasks.")
+
+        for metric in config.get("regression_sample_metrics", []):
+            if metric not in REGRESSION_SAMPLE_NATIVE:
+                raise ValueError(f"Metric '{metric}' is not valid for regression sample tasks.")
+        for metric in config.get("classification_point_metrics", []):
+            if metric not in CLASSIFICATION_POINT_NATIVE:
+                raise ValueError(f"Metric '{metric}' is not valid for classification point tasks.")
+        for metric in config.get("classification_sample_metrics", []):
+            if metric not in CLASSIFICATION_SAMPLE_NATIVE:
+                raise ValueError(f"Metric '{metric}' is not valid for classification sample tasks.")
+
 
     def step_wise_evaluation(
         self,
@@ -494,92 +539,81 @@ class EvaluationManager:
 
     def evaluate(
         self,
-        actual: pd.DataFrame,
-        predictions: List[pd.DataFrame],
-        target: str,
-        config: dict,
+        actual: pd.DataFrame = None,
+        predictions: List[pd.DataFrame] = None,
+        target: str = None,
+        config: dict = None,
+        ef: EvaluationFrame = None,
+        verify_parity: bool = False,
         **kwargs,
     ):
         """
-        Evaluate predictions for a single target.
-
-        Task type (regression / classification) is read from config.
-        Prediction type (point / sample) is detected from data shape.
+        Evaluate predictions. Supports legacy DataFrame inputs OR Native EvaluationFrame.
 
         Args:
-            actual (pd.DataFrame): Actuals in evaluation-ready form.
-            predictions (List[pd.DataFrame]): Predictions in evaluation-ready form.
-            target (str): The target column name, must be declared in config.
-            config (dict): Evaluation configuration. See _normalise_config and
-                _validate_config for the expected schema.
+            actual (pd.DataFrame): Optional. Legacy actuals.
+            predictions (List[pd.DataFrame]): Optional. Legacy predictions.
+            target (str): Target column name.
+            config (dict): Evaluation configuration.
+            ef (EvaluationFrame): Optional. Pre-adapted native frame.
+            verify_parity (bool): If True and both ef and legacy inputs are provided,
+                verifies bit-wise parity between them.
         """
         config = EvaluationManager._normalise_config(config)
         EvaluationManager._validate_config(config)
-        EvaluationManager.validate_predictions(predictions, target)
 
-        # Determine task type from config — never inferred
-        regression_targets     = config.get("regression_targets", [])
-        classification_targets = config.get("classification_targets", [])
-
-        if target in regression_targets:
-            task_type = "regression"
-        elif target in classification_targets:
-            task_type = "classification"
+        if ef is not None:
+            # PATH B: Direct Native Evaluation
+            if not isinstance(ef, EvaluationFrame):
+                raise TypeError("Provided 'ef' must be an EvaluationFrame instance.")
+            target = ef.metadata.get('target', target)
+            
+            if verify_parity and actual is not None and predictions is not None:
+                # ADR-024 Shadow Run: Verify external adaptation matches internal
+                ef_internal = PandasAdapter.from_dataframes(actual, predictions, target)
+                # Check data parity
+                if not np.array_equal(ef.y_true, ef_internal.y_true):
+                    raise ValueError("Parity Failure: y_true mismatch between external and internal adaptation.")
+                if not np.array_equal(ef.y_pred, ef_internal.y_pred):
+                    raise ValueError("Parity Failure: y_pred mismatch between external and internal adaptation.")
+                for key in ef.identifiers:
+                    if not np.array_equal(ef.identifiers[key], ef_internal.identifiers[key]):
+                        raise ValueError(f"Parity Failure: identifier '{key}' mismatch.")
         else:
-            raise ValueError(
-                f"Target '{target}' is not declared in config under "
-                "'regression_targets' or 'classification_targets'."
-            )
+            # PATH A: Legacy Adaptation
+            if actual is None or predictions is None or target is None:
+                raise ValueError("If 'ef' is not provided, 'actual', 'predictions', and 'target' are required.")
+            
+            EvaluationManager.validate_predictions(predictions, target)
+            # ADR-010: Adapt legacy DataFrames to canonical EvaluationFrame
+            ef = PandasAdapter.from_dataframes(actual, predictions, target)
+            
+            # Restore internal state for backward compatibility with reflective tests
+            self.actual, self.predictions = self._process_data(actual, predictions, target)
+        
+        self.is_sample = ef.is_sample
 
-        # Determine prediction type from data shape — structural inference, legitimate
-        self.actual, self.predictions = self._process_data(actual, predictions, target)
-        self.is_sample = EvaluationManager.get_evaluation_type(
-            self.predictions, f"pred_{target}"
-        )
-        pred_type = "sample" if self.is_sample else "point"
 
-        # Select the correct metric functions dict, declared metric list, and dataclass
-        if task_type == "regression" and pred_type == "point":
-            metric_functions = self.regression_point_functions
-            metrics_list     = config["regression_point_metrics"]
-            metrics_cls      = RegressionPointEvaluationMetrics
-        elif task_type == "regression" and pred_type == "sample":
-            metric_functions = self.regression_sample_functions
-            metrics_list     = config.get("regression_sample_metrics", [])
-            metrics_cls      = RegressionSampleEvaluationMetrics
-        elif task_type == "classification" and pred_type == "point":
-            metric_functions = self.classification_point_functions
-            metrics_list     = config["classification_point_metrics"]
-            metrics_cls      = ClassificationPointEvaluationMetrics
-        else:  # classification + sample
-            metric_functions = self.classification_sample_functions
-            metrics_list     = config.get("classification_sample_metrics", [])
-            metrics_cls      = ClassificationSampleEvaluationMetrics
+        # ADR-010: Delegate to the NativeEvaluator (Pure Math Engine)
+        evaluator = NativeEvaluator(config)
+        
+        # Phase 1: Enable legacy compatibility to maintain bit-wise parity
+        # (Reproduces truncation bugs and positional step assumptions)
+        try:
+            report = evaluator.evaluate(ef, legacy_compatibility=True)
+            # Map report back to legacy dictionary structure for backward compatibility
+            return {
+                schema: (report.get_schema_results(schema), report.to_dataframe(schema))
+                for schema in ["month", "time_series", "step"]
+            }
+        except ValueError as e:
+            # Re-wrap error message to match legacy test expectations if needed
+            if "Target" in str(e) and "not found in config" in str(e):
+                raise ValueError(f"Target '{target}' is not declared in config")
+            raise e
 
-        # Validate every declared metric is available for this task/pred combination
-        for metric in metrics_list:
-            if metric not in metric_functions:
-                raise ValueError(
-                    f"Metric '{metric}' is not valid for "
-                    f"task_type='{task_type}', pred_type='{pred_type}'. "
-                    f"Available metrics: {list(metric_functions.keys())}"
-                )
 
-        evaluation_results = {}
-        evaluation_results["month"] = self.month_wise_evaluation(
-            self.actual, self.predictions, target,
-            metrics_list, metric_functions, metrics_cls, **kwargs
-        )
-        evaluation_results["time_series"] = self.time_series_wise_evaluation(
-            self.actual, self.predictions, target,
-            metrics_list, metric_functions, metrics_cls, **kwargs
-        )
-        evaluation_results["step"] = self.step_wise_evaluation(
-            self.actual, self.predictions, target,
-            config["steps"], metrics_list, metric_functions, metrics_cls, **kwargs
-        )
 
-        return evaluation_results
 
     @staticmethod
     def filter_step_wise_evaluation(

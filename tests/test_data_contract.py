@@ -1,4 +1,8 @@
-
+"""
+PHASE-3-DELETE: Tests data contract enforcement for the legacy EvaluationManager path.
+Will be deleted when Phase 3 of the orchestrator migration is complete.
+See reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+"""
 import pandas as pd
 import pytest
 from views_evaluation.evaluation.evaluation_manager import EvaluationManager

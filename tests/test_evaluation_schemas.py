@@ -1,5 +1,9 @@
-
 """
+PHASE-3-DELETE: Tests legacy EvaluationManager schema grouping logic via mocks.
+Will be deleted when Phase 3 of the orchestrator migration is complete.
+See reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md
+
+Original docstring:
 This test suite rigorously verifies the grouping logic of the three evaluation
 schemas (step-wise, time-series-wise, and month-wise) as described in the
 core project documentation.
