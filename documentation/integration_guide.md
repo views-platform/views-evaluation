@@ -115,7 +115,7 @@ use `[1, 2, ..., 12]`. Sparse configs (e.g. `[1, 3, 6, 12]`) evaluate only those
 ```python
 import numpy as np
 import pandas as pd
-from views_evaluation.evaluation.adapters.pandas import PandasAdapter
+from views_evaluation.adapters.pandas import PandasAdapter
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 
 # --- 1. Prepare actuals ---

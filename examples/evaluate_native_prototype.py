@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from views_evaluation.evaluation.adapters import PandasAdapter
+from views_evaluation.adapters.pandas import PandasAdapter
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
 
 def mock_metrics_mse(ef: EvaluationFrame) -> float:
