@@ -98,11 +98,11 @@ class ImpactEvaluationManager(EvaluationManager):
             # Since yearly target was uniformly disaggregated, yearly value should equal the SUM of 12 months
             yearly_actual = actual_slice.groupby(
                 actual_slice.index.get_level_values(1)
-            ).sum()
+            ).mean()
 
             yearly_pred = pred_slice.groupby(
                 pred_slice.index.get_level_values(1)
-            ).sum()
+            ).mean()
             
 
             yearly_actual_list.append(yearly_actual)
