@@ -249,7 +249,7 @@ def calculate_brier_sample_native(
     **kwargs,
 ) -> float:
     """
-    Brier Score for sample-based predictions on regression targets.
+    Brier Score for sample-based predictions binarized at a threshold.
 
     Binarises truth at the threshold, computes event probability from
     the fraction of ensemble members exceeding the threshold, then
@@ -260,6 +260,10 @@ def calculate_brier_sample_native(
 
     where p_hat = mean(y_pred > threshold, axis=1) and
     y_binary = (y_true > threshold).
+
+    Note: NaN values in y_true or y_pred are silently converted to
+    below-threshold (False) by NumPy comparison semantics. Callers
+    must validate inputs via EvaluationFrame.
 
     Args:
         threshold: Onset threshold for binarisation. Must be provided
@@ -280,15 +284,21 @@ def calculate_brier_point_native(
     **kwargs,
 ) -> float:
     """
-    Brier Score for point (probability) predictions.
+    Brier Score for point (probability) predictions binarized at a threshold.
 
     Binarises truth at the threshold, uses the point prediction
-    directly as the predicted probability.
+    directly as the predicted probability. y_pred values should be
+    in [0, 1] for meaningful results; values outside this range
+    produce a mathematically valid but semantically misleading score.
 
     Brier = mean((y_pred - y_binary)^2)
 
     For point predictions, y_pred is (N, 1) after _guard_shapes.
     The single column is the predicted probability.
+
+    Note: NaN values in y_true or y_pred are silently converted to
+    below-threshold (False) by NumPy comparison semantics. Callers
+    must validate inputs via EvaluationFrame.
 
     Args:
         threshold: Onset threshold for binarisation.

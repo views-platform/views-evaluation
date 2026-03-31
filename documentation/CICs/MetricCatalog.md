@@ -126,6 +126,7 @@ params = resolve_metric_params("MSE", {}, BASE_PROFILE)
 - **Dual registry problem:** `METRIC_MEMBERSHIP` in `metric_catalog.py` and the 4 `*_NATIVE` dispatch dicts in `native_metric_calculators.py` encode the same (task, pred_type) → metric mapping independently. They can drift without detection (see risk register C-01). No automated check ensures synchronization.
 - **No profile completeness validation:** There is no mechanism to verify that a profile provides values for all metrics with non-empty genomes. A profile missing a metric's params will only fail at evaluation time, not at profile registration.
 - **Weak golden-value coverage:** Only 5 tests in `test_metric_correctness.py` verify metric functions against independently computed known answers. Most metrics lack this verification (see risk register C-07).
+- **Breaking rename:** The legacy `Brier` metric (unimplemented placeholder) was replaced by `Brier_sample` and `Brier_point` (implemented). The field in `ClassificationSampleEvaluationMetrics` was renamed from `Brier` to `Brier_sample`. External consumers accessing `.Brier` on classification sample results must update to `.Brier_sample`.
 
 ---
 
