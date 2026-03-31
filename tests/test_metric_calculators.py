@@ -759,7 +759,6 @@ class TestQuantileScoreBeige:
     def test_extreme_quantile_near_zero(self):
         """Quantile very close to 0 — finite result."""
         y_true = np.array([5.0])
-        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
         result = calculate_qs_point_native(y_true, np.array([[2.0]]), quantile=0.001)
         assert np.isfinite(result)
 
