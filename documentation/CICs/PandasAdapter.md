@@ -67,3 +67,44 @@ A framework-specific bridge that transforms Pandas DataFrames into the canonical
 ```python
 ef = PandasAdapter.from_dataframes(actual_df, [pred_df1, pred_df2], "target_name")
 ```
+
+---
+
+## 9. Examples of Incorrect Usage
+
+- Passing a single DataFrame instead of a list — the adapter expects `List[pd.DataFrame]`.
+- Passing predictions with columns not named `pred_{target}` — will raise `KeyError`.
+- Assuming `step` corresponds to calendar months — step is positional lead-time, not absolute time.
+
+---
+
+## 10. Test Alignment
+
+- **Parity Green:** `tests/test_parity_green.py` — happy-path round-trip through adapter + evaluator.
+- **Parity Beige:** `tests/test_parity_beige.py` — ragged sequences.
+- **Parity Red:** `tests/test_parity_red.py` — coordinate mismatches, NaN indices, inconsistent samples.
+- **Adapter Transfer:** `tests/test_parity_adapter_transfer.py` — shadow verification mode, corruption detection.
+
+---
+
+## 11. Evolution Notes
+
+- This class is marked PHASE-3-DELETE. It will be removed from this repository when the adapter responsibility moves to `views-pipeline-core`.
+- All tests tagged PHASE-3-DELETE will be removed simultaneously.
+
+---
+
+## 12. Known Deviations
+
+- **Silently skips zero-overlap sequences:** When a prediction DataFrame has no index overlap with actuals, the adapter silently skips it (continues to next). This contradicts the fail-loud principle (ADR-013) but matches legacy behavior.
+- **Step assignment is positional:** Step is assigned as a 1-indexed ordinal based on the order of unique time values within each origin. This is a semantic risk for irregular sequences where positional step may not equal calendar lead time.
+- **Emits DeprecationWarning:** Every call emits a `DeprecationWarning`. This is intentional but may be noisy in test output.
+
+---
+
+## End of Contract
+
+This document defines the **intended meaning** of `PandasAdapter`.
+
+Changes to behavior that violate this intent are bugs.  
+Changes to intent must update this contract.

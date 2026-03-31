@@ -1,12 +1,10 @@
 # ADR-032: Metric Calculation Schemas
 
-| ADR Info            | Details           |
-|---------------------|-------------------|
-| Subject             | Metric Calculation  |
-| ADR Number          | 032   |
-| Status              | Accepted|
-| Author              | Mihai, Xiaolong|
-| Date                | 31.10.2024 |
+**Status:** Accepted  
+**Date:** 2024-10-31  
+**Deciders:** Mihai, Xiaolong  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ## Context
 Traditional machine learning metrics do not directly translate to time-series forecasting across multiple horizons. A standardized approach to regrouping data is necessary.

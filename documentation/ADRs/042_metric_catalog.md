@@ -1,12 +1,10 @@
 # ADR-042: Metric Catalog and Named Evaluation Profiles
 
-| ADR Info            | Details           |
-|---------------------|-------------------|
-| Subject             | Metric hyperparameter management |
-| ADR Number          | 042               |
-| Status              | accepted          |
-| Author              | Claude (silicon-based agent) |
-| Date                | 11.03.2026        |
+**Status:** Accepted  
+**Date:** 2026-03-11  
+**Deciders:** Project maintainers  
+**Consulted:** Claude (silicon-based agent)  
+**Informed:** All contributors  
 
 ## Context
 

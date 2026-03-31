@@ -91,3 +91,38 @@ ef = EvaluationFrame(
 month_groups = ef.get_group_indices('time')
 sub_ef = ef.select_indices(month_groups[100])
 ```
+
+---
+
+## 10. Examples of Incorrect Usage
+
+- Constructing an `EvaluationFrame` directly with ragged sample arrays (varying S per row). The `PandasAdapter` guards against this, but direct construction does not.
+- Passing DataFrames or Series instead of NumPy arrays — the class has zero knowledge of Pandas.
+- Omitting required identifier keys (e.g. passing only `time` and `unit` without `origin` and `step`).
+- Storing derived or mutable state on an `EvaluationFrame` instance after construction.
+
+---
+
+## 11. Test Alignment
+
+- **Green:** `tests/test_evaluation_frame.py::TestEvaluationFrameGreen` — construction, properties, grouping, selection.
+- **Beige:** `tests/test_evaluation_frame.py::TestEvaluationFrameBeige` — single-row frames, large sample counts, multi-unit grouping.
+- **Red:** `tests/test_evaluation_frame.py::TestEvaluationFrameRed` — shape mismatches, NaN/Inf/None in data and identifiers, missing keys.
+- **Adversarial:** `tests/test_adversarial_inputs.py::TestAdversarialNativeInputs` — NaN/Inf boundary rejection.
+
+---
+
+## 12. Known Deviations
+
+- **Rectangular sample invariant not enforced:** Direct construction does not validate that all rows of `y_pred` have the same number of samples. Only `PandasAdapter.from_dataframes()` guards against ragged arrays. A directly-constructed frame with ragged `y_pred` would cause indexing errors deep in metric calculations. (Risk register C-03)
+- **Integer identifier NaN not checked:** Validation checks float and object identifiers for NaN/None, but integer-typed identifiers are not checked (NumPy integers cannot represent NaN, so this is safe in practice but not explicitly documented).
+- **No immutability enforcement:** The contract claims "State Immutability" via new-instance methods, but `y_true`, `y_pred`, and `identifiers` are publicly mutable attributes. Nothing prevents `ef.y_true[0] = 999` after construction.
+
+---
+
+## End of Contract
+
+This document defines the **intended meaning** of `EvaluationFrame`.
+
+Changes to behavior that violate this intent are bugs.  
+Changes to intent must update this contract.

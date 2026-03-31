@@ -1,12 +1,10 @@
 # ADR-041: Evaluation Output Schema
 
-| ADR Info            | Details           |
-|---------------------|-------------------|
-| Subject             | Evaluation Output Schema  |
-| ADR Number          | 041   |
-| Status              | Proposed   |
-| Author              | Xiaolong   |
-| Date                | 16.06.2025     |
+**Status:** Proposed  
+**Date:** 2025-06-16  
+**Deciders:** Xiaolong  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ## Context
 Standardized reports are necessary for comparing ensemble models against constituent models and baselines.

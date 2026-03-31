@@ -1,12 +1,10 @@
 # ADR-040: Evaluation Input Schema
 
-| ADR Info            | Details                 |
-|---------------------|-------------------------|
-| Subject             | Evaluation Input Schema |
-| ADR Number          | 040                     |
-| Status              | Accepted                |
-| Author              | Xiaolong                |
-| Date                | 16.06.2025              |
+**Status:** Accepted  
+**Date:** 2025-06-16  
+**Deciders:** Xiaolong  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ## Context
 

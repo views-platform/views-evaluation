@@ -50,11 +50,11 @@ Contracts must be clear enough that:
 
 ## Active Contracts
 
-- `EvaluationFrame.md`
-- `NativeEvaluator.md`
-- `EvaluationReport.md`
-- `PandasAdapter.md` (PHASE-3-DELETE)
-- (Add entries as they are created)
+- `EvaluationFrame.md` — Canonical NumPy data container
+- `NativeEvaluator.md` — Pure math evaluation engine
+- `EvaluationReport.md` — Structured result container
+- `MetricCatalog.md` — Genome registry and parameter resolver
+- `PandasAdapter.md` (PHASE-3-DELETE) — DataFrame bridge
 
 ---
 
@@ -65,5 +65,6 @@ Intent Contracts are governed by:
 - ADR-021 (Intent Contracts for Classes)
 - ADR-012 (Authority over Inference)
 - ADR-020 (Multi-Perspective Testing)
+- ADR-042 (Metric Catalog)
 
 If a class changes meaning, its Intent Contract must be updated.

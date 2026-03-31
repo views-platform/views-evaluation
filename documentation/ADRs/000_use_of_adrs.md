@@ -2,7 +2,9 @@
 
 **Status:** Accepted  
 **Date:** 2026-02-25  
-**Deciders:** Project maintainers, Gemini CLI  
+**Deciders:** Project maintainers  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ---
 

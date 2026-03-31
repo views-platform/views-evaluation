@@ -1,12 +1,10 @@
 # ADR-030: Evaluation Strategy
 
-| ADR Info            | Details           |
-|---------------------|-------------------|
-| Subject             | Evaluation Strategy  |
-| ADR Number          | 030   |
-| Status              | Accepted |
-| Author              | Xiaolong, Mihai|
-| Date                | 16.07.2025 |
+**Status:** Accepted  
+**Date:** 2025-07-16  
+**Deciders:** Xiaolong, Mihai  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ## Context
 To ensure reliable and realistic model performance assessment, our forecasting framework supports both **offline** and **online** evaluation strategies. These strategies serve complementary purposes: offline evaluation simulates the forecasting process retrospectively, while online evaluation assesses actual deployed forecasts against observed data.
