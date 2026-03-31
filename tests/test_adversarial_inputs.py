@@ -317,3 +317,24 @@ class TestAdversarialNativeInputs:
         with pytest.raises(ValueError, match="not yet implemented"):
             NativeEvaluator(config).evaluate(ef)
 
+    def test_nan_rejected_before_brier_executes(self):
+        """Defense-in-depth: EvaluationFrame rejects NaN so Brier's NaN-swallowing
+        comparison semantics can never be triggered through the normal evaluation path."""
+        with pytest.raises(ValueError, match="NaN"):
+            EvaluationFrame(
+                y_true=np.array([np.nan, 1.0]),
+                y_pred=np.array([[0.5], [0.8]]),
+                identifiers=self._simple_ids(2),
+                metadata={'target': 'cls_target'},
+            )
+
+    def test_inf_rejected_before_metric_executes(self):
+        """Defense-in-depth: EvaluationFrame rejects Inf before any metric function runs."""
+        with pytest.raises(ValueError, match="infinity"):
+            EvaluationFrame(
+                y_true=np.array([np.inf, 1.0]),
+                y_pred=np.array([[0.5], [0.8]]),
+                identifiers=self._simple_ids(2),
+                metadata={'target': 'cls_target'},
+            )
+
