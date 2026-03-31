@@ -148,7 +148,8 @@ class SampleEvaluationMetrics(BaseEvaluationMetrics):
     Ignorance: Optional[float] = None
     Coverage: Optional[float] = None
     pEMDiv: Optional[float] = None
-    Brier: Optional[float] = None
+    Brier: Optional[float] = None  # Legacy name — use Brier_sample in new code
+    Brier_sample: Optional[float] = None
     Jeffreys: Optional[float] = None
     y_hat_bar: Optional[float] = None
 
@@ -173,16 +174,18 @@ class RegressionPointEvaluationMetrics(BaseEvaluationMetrics):
     MTD:       Optional[float] = None
     y_hat_bar: Optional[float] = None
     MCR_point: Optional[float] = None
+    QS_point:  Optional[float] = None
 
 
 @dataclass
 class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
     """Metrics for regression targets evaluated with sample-based predictions."""
-    CRPS:      Optional[float] = None
-    twCRPS:    Optional[float] = None
-    MIS:       Optional[float] = None
-    QIS:       Optional[float] = None
-    Coverage:  Optional[float] = None
+    CRPS:       Optional[float] = None
+    twCRPS:     Optional[float] = None
+    MIS:        Optional[float] = None
+    QIS:        Optional[float] = None
+    QS_sample:  Optional[float] = None
+    Coverage:   Optional[float] = None
     Ignorance:  Optional[float] = None
     y_hat_bar:  Optional[float] = None
     MCR_sample: Optional[float] = None
@@ -191,13 +194,14 @@ class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
 @dataclass
 class ClassificationPointEvaluationMetrics(BaseEvaluationMetrics):
     """Metrics for classification targets evaluated with point (probability) predictions."""
-    AP: Optional[float] = None
+    AP:          Optional[float] = None
+    Brier_point: Optional[float] = None
 
 
 @dataclass
 class ClassificationSampleEvaluationMetrics(BaseEvaluationMetrics):
     """Metrics for classification targets evaluated with sample-based predictions."""
-    CRPS:     Optional[float] = None
-    twCRPS:   Optional[float] = None
-    Brier:    Optional[float] = None
-    Jeffreys: Optional[float] = None
+    CRPS:         Optional[float] = None
+    twCRPS:       Optional[float] = None
+    Brier_sample: Optional[float] = None
+    Jeffreys:     Optional[float] = None

@@ -15,6 +15,10 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_mean_interval_score_native,
     calculate_mtd_native,
     calculate_mcr_native,
+    calculate_brier_sample_native,
+    calculate_brier_point_native,
+    calculate_qs_sample_native,
+    calculate_qs_point_native,
     REGRESSION_POINT_NATIVE,
     REGRESSION_SAMPLE_NATIVE,
     CLASSIFICATION_POINT_NATIVE,
@@ -155,9 +159,9 @@ def test_calculate_mis_sample(sample_sample_data):
 def test_point_metric_functions():
     """Test that all point metric functions are available in the deprecated REGRESSION_POINT_NATIVE."""
     expected_metrics = [
-        "MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
+        "MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar",
+        "MCR_point", "QS_point",
     ]
-
 
     for metric in expected_metrics:
         assert metric in REGRESSION_POINT_NATIVE
@@ -166,7 +170,7 @@ def test_point_metric_functions():
 
 def test_sample_metric_functions():
     """Test that all sample metric functions are available in the deprecated REGRESSION_SAMPLE_NATIVE."""
-    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Ignorance", "Coverage", "y_hat_bar", "MCR_sample"]
+    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Ignorance", "Coverage", "y_hat_bar", "MCR_sample", "QS_sample"]
 
     for metric in expected_metrics:
         assert metric in REGRESSION_SAMPLE_NATIVE
@@ -175,7 +179,7 @@ def test_sample_metric_functions():
 
 def test_regression_point_metric_functions():
     """Test that all regression point metric functions are available in REGRESSION_POINT_NATIVE."""
-    expected_metrics = ["MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"]
+    expected_metrics = ["MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar", "MCR_point", "QS_point"]
 
     for metric in expected_metrics:
         assert metric in REGRESSION_POINT_NATIVE
@@ -189,7 +193,7 @@ def test_regression_point_metric_functions():
 
 def test_regression_sample_metric_functions():
     """Test that all regression sample metric functions are available."""
-    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Coverage", "Ignorance", "y_hat_bar"]
+    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Coverage", "Ignorance", "y_hat_bar", "QS_sample", "MCR_sample"]
 
     for metric in expected_metrics:
         assert metric in REGRESSION_SAMPLE_NATIVE
@@ -200,9 +204,11 @@ def test_regression_sample_metric_functions():
 
 
 def test_classification_point_metric_functions():
-    """Test that AP is in CLASSIFICATION_POINT_NATIVE."""
+    """Test that AP and Brier_point are in CLASSIFICATION_POINT_NATIVE."""
     assert "AP" in CLASSIFICATION_POINT_NATIVE
     assert callable(CLASSIFICATION_POINT_NATIVE["AP"])
+    assert "Brier_point" in CLASSIFICATION_POINT_NATIVE
+    assert callable(CLASSIFICATION_POINT_NATIVE["Brier_point"])
 
     # RMSLE must NOT be in classification point functions
     assert "RMSLE" not in CLASSIFICATION_POINT_NATIVE
@@ -210,7 +216,7 @@ def test_classification_point_metric_functions():
 
 def test_classification_sample_metric_functions():
     """Test that classification sample metric functions are available."""
-    expected_metrics = ["CRPS", "twCRPS", "Brier", "Jeffreys"]
+    expected_metrics = ["CRPS", "twCRPS", "Brier_sample", "Jeffreys"]
 
     for metric in expected_metrics:
         assert metric in CLASSIFICATION_SAMPLE_NATIVE
@@ -226,7 +232,6 @@ def test_not_implemented_metrics():
     pred = pd.DataFrame({'pred_target': [[1.0]]})
 
     from views_evaluation.evaluation.native_metric_calculators import (
-        calculate_brier_native,
         calculate_jeffreys_native,
         calculate_sd_native,
         calculate_pEMDiv_native,
@@ -234,7 +239,6 @@ def test_not_implemented_metrics():
     )
 
     unimplemented_functions = [
-        calculate_brier_native,
         calculate_jeffreys_native,
         calculate_sd_native,
         calculate_pEMDiv_native,
@@ -510,6 +514,88 @@ class TestQuantileIntervalScore:
 
 
 # ---------------------------------------------------------------------------
+# Green: Brier Score golden-value tests (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestBrierScore:
+
+    def test_brier_sample_golden_value(self):
+        """Hand-computed Brier sample: threshold=1, mixed binary outcomes."""
+        y_true = np.array([0.0, 2.0, 5.0])
+        y_pred = np.array([[0.5, 1.5], [0.5, 1.5], [4.0, 6.0]])
+        # y_binary = [0, 1, 1] (0 < 1, 2 > 1, 5 > 1)
+        # p_hat = [0.5, 0.5, 1.0] (fraction of ensemble > threshold)
+        # Brier = mean([(0.5-0)^2, (0.5-1)^2, (1.0-1)^2]) = mean([0.25, 0.25, 0]) = 1/6
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(1.0 / 6.0, abs=1e-10)
+
+    def test_brier_point_golden_value(self):
+        """Hand-computed Brier point: threshold=1, probabilities vs binary outcomes."""
+        y_true = np.array([0.0, 2.0, 5.0])
+        y_pred = np.array([[0.1], [0.7], [0.9]])
+        # y_binary = [0, 1, 1]
+        # p_hat = [0.1, 0.7, 0.9] (point prediction as probability)
+        # Brier = mean([(0.1-0)^2, (0.7-1)^2, (0.9-1)^2]) = mean([0.01, 0.09, 0.01]) = 11/300
+        result = calculate_brier_point_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(11.0 / 300.0, abs=1e-10)
+
+    def test_brier_sample_perfect(self):
+        """All above threshold, all ensemble members above → p_hat=1, y_binary=1, Brier=0."""
+        y_true = np.array([5.0, 10.0])
+        y_pred = np.array([[2.0, 3.0], [2.0, 3.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_brier_point_perfect(self):
+        """p_hat matches y_binary exactly → Brier=0."""
+        y_true = np.array([0.0, 2.0])  # binary=[0, 1] at threshold=1
+        y_pred = np.array([[0.0], [1.0]])  # perfect probability predictions
+        result = calculate_brier_point_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Green: Quantile Score (pinball loss) golden-value tests (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestQuantileScore:
+
+    def test_qs_sample_golden_value_at_median(self):
+        """Median matches observation → QS = 0."""
+        y_true = np.array([3.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        # median of [1,2,3,4,5] = 3.0, diff = 3-3 = 0, QS = 0
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.5)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_qs_point_golden_value_overprediction(self):
+        """Point overpredicts: y=3, q=5, quantile=0.9 → (1-0.9)*(5-3) = 0.2."""
+        y_true = np.array([3.0])
+        y_pred = np.array([[5.0]])
+        # diff = 3 - 5 = -2 < 0 → branch: -diff * (1-quantile) = 2 * 0.1 = 0.2
+        result = calculate_qs_point_native(y_true, y_pred, quantile=0.9)
+        assert result == pytest.approx(0.2, abs=1e-10)
+
+    def test_qs_sample_underprediction(self):
+        """Sample underpredicts: y=10, q=2.0 at quantile=0.9 → 0.9*(10-2) = 7.2."""
+        y_true = np.array([10.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        # quantile(0.9) of [1,2,3] = 2.8 via linear interpolation
+        q = np.quantile([1.0, 2.0, 3.0], 0.9)  # = 2.8
+        expected = 0.9 * (10.0 - q)
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.9)
+        assert result == pytest.approx(expected, abs=1e-10)
+
+    def test_qs_point_underprediction(self):
+        """Point underpredicts: y=10, y_hat=2, quantile=0.9 → 0.9*(10-2) = 7.2."""
+        y_true = np.array([10.0])
+        y_pred = np.array([[2.0]])
+        # diff = 10 - 2 = 8 ≥ 0 → branch: diff * quantile = 8 * 0.9 = 7.2
+        result = calculate_qs_point_native(y_true, y_pred, quantile=0.9)
+        assert result == pytest.approx(7.2, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
 # Beige: realistic edge cases (ADR-020)
 # ---------------------------------------------------------------------------
 
@@ -606,6 +692,75 @@ class TestMISBeige:
         y_true = np.array([3.0])
         y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
         result = calculate_mean_interval_score_native(y_true, y_pred, alpha=0.99)
+        assert np.isfinite(result)
+
+
+class TestBrierScoreBeige:
+
+    def test_single_observation(self):
+        """Brier handles N=1, S=1 without error."""
+        result = calculate_brier_sample_native(np.array([2.0]), np.array([[3.0]]), threshold=1.0)
+        assert np.isfinite(result)
+
+    def test_large_ensemble_stable(self):
+        """Brier is stable with S=1000 samples."""
+        rng = np.random.default_rng(42)
+        y_true = np.array([0.0, 5.0, 10.0])
+        y_pred = rng.normal(loc=y_true[:, None], scale=2.0, size=(3, 1000))
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+        assert 0 <= result <= 1  # Brier is bounded [0, 1]
+
+    def test_threshold_at_exact_data_value(self):
+        """Threshold equals an observation — no crash."""
+        y_true = np.array([5.0, 5.0])
+        y_pred = np.array([[4.0, 6.0], [4.0, 6.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=5.0)
+        assert np.isfinite(result)
+
+    def test_all_above_threshold(self):
+        """All y_true above threshold — y_binary all 1, finite result."""
+        y_true = np.array([10.0, 20.0])
+        y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+
+    def test_all_below_threshold(self):
+        """All y_true below threshold — y_binary all 0, finite result."""
+        y_true = np.array([0.0, 0.5])
+        y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+
+
+class TestQuantileScoreBeige:
+
+    def test_single_observation(self):
+        """QS handles N=1, S=1 without error."""
+        result = calculate_qs_sample_native(np.array([1.0]), np.array([[1.0]]), quantile=0.5)
+        assert np.isfinite(result)
+
+    def test_large_ensemble_stable(self):
+        """QS is stable with S=1000 samples."""
+        rng = np.random.default_rng(42)
+        y_true = np.array([5.0, 10.0, 0.0])
+        y_pred = rng.normal(loc=y_true[:, None], scale=1.0, size=(3, 1000))
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.99)
+        assert np.isfinite(result)
+        assert result >= 0
+
+    def test_extreme_quantile_near_one(self):
+        """Quantile very close to 1 — finite result."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.999)
+        assert np.isfinite(result)
+
+    def test_extreme_quantile_near_zero(self):
+        """Quantile very close to 0 — finite result."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        result = calculate_qs_point_native(y_true, np.array([[2.0]]), quantile=0.001)
         assert np.isfinite(result)
 
 
@@ -756,3 +911,51 @@ class TestMCRRed:
         y_pred = np.array([[4.0], [4.0]])
         result = calculate_mcr_native(y_true, y_pred)
         assert result == -2.0
+
+
+class TestBrierScoreRed:
+
+    def test_nan_in_y_true_swallowed_by_comparison(self):
+        """NaN in y_true is swallowed by '>' comparison (NaN > x → False).
+
+        Unlike arithmetic metrics, Brier's binarization step converts NaN to
+        False (0.0) rather than propagating. This is NumPy's standard comparison
+        semantics. The EvaluationFrame boundary should reject NaN before it
+        reaches here (defense-in-depth).
+        """
+        y_true = np.array([np.nan, 1.0])
+        y_pred = np.array([[1.0], [1.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        # NaN is treated as below-threshold (False), so result is finite, not NaN
+        assert np.isfinite(result)
+
+    def test_nan_in_y_pred_swallowed_by_comparison(self):
+        """NaN in y_pred is swallowed by '>' comparison in p_hat computation."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[np.nan], [1.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+
+    def test_negative_threshold_accepted(self):
+        """Negative threshold is mathematically valid."""
+        y_true = np.array([1.0, 2.0])
+        y_pred = np.array([[1.0, 2.0], [2.0, 3.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=-5.0)
+        assert np.isfinite(result)
+
+
+class TestQuantileScoreRed:
+
+    def test_nan_in_y_true_propagates(self):
+        """NaN in y_true propagates to result."""
+        y_true = np.array([np.nan, 1.0])
+        y_pred = np.array([[1.0], [1.0]])
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.5)
+        assert np.isnan(result)
+
+    def test_nan_in_y_pred_propagates(self):
+        """NaN in y_pred propagates to result."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[np.nan], [1.0]])
+        result = calculate_qs_point_native(y_true, y_pred, quantile=0.5)
+        assert np.isnan(result)

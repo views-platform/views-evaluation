@@ -238,19 +238,156 @@ def calculate_quantile_interval_score_native(
     return float(np.mean(qis))
 
 
+# ── Brier Score ───────────────────────────────────────────────────────────────
+
+def calculate_brier_sample_native(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target=None,
+    *,
+    threshold: float,
+    **kwargs,
+) -> float:
+    """
+    Brier Score for sample-based predictions on regression targets.
+
+    Binarises truth at the threshold, computes event probability from
+    the fraction of ensemble members exceeding the threshold, then
+    returns the mean squared error between predicted probability and
+    binary outcome.
+
+    Brier = mean((p_hat - y_binary)^2)
+
+    where p_hat = mean(y_pred > threshold, axis=1) and
+    y_binary = (y_true > threshold).
+
+    Args:
+        threshold: Onset threshold for binarisation. Must be provided
+                   explicitly via evaluation profile or model config.
+    """
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
+    y_binary = (y_true > threshold).astype(float)
+    p_hat = np.mean(y_pred > threshold, axis=1)
+    return float(np.mean((p_hat - y_binary) ** 2))
+
+
+def calculate_brier_point_native(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target=None,
+    *,
+    threshold: float,
+    **kwargs,
+) -> float:
+    """
+    Brier Score for point (probability) predictions.
+
+    Binarises truth at the threshold, uses the point prediction
+    directly as the predicted probability.
+
+    Brier = mean((y_pred - y_binary)^2)
+
+    For point predictions, y_pred is (N, 1) after _guard_shapes.
+    The single column is the predicted probability.
+
+    Args:
+        threshold: Onset threshold for binarisation.
+    """
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
+    y_binary = (y_true > threshold).astype(float)
+    p_hat = y_pred[:, 0]  # Point prediction: single column
+    return float(np.mean((p_hat - y_binary) ** 2))
+
+
+# ── Quantile Score (Pinball Loss) ─────────────────────────────────────────────
+
+def calculate_qs_sample_native(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target=None,
+    *,
+    quantile: float,
+    **kwargs,
+) -> float:
+    """
+    Quantile Score (pinball loss) for sample-based predictions.
+
+    Extracts the specified quantile from the forecast ensemble, then
+    computes the asymmetric pinball loss.
+
+    QS = mean(max(alpha * (y - q), (1 - alpha) * (q - y)))
+
+    where q = np.quantile(y_pred, quantile, axis=1).
+
+    Args:
+        quantile: Quantile level in (0, 1). E.g. 0.99 for QS99.
+    """
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
+    q = np.quantile(y_pred, quantile, axis=1)
+    diff = y_true - q
+    scores = np.where(
+        diff >= 0,
+        diff * quantile,
+        -diff * (1 - quantile),
+    )
+    return float(np.mean(scores))
+
+
+def calculate_qs_point_native(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target=None,
+    *,
+    quantile: float,
+    **kwargs,
+) -> float:
+    """
+    Quantile Score (pinball loss) for point predictions.
+
+    The point prediction is treated as the quantile estimate directly.
+    Computes the asymmetric pinball loss.
+
+    QS = mean(max(alpha * (y - y_hat), (1 - alpha) * (y_hat - y)))
+
+    For point predictions, y_pred is (N, 1) after _guard_shapes.
+
+    Args:
+        quantile: Quantile level in (0, 1). E.g. 0.99 for QS99.
+    """
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
+    q = y_pred[:, 0]
+    diff = y_true - q
+    scores = np.where(
+        diff >= 0,
+        diff * quantile,
+        -diff * (1 - quantile),
+    )
+    return float(np.mean(scores))
+
+
 # Placeholder functions for metrics that are planned but not yet implemented.
-# ADR-013: Raise ValueError (not NotImplementedError) so callers get a consistent,
-# user-facing message rather than a bare exception type.
+# ADR-013: Raise ValueError (not NotImplementedError) so callers get a
+# consistent, user-facing message rather than a bare exception type.
 def calculate_sd_native(*args, **kwargs):
-    raise ValueError("Metric 'SD' is defined but not yet implemented. Remove it from your config.")
+    raise ValueError(
+        "Metric 'SD' is defined but not yet implemented."
+        " Remove it from your config."
+    )
 def calculate_pEMDiv_native(*args, **kwargs):
-    raise ValueError("Metric 'pEMDiv' is defined but not yet implemented. Remove it from your config.")
+    raise ValueError(
+        "Metric 'pEMDiv' is defined but not yet implemented."
+        " Remove it from your config."
+    )
 def calculate_variogram_native(*args, **kwargs):
-    raise ValueError("Metric 'Variogram' is defined but not yet implemented. Remove it from your config.")
-def calculate_brier_native(*args, **kwargs):
-    raise ValueError("Metric 'Brier' is defined but not yet implemented. Remove it from your config.")
+    raise ValueError(
+        "Metric 'Variogram' is defined but not yet implemented."
+        " Remove it from your config."
+    )
 def calculate_jeffreys_native(*args, **kwargs):
-    raise ValueError("Metric 'Jeffreys' is defined but not yet implemented. Remove it from your config.")
+    raise ValueError(
+        "Metric 'Jeffreys' is defined but not yet implemented."
+        " Remove it from your config."
+    )
 
 # PHASE-3-DELETE: Legacy alias retained for test_evaluation_manager.py
 calculate_ap = calculate_ap_native
@@ -265,6 +402,7 @@ REGRESSION_POINT_NATIVE = {
     "MTD":       calculate_mtd_native,
     "y_hat_bar": calculate_mean_prediction_native,
     "MCR_point": calculate_mcr_native,
+    "QS_point":  calculate_qs_point_native,
     "SD":        calculate_sd_native,
     "pEMDiv":    calculate_pEMDiv_native,
     "Variogram": calculate_variogram_native,
@@ -274,23 +412,25 @@ REGRESSION_POINT_NATIVE = {
 
 
 REGRESSION_SAMPLE_NATIVE = {
-    "CRPS":      calculate_crps_native,
-    "twCRPS":    calculate_twcrps_native,
-    "MIS":       calculate_mean_interval_score_native,
-    "QIS":       calculate_quantile_interval_score_native,
-    "Coverage":  calculate_coverage_native,
-    "Ignorance": calculate_ignorance_score_native,
-    "y_hat_bar": calculate_mean_prediction_native,
+    "CRPS":       calculate_crps_native,
+    "twCRPS":     calculate_twcrps_native,
+    "MIS":        calculate_mean_interval_score_native,
+    "QIS":        calculate_quantile_interval_score_native,
+    "QS_sample":  calculate_qs_sample_native,
+    "Coverage":   calculate_coverage_native,
+    "Ignorance":  calculate_ignorance_score_native,
+    "y_hat_bar":  calculate_mean_prediction_native,
     "MCR_sample": calculate_mcr_native,
 }
 
 CLASSIFICATION_POINT_NATIVE = {
-    "AP": calculate_ap_native,
+    "AP":          calculate_ap_native,
+    "Brier_point": calculate_brier_point_native,
 }
 
 CLASSIFICATION_SAMPLE_NATIVE = {
-    "CRPS":      calculate_crps_native,
-    "twCRPS":    calculate_twcrps_native,
-    "Brier":     calculate_brier_native,
-    "Jeffreys":  calculate_jeffreys_native,
+    "CRPS":         calculate_crps_native,
+    "twCRPS":       calculate_twcrps_native,
+    "Brier_sample": calculate_brier_sample_native,
+    "Jeffreys":     calculate_jeffreys_native,
 }

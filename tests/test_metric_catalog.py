@@ -365,7 +365,7 @@ class TestNativeEvaluatorCatalogIntegration:
 
     def test_registry_snapshot_integrity(self):
         """Registries have expected sizes — catches accidental mutation or deletion."""
-        assert len(METRIC_CATALOG) == 21
+        assert len(METRIC_CATALOG) == 24
         assert len(METRIC_MEMBERSHIP) == 4
         assert len(PROFILES) >= 2
 

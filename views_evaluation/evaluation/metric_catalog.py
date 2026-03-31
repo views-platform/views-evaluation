@@ -31,10 +31,13 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_coverage_native,
     calculate_mean_interval_score_native,
     calculate_ignorance_score_native,
+    calculate_brier_sample_native,
+    calculate_brier_point_native,
+    calculate_qs_sample_native,
+    calculate_qs_point_native,
     calculate_sd_native,
     calculate_pEMDiv_native,
     calculate_variogram_native,
-    calculate_brier_native,
     calculate_jeffreys_native,
 )
 
@@ -81,20 +84,29 @@ METRIC_CATALOG: Dict[str, MetricSpec] = {
     "Ignorance": MetricSpec(function=calculate_ignorance_score_native,
                             genome=("bins", "low_bin", "high_bin")),
 
+    # ── Quantile Score (Pinball Loss) ────────────────────────────────────
+    "QS_sample": MetricSpec(function=calculate_qs_sample_native, genome=("quantile",)),
+    "QS_point":  MetricSpec(function=calculate_qs_point_native,  genome=("quantile",)),
+
+    # ── Brier Score ───────────────────────────────────────────────────────
+    "Brier_sample": MetricSpec(function=calculate_brier_sample_native, genome=("threshold",)),
+    "Brier_point":  MetricSpec(function=calculate_brier_point_native,  genome=("threshold",)),
+
     # ── Classification ────────────────────────────────────────────────────
     "AP":        MetricSpec(function=calculate_ap_native,        genome=()),
-    "Brier":     MetricSpec(function=calculate_brier_native,     genome=(), implemented=False),
     "Jeffreys":  MetricSpec(function=calculate_jeffreys_native,  genome=(), implemented=False),
 }
 
 
 METRIC_MEMBERSHIP: Dict[Tuple[str, str], set] = {
     ("regression", "point"):      {"MSE", "MSLE", "RMSLE", "EMD", "Pearson", "MTD",
-                                    "y_hat_bar", "MCR_point", "SD", "pEMDiv", "Variogram"},
-    ("regression", "sample"):     {"CRPS", "twCRPS", "MIS", "QIS", "Coverage",
-                                    "Ignorance", "y_hat_bar", "MCR_sample"},
-    ("classification", "point"):  {"AP"},
-    ("classification", "sample"): {"CRPS", "twCRPS", "Brier", "Jeffreys"},
+                                    "y_hat_bar", "MCR_point", "QS_point",
+                                    "SD", "pEMDiv", "Variogram"},
+    ("regression", "sample"):     {"CRPS", "twCRPS", "MIS", "QIS", "QS_sample",
+                                    "Coverage", "Ignorance",
+                                    "y_hat_bar", "MCR_sample"},
+    ("classification", "point"):  {"AP", "Brier_point"},
+    ("classification", "sample"): {"CRPS", "twCRPS", "Brier_sample", "Jeffreys"},
 }
 
 
