@@ -9,8 +9,8 @@
 ## Context
 
 A consistent input format is required to compare model performance across the VIEWS pipeline.
-Two integration paths exist: the native path (primary) and the legacy path (`EvaluationManager`,
-deprecated per ADR-011).
+The native path via `EvaluationFrame` is the sole integration path. The legacy
+`EvaluationManager` path was removed in Phase 3.
 
 ## Decision
 
@@ -40,9 +40,9 @@ Prediction type (point vs. sample) is determined structurally from the number of
 No name-based inference occurs (ADR-012). Callers must ensure all cells in a prediction column
 have the same number of values.
 
-### Native Path Invariants (PandasAdapter)
+### Native Path Invariants
 
-When using `PandasAdapter`, the following identifiers are synthesised automatically:
+When constructing an `EvaluationFrame`, the following identifiers must be provided:
 
 | Identifier | Source                                           |
 |------------|--------------------------------------------------|

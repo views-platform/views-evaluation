@@ -37,7 +37,7 @@ Use this checklist to track the base_docs governance adoption for views-evaluati
   - [x] EvaluationFrame.md
   - [x] NativeEvaluator.md
   - [x] EvaluationReport.md
-  - [x] PandasAdapter.md (PHASE-3-DELETE)
+  - [x] PandasAdapter.md (removed in Phase 3)
   - [x] MetricCatalog.md
 
 ---

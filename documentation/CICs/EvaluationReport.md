@@ -61,7 +61,7 @@ A structured, framework-agnostic container for evaluation results. It decouples 
 ## 7. Boundaries and Interactions
 
 - **Upstream**: Produced by **NativeEvaluator**.
-- **Downstream**: Consumed by **EvaluationManager**, Pipeline Core, or reporting tools.
+- **Downstream**: Consumed by Pipeline Core or reporting tools.
 
 ---
 

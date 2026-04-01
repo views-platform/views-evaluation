@@ -66,7 +66,7 @@ The canonical, framework-agnostic internal representation of a forecasting evalu
 
 ## 8. Step Semantics
 
-The `step` identifier represents **positional lead time** (1-indexed), not an absolute calendar month. Step 1 is the first month of each forecast origin's prediction window, step 2 is the second, and so on. This is assigned positionally by adapters (e.g., `PandasAdapter.from_dataframes()`) based on the order of unique time values within each origin sequence.
+The `step` identifier represents **positional lead time** (1-indexed), not an absolute calendar month. Step 1 is the first month of each forecast origin's prediction window, step 2 is the second, and so on. This is assigned positionally by adapters (e.g., views-pipeline-core's `EvaluationAdapter`) based on the order of unique time values within each origin sequence.
 
 **Consequence:** Step 1 in origin A and step 1 in origin B typically refer to *different* calendar months. When `NativeEvaluator` groups data by step, it collects the "diagonals" of the parallelogram — all first-month-ahead predictions together, all second-month-ahead together, etc. This is the correct semantic for forecast-horizon evaluation.
 
@@ -96,7 +96,7 @@ sub_ef = ef.select_indices(month_groups[100])
 
 ## 10. Examples of Incorrect Usage
 
-- Constructing an `EvaluationFrame` directly with ragged sample arrays (varying S per row). The `PandasAdapter` guards against this, but direct construction does not.
+- Constructing an `EvaluationFrame` directly with ragged sample arrays (varying S per row). External adapters should guard against this, but direct construction validates only ndim.
 - Passing DataFrames or Series instead of NumPy arrays — the class has zero knowledge of Pandas.
 - Omitting required identifier keys (e.g. passing only `time` and `unit` without `origin` and `step`).
 - Storing derived or mutable state on an `EvaluationFrame` instance after construction.
@@ -114,7 +114,7 @@ sub_ef = ef.select_indices(month_groups[100])
 
 ## 12. Known Deviations
 
-- **Rectangular sample invariant not enforced:** Direct construction does not validate that all rows of `y_pred` have the same number of samples. Only `PandasAdapter.from_dataframes()` guards against ragged arrays. A directly-constructed frame with ragged `y_pred` would cause indexing errors deep in metric calculations. (Risk register C-03)
+- **Rectangular sample invariant not enforced:** Direct construction does not validate that all rows of `y_pred` have the same number of samples. Only well-designed external adapters guard against ragged arrays. A directly-constructed frame with ragged `y_pred` would cause indexing errors deep in metric calculations. (Risk register C-03)
 - **Integer identifier NaN not checked:** Validation checks float and object identifiers for NaN/None, but integer-typed identifiers are not checked (NumPy integers cannot represent NaN, so this is safe in practice but not explicitly documented).
 - **No immutability enforcement:** The contract claims "State Immutability" via new-instance methods, but `y_true`, `y_pred`, and `identifiers` are publicly mutable attributes. Nothing prevents `ef.y_true[0] = 999` after construction.
 
