@@ -233,7 +233,7 @@ Level 1 — Bridge / Adapter
   EvaluationReport      Results container with DataFrame/dict export
 
 Level 2 — Legacy Orchestrator
-  EvaluationManager     Deprecated wrapper; delegates to Level 0
+  MetricCatalog         Genome registry and parameter resolver
 ```
 
 **Key design decisions:**

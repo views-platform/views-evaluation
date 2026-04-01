@@ -1,52 +1,47 @@
 """
 Example: Using the Native Evaluation API
 
-This script demonstrates the modern, performant way to evaluate forecasts 
-using the NativeEvaluator and EvaluationFrame. This path is up to 14x 
-faster for probabilistic forecasts.
+This script demonstrates how to evaluate forecasts using the
+NativeEvaluator and EvaluationFrame with pure NumPy arrays.
 """
-import pandas as pd
-from views_evaluation import PandasAdapter, NativeEvaluator
+import numpy as np
+from views_evaluation import EvaluationFrame, NativeEvaluator
 
-# 1. Prepare dummy data (The legacy format)
-index = pd.MultiIndex.from_product([[100, 101], [1, 2]], names=['month', 'unit'])
-actuals = pd.DataFrame({'target': [0, 1, 0, 1]}, index=index)
-# 3-sample ensemble predictions
-preds = [
-    pd.DataFrame({'pred_target': [[0.1, 0.2, 0.05], [0.8, 0.9, 0.7]]}, index=index[:2]),
-    pd.DataFrame({'pred_target': [[0.1, 0.15, 0.2], [0.7, 0.8, 0.9]]}, index=index[2:])
-]
+# 1. Prepare data as NumPy arrays
+n = 4
+y_true = np.array([0.0, 1.0, 0.0, 1.0])
+y_pred = np.array([
+    [0.1, 0.2, 0.05],
+    [0.8, 0.9, 0.7],
+    [0.1, 0.15, 0.2],
+    [0.7, 0.8, 0.9],
+])  # shape (4, 3) — 3-sample ensemble
 
-# 2. Configure metrics
+identifiers = {
+    'time':   np.array([100, 100, 101, 101]),
+    'unit':   np.array([1, 2, 1, 2]),
+    'origin': np.array([0, 0, 1, 1]),
+    'step':   np.array([1, 1, 1, 1]),
+}
+
+# 2. Construct EvaluationFrame (validates shapes, NaN, identifiers)
+ef = EvaluationFrame(y_true, y_pred, identifiers, metadata={'target': 'target'})
+print(f"EvaluationFrame: {ef.n_rows} rows, {ef.n_samples} samples")
+
+# 3. Configure and evaluate
 config = {
     'steps': [1],
     'regression_targets': ['target'],
-    'regression_sample_metrics': ['CRPS', 'Ignorance']
+    'regression_sample_metrics': ['CRPS', 'Ignorance'],
 }
-
-print("--- Step 1: Adapt Data ---")
-# The adapter performs alignment, truth-duplication, and list-extraction.
-# This step can be moved to the Orchestration layer (Pipeline Core) in the future.
-ef = PandasAdapter.from_dataframes(actuals, preds, "target")
-print(f"Adapted data: {ef.n_rows} rows, {ef.n_samples} samples")
-
-print("")
-print("--- Step 2: Evaluate ---")
-# The evaluator is stateless and pure math (no pandas).
 evaluator = NativeEvaluator(config)
 report = evaluator.evaluate(ef)
 print("Evaluation complete.")
 
-print("")
-print("--- Step 3: Export Results ---")
-# Convert to DataFrames only when needed for reporting
-month_df = report.to_dataframe(schema="month")
-print("Month-wise results:")
-print(month_df)
+# 4. Export results
+print("\nMonth-wise results (dict):")
+print(report.to_dict()['schemas']['month'])
 
-# Or export to pure dict for JSON serialization
-json_friendly_dict = report.to_dict()
-print("")
-print("JSON Export (Sample):")
-print(f"Target: {json_friendly_dict['target']}")
-print(f"Schemas found: {list(json_friendly_dict['schemas'].keys())}")
+print("\nFull export:")
+d = report.to_dict()
+print(f"Target: {d['target']}, Schemas: {list(d['schemas'].keys())}")

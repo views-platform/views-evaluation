@@ -116,14 +116,13 @@ params = resolve_metric_params("MSE", {}, BASE_PROFILE)
 ## 11. Evolution Notes
 
 - New metrics are added by: (1) implementing the function in `native_metric_calculators.py`, (2) adding a `MetricSpec` to `METRIC_CATALOG`, (3) adding to `METRIC_MEMBERSHIP`, (4) adding genome values to relevant profiles, (5) adding a field to the typed metrics dataclass in `metrics.py`.
-- The legacy dispatch dicts (`REGRESSION_POINT_NATIVE`, etc.) in `native_metric_calculators.py` duplicate `METRIC_MEMBERSHIP` and should be removed in Phase 3.
+- The legacy dispatch dicts were removed in Phase 3. `METRIC_MEMBERSHIP` is the single source of truth.
 - Profile structure is stable; new profiles are added by creating a new file in `profiles/`.
 
 ---
 
 ## 12. Known Deviations
 
-- **Dual registry problem:** `METRIC_MEMBERSHIP` in `metric_catalog.py` and the 4 `*_NATIVE` dispatch dicts in `native_metric_calculators.py` encode the same (task, pred_type) → metric mapping independently. They can drift without detection (see risk register C-01). No automated check ensures synchronization.
 - **No profile completeness validation:** There is no mechanism to verify that a profile provides values for all metrics with non-empty genomes. A profile missing a metric's params will only fail at evaluation time, not at profile registration.
 - **Weak golden-value coverage:** Only 5 tests in `test_metric_correctness.py` verify metric functions against independently computed known answers. Most metrics lack this verification (see risk register C-07).
 - **Breaking rename:** The legacy `Brier` metric (unimplemented placeholder) was replaced by `Brier_sample` and `Brier_point` (implemented). The field in `ClassificationSampleEvaluationMetrics` was renamed from `Brier` to `Brier_sample`. External consumers accessing `.Brier` on classification sample results must update to `.Brier_sample`.

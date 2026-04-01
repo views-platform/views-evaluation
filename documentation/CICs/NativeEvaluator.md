@@ -62,7 +62,7 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 
 ## 7. Boundaries and Interactions
 
-- **Upstream**: Called directly or via legacy `EvaluationManager` (PHASE-3-DELETE).
+- **Upstream**: Called directly by evaluation orchestrators (e.g. views-pipeline-core).
 - **Internal**: Depends on `EvaluationFrame` and `MetricCalculators`.
 - **Isolation**: Must not depend on any IO or dataframe frameworks.
 
@@ -102,7 +102,7 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 
 ## 11. Evolution Notes
 
-- `legacy_compatibility` flag is expected to default to `False` once Phase 3 migration completes and the legacy `EvaluationManager` is removed.
+- `legacy_compatibility` default was flipped to `False` in Phase 3. The flag is retained for callers that need truncation behavior.
 - Config validation may be added to `__init__` to catch structural config errors at construction time rather than at evaluation time (currently a known gap — risk register C-02).
 - The `EvaluationReport` return type is stable; the internal `_calculate_metrics` dispatch may evolve as the `MetricCatalog` grows.
 
@@ -111,7 +111,6 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 ## 12. Known Deviations
 
 - **No config validation at init:** Unlike `EvaluationManager._validate_config()`, `NativeEvaluator.__init__` only validates the profile name. Missing or malformed config keys cause cryptic errors at evaluation time rather than at construction. (Risk register C-02)
-- **Dual dispatch logic:** The evaluator uses `METRIC_MEMBERSHIP` from `metric_catalog.py` for membership checks, while the legacy `EvaluationManager` uses the `*_NATIVE` dispatch dicts from `native_metric_calculators.py`. These two registries can drift independently. (Risk register C-01)
 - **sklearn/scipy in "pure core":** The `NativeEvaluator` dispatches to metric functions that import `sklearn` and `scipy` at module level. This contradicts the stated goal of a zero-external-dep Level 0 core (ADR-011). (Risk register C-05)
 
 ---
