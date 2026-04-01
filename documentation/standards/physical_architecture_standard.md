@@ -28,11 +28,9 @@ views_evaluation/
 │   ├── native_metric_calculators.py
 │   ├── evaluation_report.py
 │   ├── metrics.py
-│   ├── config_schema.py
-│   ├── evaluation_manager.py     (PHASE-3-DELETE)
-│   └── deprecation_msgs.py
-├── adapters/            # Framework bridges (Level 1)
-│   └── pandas.py                 (PHASE-3-DELETE)
+│   └── config_schema.py
+├── adapters/            # Reserved for future framework bridges
+│   └── __init__.py
 └── profiles/            # Named evaluation profiles
     ├── base.py
     └── hydranet_ucdp.py
@@ -51,14 +49,12 @@ views_evaluation/
 | `metric_catalog.py` | `MetricSpec` + `METRIC_CATALOG` + `METRIC_MEMBERSHIP` + `resolve_metric_params` | Cohesive module — spec, registries, and resolver form a single concept |
 | `evaluation_report.py` | `EvaluationReport` (1 class) | Compliant |
 | `config_schema.py` | `EvaluationConfig` (1 TypedDict) | Compliant |
-| `evaluation_manager.py` | `EvaluationManager` (1 class, PHASE-3-DELETE) | Compliant |
-| `pandas.py` | `PandasAdapter` (1 class, PHASE-3-DELETE) | Compliant |
 
 ### Defensible Exception
 
 | File | Contents | Verdict |
 |------|----------|---------|
-| `metrics.py` | 7 dataclasses: `BaseEvaluationMetrics`, 2 legacy (`Point/SampleEvaluationMetrics`), 4 new 2x2 typed containers | Defensible — trivial data containers sharing a base class. Splitting into 7 files would create fragmentation without improving discoverability. |
+| `metrics.py` | 5 dataclasses: `BaseEvaluationMetrics` + 4 typed 2x2 containers | Defensible — trivial data containers sharing a base class. Splitting into 5 files would create fragmentation without improving discoverability. |
 
 ### Identified Challenge
 
@@ -80,7 +76,7 @@ This file bundles heterogeneous concerns:
 
 3. **Placeholder stubs** for unimplemented metrics (SD, pEMDiv, Variogram, Jeffreys).
 
-4. **Legacy dispatch dicts** (REGRESSION_POINT_NATIVE, etc.) that duplicate `METRIC_MEMBERSHIP` — PHASE-3-DELETE.
+4. **Legacy dispatch dicts removed in Phase 3.** `METRIC_MEMBERSHIP` is now the single source of truth.
 
 **Why this is a challenge:**
 - The file mixes 4 distinct metric families. Adding a new regression-sample metric requires editing a 437-line file that also contains classification metrics.

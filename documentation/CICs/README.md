@@ -54,7 +54,6 @@ Contracts must be clear enough that:
 - `NativeEvaluator.md` — Pure math evaluation engine
 - `EvaluationReport.md` — Structured result container
 - `MetricCatalog.md` — Genome registry and parameter resolver
-- `PandasAdapter.md` (PHASE-3-DELETE) — DataFrame bridge
 
 ---
 

@@ -19,11 +19,8 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_brier_point_native,
     calculate_qs_sample_native,
     calculate_qs_point_native,
-    REGRESSION_POINT_NATIVE,
-    REGRESSION_SAMPLE_NATIVE,
-    CLASSIFICATION_POINT_NATIVE,
-    CLASSIFICATION_SAMPLE_NATIVE,
 )
+from views_evaluation.evaluation.metric_catalog import METRIC_MEMBERSHIP
 
 
 # Point-prediction test data (N=4, S=1)
@@ -127,74 +124,37 @@ def test_calculate_mis_sample():
     assert result >= 0
 
 
-def test_point_metric_functions():
-    """Test that all point metric functions are available in the deprecated REGRESSION_POINT_NATIVE."""
-    expected_metrics = [
-        "MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar",
-        "MCR_point", "QS_point",
-    ]
-
-    for metric in expected_metrics:
-        assert metric in REGRESSION_POINT_NATIVE
-        assert callable(REGRESSION_POINT_NATIVE[metric])
+def test_metric_membership_regression_point():
+    """METRIC_MEMBERSHIP contains expected regression point metrics."""
+    members = METRIC_MEMBERSHIP[("regression", "point")]
+    for m in ["MSE", "MSLE", "RMSLE", "EMD", "Pearson", "MTD", "y_hat_bar", "MCR_point", "QS_point"]:
+        assert m in members
+    assert "AP" not in members
+    assert "CRPS" not in members
 
 
-def test_sample_metric_functions():
-    """Test that all sample metric functions are available in the deprecated REGRESSION_SAMPLE_NATIVE."""
-    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Ignorance", "Coverage", "y_hat_bar", "MCR_sample", "QS_sample"]
-
-    for metric in expected_metrics:
-        assert metric in REGRESSION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE[metric])
-
-
-def test_regression_point_metric_functions():
-    """Test that all regression point metric functions are available in REGRESSION_POINT_NATIVE."""
-    expected_metrics = ["MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar", "MCR_point", "QS_point"]
-
-    for metric in expected_metrics:
-        assert metric in REGRESSION_POINT_NATIVE
-        assert callable(REGRESSION_POINT_NATIVE[metric])
-
-    # AP must NOT be in regression point functions
-    assert "AP" not in REGRESSION_POINT_NATIVE
-    # CRPS must NOT be in regression point functions
-    assert "CRPS" not in REGRESSION_POINT_NATIVE
+def test_metric_membership_regression_sample():
+    """METRIC_MEMBERSHIP contains expected regression sample metrics."""
+    members = METRIC_MEMBERSHIP[("regression", "sample")]
+    for m in ["CRPS", "twCRPS", "MIS", "QIS", "Coverage", "Ignorance", "y_hat_bar", "QS_sample", "MCR_sample"]:
+        assert m in members
+    assert "AP" not in members
 
 
-def test_regression_sample_metric_functions():
-    """Test that all regression sample metric functions are available."""
-    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Coverage", "Ignorance", "y_hat_bar", "QS_sample", "MCR_sample"]
-
-    for metric in expected_metrics:
-        assert metric in REGRESSION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE[metric])
-
-    # AP must NOT be in regression sample functions
-    assert "AP" not in REGRESSION_SAMPLE_NATIVE
+def test_metric_membership_classification_point():
+    """METRIC_MEMBERSHIP contains expected classification point metrics."""
+    members = METRIC_MEMBERSHIP[("classification", "point")]
+    assert "AP" in members
+    assert "Brier_point" in members
+    assert "RMSLE" not in members
 
 
-def test_classification_point_metric_functions():
-    """Test that AP and Brier_point are in CLASSIFICATION_POINT_NATIVE."""
-    assert "AP" in CLASSIFICATION_POINT_NATIVE
-    assert callable(CLASSIFICATION_POINT_NATIVE["AP"])
-    assert "Brier_point" in CLASSIFICATION_POINT_NATIVE
-    assert callable(CLASSIFICATION_POINT_NATIVE["Brier_point"])
-
-    # RMSLE must NOT be in classification point functions
-    assert "RMSLE" not in CLASSIFICATION_POINT_NATIVE
-
-
-def test_classification_sample_metric_functions():
-    """Test that classification sample metric functions are available."""
-    expected_metrics = ["CRPS", "twCRPS", "Brier_sample", "Jeffreys"]
-
-    for metric in expected_metrics:
-        assert metric in CLASSIFICATION_SAMPLE_NATIVE
-        assert callable(CLASSIFICATION_SAMPLE_NATIVE[metric])
-
-    # RMSLE must NOT be in classification sample functions
-    assert "RMSLE" not in CLASSIFICATION_SAMPLE_NATIVE
+def test_metric_membership_classification_sample():
+    """METRIC_MEMBERSHIP contains expected classification sample metrics."""
+    members = METRIC_MEMBERSHIP[("classification", "sample")]
+    for m in ["CRPS", "twCRPS", "Brier_sample", "Jeffreys"]:
+        assert m in members
+    assert "RMSLE" not in members
 
 
 def test_not_implemented_metrics():
@@ -325,11 +285,10 @@ class TestTwCRPS:
         # They should differ for data straddling the threshold
         assert twcrps != pytest.approx(crps, abs=1e-5)
 
-    def test_twcrps_in_dispatch_dicts(self):
-        """twCRPS must be in both regression and classification sample dispatch dicts."""
-        assert "twCRPS" in REGRESSION_SAMPLE_NATIVE
-        assert "twCRPS" in CLASSIFICATION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE["twCRPS"])
+    def test_twcrps_in_metric_membership(self):
+        """twCRPS must be in both regression and classification sample membership."""
+        assert "twCRPS" in METRIC_MEMBERSHIP[("regression", "sample")]
+        assert "twCRPS" in METRIC_MEMBERSHIP[("classification", "sample")]
 
 
 # ---------------------------------------------------------------------------
@@ -467,10 +426,9 @@ class TestQuantileIntervalScore:
         expected_width = float(np.mean(upper - lower))
         assert result == pytest.approx(expected_width, abs=1e-10)
 
-    def test_qis_in_dispatch_dict(self):
-        """QIS must be in regression sample dispatch dict."""
-        assert "QIS" in REGRESSION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE["QIS"])
+    def test_qis_in_metric_membership(self):
+        """QIS must be in regression sample membership."""
+        assert "QIS" in METRIC_MEMBERSHIP[("regression", "sample")]
 
 
 # ---------------------------------------------------------------------------

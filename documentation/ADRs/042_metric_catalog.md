@@ -91,8 +91,8 @@ the profile once, all models using it get the update.
 
 ## Additional Notes
 
-- Legacy dispatch dicts (REGRESSION_POINT_NATIVE, etc.) are retained for EvaluationManager
-  backward compatibility (PHASE-3-DELETE).
+- Legacy dispatch dicts (REGRESSION_POINT_NATIVE, etc.) were removed in Phase 3.
+  METRIC_MEMBERSHIP is the single source of truth for (task, pred_type) → metric mapping.
 - The base profile ships with views-evaluation and provides values that match the previous
   function-signature defaults, ensuring zero behavioral change for existing integrations.
 - Profile values for twCRPS threshold and QIS quantile levels are subject to alignment

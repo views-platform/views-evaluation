@@ -73,7 +73,7 @@ class NativeEvaluator:
             results[m] = spec.function(ef.y_true, ef.y_pred, **resolved)
         return results
 
-    def evaluate(self, ef: EvaluationFrame, legacy_compatibility: bool = True) -> EvaluationReport:
+    def evaluate(self, ef: EvaluationFrame, legacy_compatibility: bool = False) -> EvaluationReport:
         metrics_list, task, pred_type = self._resolve_task_and_metrics(ef)
 
         results = {}

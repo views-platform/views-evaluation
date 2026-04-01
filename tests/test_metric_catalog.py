@@ -16,10 +16,6 @@ from views_evaluation.evaluation.metric_catalog import (
 from views_evaluation.profiles import PROFILES
 from views_evaluation.profiles.base import BASE_PROFILE
 from views_evaluation.evaluation.native_metric_calculators import (
-    REGRESSION_POINT_NATIVE,
-    REGRESSION_SAMPLE_NATIVE,
-    CLASSIFICATION_POINT_NATIVE,
-    CLASSIFICATION_SAMPLE_NATIVE,
     calculate_mcr_native,
 )
 import numpy as np
@@ -145,23 +141,6 @@ class TestCatalogStructuralIntegrity:
             for metric_name in members:
                 assert metric_name in METRIC_CATALOG, (
                     f"Metric '{metric_name}' in METRIC_MEMBERSHIP{key} but not in METRIC_CATALOG"
-                )
-
-    def test_catalog_functions_match_legacy_dispatch_dicts(self):
-        """METRIC_CATALOG functions must match the legacy dispatch dict entries."""
-        legacy_dicts = {
-            ("regression", "point"): REGRESSION_POINT_NATIVE,
-            ("regression", "sample"): REGRESSION_SAMPLE_NATIVE,
-            ("classification", "point"): CLASSIFICATION_POINT_NATIVE,
-            ("classification", "sample"): CLASSIFICATION_SAMPLE_NATIVE,
-        }
-        for key, legacy_dict in legacy_dicts.items():
-            for metric_name, legacy_func in legacy_dict.items():
-                assert metric_name in METRIC_CATALOG, (
-                    f"Legacy dict {key} has '{metric_name}' not in METRIC_CATALOG"
-                )
-                assert METRIC_CATALOG[metric_name].function is legacy_func, (
-                    f"Function mismatch for '{metric_name}' between catalog and legacy dict {key}"
                 )
 
     def test_base_profile_covers_all_implemented_genomes(self):
