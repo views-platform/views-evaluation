@@ -26,7 +26,6 @@ def run_demo():
                 y_true_list.append(rng.random())
                 y_pred_list.append([rng.random(), rng.random()])  # 2-sample ensemble
 
-    n = len(rows)
     ef = EvaluationFrame(
         y_true=np.array(y_true_list),
         y_pred=np.array(y_pred_list),
