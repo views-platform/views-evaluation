@@ -2,7 +2,9 @@
 
 **Status:** Accepted  
 **Date:** 2026-02-25  
-**Deciders:** Project maintainers, Gemini CLI  
+**Deciders:** Project maintainers  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ---
 
@@ -10,7 +12,7 @@
 
 In complex evaluation systems, architectural fragility often emerges not from incorrect logic, but from uncontrolled dependencies between components.
 
-The Evaluation repository pre-Feb 2026 suffered from "Pandas-heavy" coupling. Higher-level logic (EvaluationManager) depended on Pandas `MultiIndex` internals for alignment, which constrained our ability to scale probabilistic forecasts (N, S) due to memory/performance limits of Pandas' "lists-in-cells."
+The Evaluation repository pre-Feb 2026 suffered from "Pandas-heavy" coupling. Higher-level logic (e.g., Pipeline Core) depended on Pandas `MultiIndex` internals for alignment, which constrained our ability to scale probabilistic forecasts (N, S) due to memory/performance limits of Pandas' "lists-in-cells."
 
 Without explicit topology rules, we risk high-level math modules beginning to depend on implementation details (e.g., NumPy indexing vs Xarray coordinates).
 
@@ -29,8 +31,8 @@ Violations are architectural defects.
 The Evaluation Core is the lowest-level layer (most stable). 
 
 - **Level 0: Evaluation Core** (Pure NumPy, `EvaluationFrame`, `NativeEvaluator`). No external imports except `numpy` and `scipy`.
-- **Level 1: Adapters** (Framework-specific bridges like `PandasAdapter`). May depend on Level 0.
-- **Level 2: Orchestration** (e.g., `EvaluationManager`, Pipeline Core). May depend on Level 1 and Level 0.
+- **Level 1: Adapters** (Framework-specific bridges, reserved for future use). May depend on Level 0.
+- **Level 2: Orchestration** (e.g., Pipeline Core — external to this repo). May depend on Level 1 and Level 0.
 
 Dependency direction must always flow **toward the Core**.
 
@@ -38,7 +40,7 @@ Dependency direction must always flow **toward the Core**.
 
 - Math kernels importing `pandas` or `polars`.
 - `EvaluationFrame` containing anything other than NumPy arrays.
-- Higher-level modules (e.g., `EvaluationManager`) passing DataFrames directly into metric functions.
+- Higher-level modules (e.g., external orchestrators) passing DataFrames directly into metric functions.
 
 If a dependency feels “convenient but wrong,” it probably is.
 

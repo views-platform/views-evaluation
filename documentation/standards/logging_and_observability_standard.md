@@ -125,7 +125,7 @@ The following must be logged:
 * Configuration summaries
 * All structural failures
 
-> **Scope note:** Level 0 pure-math classes (`EvaluationFrame`, `NativeEvaluator`, `EvaluationReport`) rely on exception propagation per ADR-013 and do not maintain their own loggers. Logging responsibility for these components sits at the orchestration layer (e.g. `EvaluationManager` or calling code in `views-pipeline-core`).
+> **Scope note:** Level 0 pure-math classes (`EvaluationFrame`, `NativeEvaluator`, `EvaluationReport`) rely on exception propagation per ADR-013 and do not maintain their own loggers. Logging responsibility for these components sits at the orchestration layer (e.g. calling code in `views-pipeline-core` or equivalent orchestrators).
 
 ### 5.2 Optional Logging
 

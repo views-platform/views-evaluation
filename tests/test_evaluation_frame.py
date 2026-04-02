@@ -218,6 +218,18 @@ class TestEvaluationFrameRed:
         with pytest.raises(ValueError, match="mismatch"):
             EvaluationFrame(np.ones(5), np.ones((4, 1)), _make_identifiers(5))
 
+    def test_y_pred_1d_raises(self):
+        """1D y_pred must be rejected — callers must provide (N, S) shape."""
+        n = 3
+        with pytest.raises(ValueError, match="y_pred must be 2D"):
+            EvaluationFrame(np.ones(n), np.ones(n), _make_identifiers(n))
+
+    def test_y_pred_3d_raises(self):
+        """3D y_pred must be rejected."""
+        n = 2
+        with pytest.raises(ValueError, match="y_pred must be 2D"):
+            EvaluationFrame(np.ones(n), np.ones((n, 3, 2)), _make_identifiers(n))
+
     def test_nan_in_y_true_raises(self):
         n = 4
         with pytest.raises(ValueError, match="NaN"):

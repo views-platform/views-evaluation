@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-03-13
+**Last reviewed:** 2026-04-02
 **Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-032 (Schemas), ADR-042 (Metric Catalog)
 
 ---
@@ -62,7 +62,7 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 
 ## 7. Boundaries and Interactions
 
-- **Upstream**: Called directly or via legacy `EvaluationManager` (PHASE-3-DELETE).
+- **Upstream**: Called directly by evaluation orchestrators (e.g. views-pipeline-core).
 - **Internal**: Depends on `EvaluationFrame` and `MetricCalculators`.
 - **Isolation**: Must not depend on any IO or dataframe frameworks.
 
@@ -79,3 +79,45 @@ month_df = report.to_dataframe('month')        # pd.DataFrame indexed by group k
 step_dict = report.to_dict()['schemas']['step']  # raw nested dict
 schema = report.get_schema_results('time_series')  # dict → typed metrics dataclass
 ```
+
+---
+
+## 9. Examples of Incorrect Usage
+
+- Passing a raw dict instead of an `EvaluationFrame` — the evaluator expects validated frames, not ad-hoc data.
+- Requesting metrics that are not valid for the (task, pred_type) combination — e.g. asking for `CRPS` on a point prediction. This will fail loud.
+- Omitting `evaluation_profile` from config and expecting hardcoded defaults — the resolver requires explicit profile selection.
+- Using `legacy_compatibility=False` without understanding that step-wise results will include steps not present in all origins.
+
+---
+
+## 10. Test Alignment
+
+- **Green:** `tests/test_native_evaluator.py` — three-schema evaluation, legacy compat, metric dispatch.
+- **Beige:** `tests/test_native_evaluator.py` — sparse step configs, single-origin frames.
+- **Red:** `tests/test_native_evaluator.py`, `tests/test_adversarial_inputs.py` — undeclared targets, unimplemented metrics.
+- **Integration:** `tests/test_adversarial_inputs.py` — undeclared targets, unimplemented metrics, NaN/Inf defense-in-depth.
+
+---
+
+## 11. Evolution Notes
+
+- `legacy_compatibility` default was flipped to `False` in Phase 3. The flag is retained for callers that need truncation behavior.
+- Config validation may be added to `__init__` to catch structural config errors at construction time rather than at evaluation time (currently a known gap — risk register C-02).
+- The `EvaluationReport` return type is stable; the internal `_calculate_metrics` dispatch may evolve as the `MetricCatalog` grows.
+
+---
+
+## 12. Known Deviations
+
+- **No config validation at init:** `NativeEvaluator.__init__` only validates the profile name. Missing or malformed config keys cause cryptic errors at evaluation time rather than at construction. (Risk register C-02)
+- **sklearn/scipy in "pure core":** The `NativeEvaluator` dispatches to metric functions that import `sklearn` and `scipy` at module level. This contradicts the stated goal of a zero-external-dep Level 0 core (ADR-011). (Risk register C-05)
+
+---
+
+## End of Contract
+
+This document defines the **intended meaning** of `NativeEvaluator`.
+
+Changes to behavior that violate this intent are bugs.  
+Changes to intent must update this contract.

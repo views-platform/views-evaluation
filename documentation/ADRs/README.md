@@ -24,6 +24,7 @@ We follow a hierarchical numbering scheme to organize decisions from the most fo
 - **020**: [Multi-Perspective Testing](020_multi_perspective_testing.md)
 - **021**: [Intent Contracts for Classes](021_intent_contracts_for_classes.md)
 - **022**: [Evolution and Stability](022_evolution_and_stability.md)
+- **023**: [Technical Risk Register](023_technical_risk_register.md)
 
 ### 03x: Domain Strategy & Methodology
 *The mathematical and strategic core of conflict evaluation.*
@@ -35,6 +36,23 @@ We follow a hierarchical numbering scheme to organize decisions from the most fo
 *Schemas for I/O and external systems.*
 - **040**: [Evaluation Input Schema](040_evaluation_input_schema.md)
 - **041**: [Evaluation Output Schema](041_evaluation_output_schema.md)
+
+---
+
+## Governance Structure
+
+- **Ontology (010)** defines what exists.
+- **Topology (011)** defines structural direction.
+- **Authority (012)** defines who owns meaning.
+- **Observability (013)** enforces failure semantics.
+- **Boundary Contracts (014)** define interaction rules.
+- **Testing (020)** verifies system integrity.
+- **Intent Contracts (021)** bind class-level behavior.
+- **Evolution (022)** (deferred) — rules for stability.
+- **Risk Register (023)** tracks structural concerns.
+- **Silicon Agent Protocol (001)** constrains automated modification.
+
+Together with domain ADRs (030–042), these define the invariant layer of the system.
 
 ---
 

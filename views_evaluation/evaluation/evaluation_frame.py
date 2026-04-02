@@ -27,7 +27,13 @@ class EvaluationFrame:
         n_rows = len(y_true)
         if y_pred.shape[0] != n_rows:
             raise ValueError(f"y_pred rows ({y_pred.shape[0]}) mismatch y_true ({n_rows})")
-        
+
+        # Rectangular sample validation: y_pred must be a dense 2D array
+        if y_pred.ndim != 2:
+            raise ValueError(
+                f"y_pred must be 2D (N, S), got {y_pred.ndim}D with shape {y_pred.shape}"
+            )
+
         # ADR-013: Fail-Loud on corrupted numerical data
         # Align with legacy test expectations for error messages
         def check_corrupted(arr, name):

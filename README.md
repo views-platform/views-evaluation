@@ -59,10 +59,16 @@ The library is built on a **three-layer architecture** with a framework-agnostic
 ## 🚀 **Quick Start**
 
 ```python
-from views_evaluation import PandasAdapter, NativeEvaluator
+from views_evaluation import EvaluationFrame, NativeEvaluator
+import numpy as np
 
-# 1. Convert DataFrames → EvaluationFrame
-ef = PandasAdapter.from_dataframes(actual=actuals, predictions=predictions_list, target="ged_sb_best")
+# 1. Construct EvaluationFrame with NumPy arrays
+ef = EvaluationFrame(
+    y_true=y_true_array,
+    y_pred=y_pred_array,  # shape (N, S) where S >= 1
+    identifiers={'time': times, 'unit': units, 'origin': origins, 'step': steps},
+    metadata={'target': 'ged_sb_best'},
+)
 
 # 2. Configure and evaluate
 config = {
@@ -89,7 +95,7 @@ VIEWS Evaluation ensures **forecasting accuracy and model robustness** as the **
 
 ### **Pipeline Integration:**
 1. **Model Predictions** →
-2. **PandasAdapter** (DataFrame → EvaluationFrame) →
+2. **EvaluationFrame** (validated NumPy container) →
 3. **NativeEvaluator** (metrics computation) →
 4. **EvaluationReport** (structured results)  
 
@@ -195,7 +201,7 @@ config = {
 ---
 
 * **Data Integrity Checks**: Validates input arrays for shape consistency, NaN/infinity, and required identifiers.
-* **Automatic Index Matching**: `PandasAdapter` aligns actual and predicted values based on MultiIndex structures.
+* **Framework-Agnostic Core**: All evaluation operates on pure NumPy arrays via `EvaluationFrame`.
 * **Metric Catalog & Profiles**: Hyperparameters are managed through named evaluation profiles with a Chain of Responsibility resolver (model overrides → profile → fail loud).  
 
 ---
@@ -223,11 +229,11 @@ Level 0 — Pure Core (NumPy + SciPy only, zero framework imports)
   Profiles              Named hyperparameter sets (base, hydranet_ucdp, ...)
 
 Level 1 — Bridge / Adapter
-  PandasAdapter         DataFrame → EvaluationFrame conversion (PHASE-3-DELETE)
+  EvaluationFrame       Validated NumPy data container
   EvaluationReport      Results container with DataFrame/dict export
 
 Level 2 — Legacy Orchestrator
-  EvaluationManager     Deprecated wrapper; delegates to Level 0
+  MetricCatalog         Genome registry and parameter resolver
 ```
 
 **Key design decisions:**
@@ -244,7 +250,7 @@ views-evaluation/
 ├── views_evaluation/
 │   ├── __init__.py                        # Public API exports
 │   ├── adapters/
-│   │   └── pandas.py                      # PandasAdapter (PHASE-3-DELETE)
+│   │   └── __init__.py                     # Reserved for future framework bridges
 │   ├── evaluation/
 │   │   ├── config_schema.py               # EvaluationConfig TypedDict
 │   │   ├── evaluation_frame.py            # Core data container

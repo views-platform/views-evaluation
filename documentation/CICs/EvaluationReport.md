@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-03-13  
+**Last reviewed:** 2026-04-02  
 **Related ADRs:** ADR-010 (Ontology), ADR-041 (Output Schema)
 
 ---
@@ -61,7 +61,7 @@ A structured, framework-agnostic container for evaluation results. It decouples 
 ## 7. Boundaries and Interactions
 
 - **Upstream**: Produced by **NativeEvaluator**.
-- **Downstream**: Consumed by **EvaluationManager**, Pipeline Core, or reporting tools.
+- **Downstream**: Consumed by Pipeline Core or reporting tools.
 
 ---
 
@@ -73,3 +73,42 @@ df = report.to_dataframe(schema="month")       # pd.DataFrame
 data = report.to_dict()                         # nested dict
 schema = report.get_schema_results("month")     # dict → typed metrics dataclass
 ```
+
+---
+
+## 9. Examples of Incorrect Usage
+
+- Calling `to_dataframe(schema='raw')` — this is deprecated and returns the internal dict, not a DataFrame. Use `to_dict()['schemas']` instead.
+- Adding a new metric to `METRIC_CATALOG` without adding a corresponding field to the typed metrics dataclass — the FM1 guard will raise `ValueError`.
+- Treating the report as mutable and modifying `_results` after construction.
+
+---
+
+## 10. Test Alignment
+
+- **Green:** `tests/test_evaluation_report.py` — construction, schema access, to_dict, to_dataframe.
+- **Beige:** `tests/test_evaluation_report.py` — empty schemas, single-entry schemas.
+- **Red:** `tests/test_evaluation_report.py` — missing schema keys, field mismatch (FM1 guard).
+
+---
+
+## 11. Evolution Notes
+
+- The `to_dataframe()` method imports Pandas lazily. After Phase 3, this method may be removed or moved to an adapter.
+- The `_metrics_map` mapping 4 (task, pred_type) combinations to dataclass types is stable but must be extended if new task types are added.
+
+---
+
+## 12. Known Deviations
+
+- **Lazy Pandas import:** `to_dataframe()` imports `pandas` at call time, which means the Level 1 bridge concern leaks into what is otherwise a Level 0 component. This is a pragmatic compromise for backward compatibility.
+- **Legacy dataclass coupling:** `get_schema_results()` wraps results in legacy dataclass instances (`RegressionPointEvaluationMetrics`, etc.) from `metrics.py`. If a metric is computed but has no field in the dataclass, the FM1 guard raises. This means new metrics require coordinated updates to both `metric_catalog.py` and `metrics.py`.
+
+---
+
+## End of Contract
+
+This document defines the **intended meaning** of `EvaluationReport`.
+
+Changes to behavior that violate this intent are bugs.  
+Changes to intent must update this contract.

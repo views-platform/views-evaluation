@@ -2,7 +2,9 @@
 
 **Status:** Accepted  
 **Date:** 2026-02-25  
-**Deciders:** Project maintainers, Gemini CLI  
+**Deciders:** Project maintainers  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ---
 
@@ -25,7 +27,7 @@ Every boundary between components (e.g., Adapter → Core) must define:
 - Declared invariants.
 
 ### 2. Validation at Entry
-All configuration and external inputs must be validated at the system boundary (e.g., in `EvaluationManager` or `Adapters`).
+All configuration and external inputs must be validated at the system boundary (e.g., in the `EvaluationFrame` constructor or `NativeEvaluator`).
 - Before execution begins.
 - Before orchestration proceeds.
 

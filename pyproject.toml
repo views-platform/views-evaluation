@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "views_evaluation"
-version = "0.4.0"
+version = "0.5.0"
 description = ""
 authors = [
     "Xiaolong Sun <xiaolong.sun@pcr.uu.se>",
@@ -13,7 +13,10 @@ readme = "README.md"
 python = ">=3.11,<3.15"
 scikit-learn = "^1.6.0"
 numpy = "^1.26.4"
-pandas = "^1.5.3"  # PHASE-3-DELETE: will become optional once EvaluationManager/PandasAdapter are removed
+pandas = {version = "^1.5.3", optional = true}
+
+[tool.poetry.extras]
+dataframe = ["pandas"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"

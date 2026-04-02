@@ -2,7 +2,9 @@
 
 **Status:** Accepted  
 **Date:** 2026-02-25  
-**Deciders:** Project maintainers, Gemini CLI  
+**Deciders:** Project maintainers  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ---
 
@@ -14,7 +16,7 @@ To prevent semantic drift, non-trivial classes require an explicit declaration o
 
 ## Decision
 
-All **non-trivial and substantial classes** (e.g., `EvaluationFrame`, `NativeEvaluator`, `PandasAdapter`) must have an explicit **intent contract**.
+All **non-trivial and substantial classes** (e.g., `EvaluationFrame`, `NativeEvaluator`, `EvaluationReport`) must have an explicit **intent contract**.
 
 An intent contract is a short, human-readable description of:
 - **Purpose**: what the class is for.

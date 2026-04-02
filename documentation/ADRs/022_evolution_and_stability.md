@@ -3,6 +3,8 @@
 **Status:** Proposed (Deferred)  
 **Date:** 2026-02-25  
 **Deciders:** —  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ---
 

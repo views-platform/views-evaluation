@@ -215,4 +215,5 @@ cython_debug/
 
 # logs
 *.log
-*.log.*reports/
+*.log.*
+reports/

@@ -1,12 +1,10 @@
 # ADR-031: Evaluation Metrics
 
-| ADR Info            | Details            |
-|---------------------|--------------------|
-| Subject             | Evaluation Metrics |
-| ADR Number          | 031                |
-| Status              | Accepted           |
-| Author              | Xiaolong           |
-| Date                | 12.09.2024         |
+**Status:** Accepted  
+**Date:** 2024-09-12  
+**Deciders:** Xiaolong  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ## Context
 In the context of the VIEWS pipeline, it is necessary to evaluate the models using a robust set of metrics that account for the characteristics of conflict data, such as right-skewness and zero-inflation in the outcome variable.

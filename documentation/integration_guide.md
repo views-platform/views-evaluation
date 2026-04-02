@@ -8,40 +8,31 @@ what the library does and does not do with your data.
 
 ## 1. Architecture Overview
 
-The library has three layers:
+The library is a pure-math evaluation engine with two core components:
 
 ```
-  ┌─────────────────────────────────────────────┐
-  │             Adapters (Bridge Layer)          │
-  │  PandasAdapter — converts List[DataFrame]   │
-  │  to EvaluationFrame; synthesises identifiers│
-  └───────────────────┬─────────────────────────┘
+  ┌───────────────────────────────────────────────┐
+  │          EvaluationFrame (Core)                │
+  │  Pure NumPy container: y_true, y_pred,        │
+  │  identifiers {time, unit, origin, step}       │
+  └───────────────────┬───────────────────────────┘
                       │
-  ┌───────────────────▼─────────────────────────┐
-  │          EvaluationFrame (Core)              │
-  │  Pure NumPy container: y_true, y_pred,      │
-  │  identifiers {time, unit, origin, step}     │
-  └───────────────────┬─────────────────────────┘
+  ┌───────────────────▼───────────────────────────┐
+  │         NativeEvaluator (Pure Math)            │
+  │  Stateless engine: executes month-wise,       │
+  │  sequence-wise, and step-wise schemas          │
+  └───────────────────┬───────────────────────────┘
                       │
-  ┌───────────────────▼─────────────────────────┐
-  │         NativeEvaluator (Pure Math)          │
-  │  Stateless engine: executes month-wise,     │
-  │  sequence-wise, and step-wise schemas        │
-  └───────────────────┬─────────────────────────┘
-                      │
-  ┌───────────────────▼─────────────────────────┐
-  │        EvaluationReport (Results)            │
-  │  Framework-agnostic results container;      │
-  │  exposes to_dict(), to_dataframe(),         │
-  │  get_schema_results()                        │
-  └─────────────────────────────────────────────┘
+  ┌───────────────────▼───────────────────────────┐
+  │        EvaluationReport (Results)              │
+  │  Framework-agnostic results container;        │
+  │  exposes to_dict(), to_dataframe(),           │
+  │  get_schema_results()                          │
+  └───────────────────────────────────────────────┘
 ```
 
-`EvaluationManager` is a **legacy orchestrator** that wraps all four layers behind a single
-`evaluate()` call. It is retained for backward compatibility and will be removed in Phase 3 of the
-orchestrator migration (see `reports/2026-02-25_evaluation_frame_refactor/10_orchestrator_migration_plan.md`).
-
-**New integrations should use the native API (§2). The legacy API is documented in §3.**
+Callers (e.g. views-pipeline-core) are responsible for constructing `EvaluationFrame` from their
+own data formats. This library has no knowledge of Pandas, Polars, or any external data framework.
 
 ---
 
@@ -56,7 +47,7 @@ pip install pandas numpy  # only needed to prepare input DataFrames
 
 ### 2.2. Identifier Glossary
 
-All evaluation logic operates on four identifiers that `PandasAdapter` synthesises from your input.
+All evaluation logic operates on four identifiers that must be provided in the `EvaluationFrame`.
 Understanding them is required:
 
 | Identifier | Type    | Meaning                                                                 |
@@ -114,57 +105,45 @@ use `[1, 2, ..., 12]`. Sparse configs (e.g. `[1, 3, 6, 12]`) evaluate only those
 
 ```python
 import numpy as np
-import pandas as pd
-from views_evaluation.evaluation.adapters.pandas import PandasAdapter
-from views_evaluation.evaluation.native_evaluator import NativeEvaluator
+from views_evaluation import EvaluationFrame, NativeEvaluator
 
-# --- 1. Prepare actuals ---
-actuals_index = pd.MultiIndex.from_product(
-    [range(500, 513), [101, 102]],
-    names=['month_id', 'country_id']
+# --- 1. Construct EvaluationFrame from NumPy arrays ---
+ef = EvaluationFrame(
+    y_true=y_true_array,           # shape (N,)
+    y_pred=y_pred_array,           # shape (N, S) where S >= 1
+    identifiers={
+        'time':   time_ids,        # shape (N,) — calendar month ids
+        'unit':   unit_ids,        # shape (N,) — spatial entity ids
+        'origin': origin_ids,      # shape (N,) — sequence index
+        'step':   step_ids,        # shape (N,) — 1-indexed lead time
+    },
+    metadata={'target': 'ged_sb_best'},
 )
-actuals = pd.DataFrame(
-    {'ged_sb_best': np.random.randint(0, 20, size=26)},
-    index=actuals_index
-)
 
-# --- 2. Prepare predictions list (2 sequences, 12 steps each) ---
-target = 'ged_sb_best'
-pred_col = f'pred_{target}'
-predictions_list = []
-
-for origin_offset in range(2):
-    months = range(500 + origin_offset, 512 + origin_offset)
-    idx = pd.MultiIndex.from_product([months, [101, 102]], names=['month_id', 'country_id'])
-    preds = pd.DataFrame({pred_col: [[v] for v in np.random.rand(len(idx)) * 20]}, index=idx)
-    predictions_list.append(preds)
-
-# --- 3. Configure ---
+# --- 2. Configure ---
 config = {
     'steps': list(range(1, 13)),
-    'regression_targets': [target],
+    'regression_targets': ['ged_sb_best'],
     'regression_point_metrics': ['MSE', 'RMSLE', 'Pearson'],
 }
 
-# --- 4. Adapt and evaluate ---
-ef = PandasAdapter.from_dataframes(actual=actuals, predictions=predictions_list, target=target)
-
+# --- 3. Evaluate ---
 evaluator = NativeEvaluator(config)
-report = evaluator.evaluate(ef)   # legacy_compatibility=True by default
+report = evaluator.evaluate(ef)
 
-# --- 5. Access results ---
-print(report.to_dataframe('step'))         # step-wise DataFrame (MSE, RMSLE, Pearson per step)
+# --- 4. Access results ---
+print(report.to_dict())                    # full nested dict
+print(report.to_dataframe('step'))         # step-wise DataFrame
 print(report.to_dataframe('month'))        # month-wise DataFrame
 print(report.to_dataframe('time_series'))  # sequence-wise DataFrame
-print(report.to_dict())                    # full nested dict
 ```
 
 ### 2.6. The `legacy_compatibility` Flag
 
-`NativeEvaluator.evaluate(ef, legacy_compatibility=True)` (default) caps step-wise evaluation to
+`NativeEvaluator.evaluate(ef, legacy_compatibility=True)` caps step-wise evaluation to
 the shortest sequence in the frame. If origin 0 has 12 steps and origin 1 has only 10 steps,
-legacy mode evaluates steps 1–10 and leaves steps 11–12 empty. This reproduces a historic zip
-truncation behaviour required for parity with the legacy system.
+legacy mode evaluates steps 1–10 and leaves steps 11–12 empty. The default is `False` (evaluate
+all steps with available data).
 
 Set `legacy_compatibility=False` to evaluate all steps that have any data, regardless of whether
 shorter sequences exist.
@@ -189,57 +168,13 @@ report.get_schema_results('month')  # dict mapping key → typed metrics datacla
 
 ---
 
-## 3. The Legacy API (`EvaluationManager`)
+## 3. What This Library Does NOT Do
 
-> **Deprecation notice:** `EvaluationManager` will be removed in Phase 3 of the orchestrator
-> migration. New integrations must use the native API (§2). This section is retained for teams
-> currently using the legacy path.
-
-### 3.1. Differences from the Native API
-
-- Accepts the same DataFrame inputs and config as §2.
-- Applies **inverse transforms** based on target name prefixes:
-  - `ln_` prefix: applies `exp(x) - 1` to both actuals and predictions
-  - `lx_` prefix: applies a custom inverse log transform
-  - `lr_` prefix: no transform (raw values)
-  - No prefix: no transform
-  This behaviour is **absent** from the native path, which always operates on data as provided.
-- Returns a dict of `{schema: (dict, DataFrame)}` tuples, not an `EvaluationReport`.
-- `legacy_compatibility` is hardcoded to `True` (cannot be changed).
-
-### 3.2. Usage
-
-```python
-from views_evaluation.evaluation.evaluation_manager import EvaluationManager
-
-manager = EvaluationManager()
-config = {
-    'steps': [1, 2, 3],
-    'regression_targets': ['lr_ged_sb_best'],
-    'regression_point_metrics': ['MSE', 'RMSLE', 'Pearson']
-}
-
-results = manager.evaluate(
-    actual=actuals,         # same format as §2.3
-    predictions=predictions_list,
-    target='lr_ged_sb_best',
-    config=config
-)
-
-# Access results (tuple format — not EvaluationReport)
-step_df = results['step'][1]         # index 1 = DataFrame
-step_dict = results['step'][0]       # index 0 = raw dict
-```
-
----
-
-## 4. What This Library Does NOT Do
-
-- **Does not load or save data.** Pass DataFrames in; get an `EvaluationReport` (or dict) out.
+- **Does not load or save data.** Construct `EvaluationFrame` from NumPy arrays; get an `EvaluationReport` out.
+- **Does not perform data alignment or adaptation.** Callers (e.g. views-pipeline-core's `EvaluationAdapter`) are responsible for aligning actuals with predictions and synthesising identifiers.
 - **Does not enforce k=12 or 36-month sequences.** The VIEWS standard (ADR-030) recommends
   k=12 rolling origins over 36-month evaluation windows, but this library accepts any sequence
   count and length.
-- **Does not validate spatial or temporal alignment.** The adapter performs index intersection, but
-  it does not verify that sequences are in chronological order or that all origins cover the same
-  calendar range.
+- **Does not validate spatial or temporal alignment.** It verifies shape consistency and NaN/Inf
+  rejection, but does not verify that sequences are chronologically ordered.
 - **Does not produce output files.** Persistence is handled by `views-pipeline-core` per ADR-041.

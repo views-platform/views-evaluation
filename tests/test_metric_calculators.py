@@ -1,8 +1,8 @@
 import pytest
 import numpy as np
-import pandas as pd
 from views_evaluation.evaluation.native_metric_calculators import (
     calculate_mse_native,
+    calculate_msle_native,
     calculate_rmsle_native,
     calculate_crps_native,
     calculate_twcrps_native,
@@ -15,128 +15,101 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_mean_interval_score_native,
     calculate_mtd_native,
     calculate_mcr_native,
-    REGRESSION_POINT_NATIVE,
-    REGRESSION_SAMPLE_NATIVE,
-    CLASSIFICATION_POINT_NATIVE,
-    CLASSIFICATION_SAMPLE_NATIVE,
+    calculate_brier_sample_native,
+    calculate_brier_point_native,
+    calculate_qs_sample_native,
+    calculate_qs_point_native,
 )
+from views_evaluation.evaluation.metric_catalog import METRIC_MEMBERSHIP
 
 
-@pytest.fixture
-def sample_data():
-    """Create sample data for testing."""
-    actual = pd.DataFrame({
-        'target': [[1.0], [2.0], [3.0], [4.0]]
-    })
-    pred = pd.DataFrame({
-        'pred_target': [[1.1], [1.9], [3.1], [3.9]]
-    })
-    return actual, pred
+# Point-prediction test data (N=4, S=1)
+_POINT_Y_TRUE = np.array([1.0, 2.0, 3.0, 4.0])
+_POINT_Y_PRED = np.array([[1.1], [1.9], [3.1], [3.9]])
+
+# Sample-prediction test data (N=4, S=3)
+_SAMPLE_Y_TRUE = np.array([1.0, 2.0, 3.0, 4.0])
+_SAMPLE_Y_PRED = np.array([[1.0, 1.1, 1.2], [1.8, 2.0, 2.2], [2.9, 3.0, 3.1], [3.8, 4.0, 4.2]])
 
 
-@pytest.fixture
-def sample_sample_data():
-    """Create sample sample data for testing."""
-    actual = pd.DataFrame({
-        'target': [[1.0], [2.0], [3.0], [4.0]]
-    })
-    pred = pd.DataFrame({
-        'pred_target': [[1.0, 1.1, 1.2], [1.8, 2.0, 2.2], [2.9, 3.0, 3.1], [3.8, 4.0, 4.2]]
-    })
-    return actual, pred
-
-
-def test_calculate_mse_native(sample_data):
-    """Test MSE calculation."""
-    actual, pred = sample_data
-    result = calculate_mse_native(actual, pred, 'target')
+def test_calculate_mse_native():
+    """Test MSE calculation with pure NumPy arrays."""
+    result = calculate_mse_native(_POINT_Y_TRUE, _POINT_Y_PRED)
     assert isinstance(result, float)
     assert result >= 0
 
-def test_calculate_rmsle_native_point(sample_data):
+def test_calculate_rmsle_native_point():
     """Test RMSLE calculation."""
-    actual, pred = sample_data
-    result = calculate_rmsle_native(actual, pred, 'target')
+    result = calculate_rmsle_native(_POINT_Y_TRUE, _POINT_Y_PRED)
     assert isinstance(result, float)
     assert result >= 0
 
-def test_calculate_crps_native_point(sample_data):
-    """Test CRPS calculation."""
-    actual, pred = sample_data
-    result = calculate_crps_native(actual, pred, 'target')
+def test_calculate_crps_native_point():
+    """Test CRPS calculation with point predictions."""
+    result = calculate_crps_native(_POINT_Y_TRUE, _POINT_Y_PRED)
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_crps_native_sample(sample_sample_data):
-    """Test CRPS calculation."""
-    actual, pred = sample_sample_data
-    result = calculate_crps_native(actual, pred, 'target')
+def test_calculate_crps_native_sample():
+    """Test CRPS calculation with sample predictions."""
+    result = calculate_crps_native(_SAMPLE_Y_TRUE, _SAMPLE_Y_PRED)
     assert isinstance(result, float)
     assert result >= 0
 
 
 def test_calculate_ap_native():
-    """Test Average Precision calculation with pre-binarised actuals and probability scores."""
-    # Binary actuals (0/1) and probability scores as predictions
-    actual = pd.DataFrame({'target': [[1], [0], [1], [0]]})
-    pred = pd.DataFrame({'pred_target': [[0.9], [0.4], [0.3], [0.1]]})
-    result = calculate_ap_native(actual, pred, 'target')
+    """Test Average Precision with binary actuals and probability scores."""
+    y_true = np.array([1.0, 0.0, 1.0, 0.0])
+    y_pred = np.array([[0.9], [0.4], [0.3], [0.1]])
+    result = calculate_ap_native(y_true, y_pred)
     assert isinstance(result, float)
     assert 0 <= result <= 1
 
 
-def test_calculate_emd_native(sample_data):
+def test_calculate_emd_native():
     """Test Earth Mover's Distance calculation."""
-    actual, pred = sample_data
-    result = calculate_emd_native(actual, pred, 'target')
+    result = calculate_emd_native(_POINT_Y_TRUE, _POINT_Y_PRED)
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_pearson_native(sample_data):
+def test_calculate_pearson_native():
     """Test Pearson correlation calculation."""
-    actual, pred = sample_data
-    result = calculate_pearson_native(actual, pred, 'target')
+    result = calculate_pearson_native(_POINT_Y_TRUE, _POINT_Y_PRED)
     assert isinstance(result, float)
     assert -1 <= result <= 1
 
 
-def test_calculate_mtd_native(sample_data):
+def test_calculate_mtd_native():
     """Test Mean Tweedie Deviance calculation."""
-    actual, pred = sample_data
-    result = calculate_mtd_native(actual, pred, 'target', power=1.5)
+    result = calculate_mtd_native(_POINT_Y_TRUE, _POINT_Y_PRED, power=1.5)
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_calculate_mtd_native_with_power(sample_data):
-    """Test Mean Tweedie Deviance calculation with different power values."""
-    actual, pred = sample_data
-    # Test with power=1.5 (compound Poisson-Gamma)
-    result_15 = calculate_mtd_native(actual, pred, 'target', power=1.5)
+def test_calculate_mtd_native_with_power():
+    """Test Mean Tweedie Deviance with different power values."""
+    result_15 = calculate_mtd_native(_POINT_Y_TRUE, _POINT_Y_PRED, power=1.5)
     assert isinstance(result_15, float)
     assert result_15 >= 0
 
-    # Test with power=2 (Gamma)
-    result_2 = calculate_mtd_native(actual, pred, 'target', power=2.0)
+    result_2 = calculate_mtd_native(_POINT_Y_TRUE, _POINT_Y_PRED, power=2.0)
     assert isinstance(result_2, float)
     assert result_2 >= 0
 
 
-def test_calculate_coverage_native_sample(sample_sample_data):
-    """Test Coverage calculation."""
-    actual, pred = sample_sample_data
-    result = calculate_coverage_native(actual, pred, 'target', alpha=0.1)
+def test_calculate_coverage_native_sample():
+    """Test Coverage calculation with sample predictions."""
+    result = calculate_coverage_native(_SAMPLE_Y_TRUE, _SAMPLE_Y_PRED, alpha=0.1)
     assert isinstance(result, float)
     assert 0 <= result <= 1
 
 
-def test_calculate_ignorance_score_native_sample(sample_sample_data):
+def test_calculate_ignorance_score_native_sample():
     """Test Ignorance Score calculation."""
-    actual, pred = sample_sample_data
     result = calculate_ignorance_score_native(
-        actual, pred, 'target',
+        _SAMPLE_Y_TRUE, _SAMPLE_Y_PRED,
         bins=[0, 0.5, 2.5, 5.5, 10.5, 25.5, 50.5, 100.5, 250.5, 500.5, 1000.5],
         low_bin=0, high_bin=10000,
     )
@@ -144,106 +117,59 @@ def test_calculate_ignorance_score_native_sample(sample_sample_data):
     assert result >= 0
 
 
-def test_calculate_mis_sample(sample_sample_data):
+def test_calculate_mis_sample():
     """Test Mean Interval Score calculation."""
-    actual, pred = sample_sample_data
-    result = calculate_mean_interval_score_native(actual, pred, 'target', alpha=0.05)
+    result = calculate_mean_interval_score_native(_SAMPLE_Y_TRUE, _SAMPLE_Y_PRED, alpha=0.05)
     assert isinstance(result, float)
     assert result >= 0
 
 
-def test_point_metric_functions():
-    """Test that all point metric functions are available in the deprecated REGRESSION_POINT_NATIVE."""
-    expected_metrics = [
-        "MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"
-    ]
+def test_metric_membership_regression_point():
+    """METRIC_MEMBERSHIP contains expected regression point metrics."""
+    members = METRIC_MEMBERSHIP[("regression", "point")]
+    for m in ["MSE", "MSLE", "RMSLE", "EMD", "Pearson", "MTD", "y_hat_bar", "MCR_point", "QS_point"]:
+        assert m in members
+    assert "AP" not in members
+    assert "CRPS" not in members
 
 
-    for metric in expected_metrics:
-        assert metric in REGRESSION_POINT_NATIVE
-        assert callable(REGRESSION_POINT_NATIVE[metric])
+def test_metric_membership_regression_sample():
+    """METRIC_MEMBERSHIP contains expected regression sample metrics."""
+    members = METRIC_MEMBERSHIP[("regression", "sample")]
+    for m in ["CRPS", "twCRPS", "MIS", "QIS", "Coverage", "Ignorance", "y_hat_bar", "QS_sample", "MCR_sample"]:
+        assert m in members
+    assert "AP" not in members
 
 
-def test_sample_metric_functions():
-    """Test that all sample metric functions are available in the deprecated REGRESSION_SAMPLE_NATIVE."""
-    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Ignorance", "Coverage", "y_hat_bar", "MCR_sample"]
-
-    for metric in expected_metrics:
-        assert metric in REGRESSION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE[metric])
-
-
-def test_regression_point_metric_functions():
-    """Test that all regression point metric functions are available in REGRESSION_POINT_NATIVE."""
-    expected_metrics = ["MSE", "MSLE", "RMSLE", "EMD", "SD", "pEMDiv", "Pearson", "Variogram", "MTD", "y_hat_bar"]
-
-    for metric in expected_metrics:
-        assert metric in REGRESSION_POINT_NATIVE
-        assert callable(REGRESSION_POINT_NATIVE[metric])
-
-    # AP must NOT be in regression point functions
-    assert "AP" not in REGRESSION_POINT_NATIVE
-    # CRPS must NOT be in regression point functions
-    assert "CRPS" not in REGRESSION_POINT_NATIVE
+def test_metric_membership_classification_point():
+    """METRIC_MEMBERSHIP contains expected classification point metrics."""
+    members = METRIC_MEMBERSHIP[("classification", "point")]
+    assert "AP" in members
+    assert "Brier_point" in members
+    assert "RMSLE" not in members
 
 
-def test_regression_sample_metric_functions():
-    """Test that all regression sample metric functions are available."""
-    expected_metrics = ["CRPS", "twCRPS", "MIS", "QIS", "Coverage", "Ignorance", "y_hat_bar"]
-
-    for metric in expected_metrics:
-        assert metric in REGRESSION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE[metric])
-
-    # AP must NOT be in regression sample functions
-    assert "AP" not in REGRESSION_SAMPLE_NATIVE
-
-
-def test_classification_point_metric_functions():
-    """Test that AP is in CLASSIFICATION_POINT_NATIVE."""
-    assert "AP" in CLASSIFICATION_POINT_NATIVE
-    assert callable(CLASSIFICATION_POINT_NATIVE["AP"])
-
-    # RMSLE must NOT be in classification point functions
-    assert "RMSLE" not in CLASSIFICATION_POINT_NATIVE
-
-
-def test_classification_sample_metric_functions():
-    """Test that classification sample metric functions are available."""
-    expected_metrics = ["CRPS", "twCRPS", "Brier", "Jeffreys"]
-
-    for metric in expected_metrics:
-        assert metric in CLASSIFICATION_SAMPLE_NATIVE
-        assert callable(CLASSIFICATION_SAMPLE_NATIVE[metric])
-
-    # RMSLE must NOT be in classification sample functions
-    assert "RMSLE" not in CLASSIFICATION_SAMPLE_NATIVE
+def test_metric_membership_classification_sample():
+    """METRIC_MEMBERSHIP contains expected classification sample metrics."""
+    members = METRIC_MEMBERSHIP[("classification", "sample")]
+    for m in ["CRPS", "twCRPS", "Brier_sample", "Jeffreys"]:
+        assert m in members
+    assert "RMSLE" not in members
 
 
 def test_not_implemented_metrics():
-    """Test that unimplemented metrics raise NotImplementedError."""
-    actual = pd.DataFrame({'target': [[1.0]]})
-    pred = pd.DataFrame({'pred_target': [[1.0]]})
-
+    """Test that unimplemented metrics raise ValueError with clear message."""
     from views_evaluation.evaluation.native_metric_calculators import (
-        calculate_brier_native,
         calculate_jeffreys_native,
         calculate_sd_native,
         calculate_pEMDiv_native,
         calculate_variogram_native,
     )
 
-    unimplemented_functions = [
-        calculate_brier_native,
-        calculate_jeffreys_native,
-        calculate_sd_native,
-        calculate_pEMDiv_native,
-        calculate_variogram_native,
-    ]
-
-    for func in unimplemented_functions:
+    for func in [calculate_jeffreys_native, calculate_sd_native,
+                 calculate_pEMDiv_native, calculate_variogram_native]:
         with pytest.raises(ValueError, match="not yet implemented"):
-            func(actual, pred, 'target')
+            func(np.array([1.0]), np.array([[1.0]]))
 
 
 # ---------------------------------------------------------------------------
@@ -326,10 +252,9 @@ class TestCRPSParityWithProperscoring:
 
 class TestTwCRPS:
 
-    def test_twcrps_basic_smoke(self, sample_sample_data):
+    def test_twcrps_basic_smoke(self):
         """twCRPS produces a non-negative float."""
-        actual, pred = sample_sample_data
-        result = calculate_twcrps_native(actual, pred, 'target', threshold=0.0)
+        result = calculate_twcrps_native(_SAMPLE_Y_TRUE, _SAMPLE_Y_PRED, threshold=0.0)
         assert isinstance(result, float)
         assert result >= 0
 
@@ -360,11 +285,10 @@ class TestTwCRPS:
         # They should differ for data straddling the threshold
         assert twcrps != pytest.approx(crps, abs=1e-5)
 
-    def test_twcrps_in_dispatch_dicts(self):
-        """twCRPS must be in both regression and classification sample dispatch dicts."""
-        assert "twCRPS" in REGRESSION_SAMPLE_NATIVE
-        assert "twCRPS" in CLASSIFICATION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE["twCRPS"])
+    def test_twcrps_in_metric_membership(self):
+        """twCRPS must be in both regression and classification sample membership."""
+        assert "twCRPS" in METRIC_MEMBERSHIP[("regression", "sample")]
+        assert "twCRPS" in METRIC_MEMBERSHIP[("classification", "sample")]
 
 
 # ---------------------------------------------------------------------------
@@ -373,11 +297,10 @@ class TestTwCRPS:
 
 class TestQuantileIntervalScore:
 
-    def test_qis_basic_smoke(self, sample_sample_data):
+    def test_qis_basic_smoke(self):
         """QIS produces a non-negative float."""
-        actual, pred = sample_sample_data
         result = calculate_quantile_interval_score_native(
-            actual, pred, 'target', lower_quantile=0.025, upper_quantile=0.975,
+            _SAMPLE_Y_TRUE, _SAMPLE_Y_PRED, lower_quantile=0.025, upper_quantile=0.975,
         )
         assert isinstance(result, float)
         assert result >= 0
@@ -471,8 +394,8 @@ class TestQuantileIntervalScore:
         y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
         q_lo, q_hi = 0.1, 0.9
 
-        lower = float(np.quantile(y_pred, q_lo, axis=1))
-        upper = float(np.quantile(y_pred, q_hi, axis=1))
+        lower = np.quantile(y_pred, q_lo, axis=1).item()
+        upper = np.quantile(y_pred, q_hi, axis=1).item()
 
         width = upper - lower
         upper_penalty = (2 / (1 - q_hi)) * (20.0 - upper)
@@ -503,10 +426,233 @@ class TestQuantileIntervalScore:
         expected_width = float(np.mean(upper - lower))
         assert result == pytest.approx(expected_width, abs=1e-10)
 
-    def test_qis_in_dispatch_dict(self):
-        """QIS must be in regression sample dispatch dict."""
-        assert "QIS" in REGRESSION_SAMPLE_NATIVE
-        assert callable(REGRESSION_SAMPLE_NATIVE["QIS"])
+    def test_qis_in_metric_membership(self):
+        """QIS must be in regression sample membership."""
+        assert "QIS" in METRIC_MEMBERSHIP[("regression", "sample")]
+
+
+# ---------------------------------------------------------------------------
+# Green: Golden-value correctness tests — hand-computed expected values (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestGoldenValues:
+    """Verify numerical correctness of all implemented metrics against hand-computed or oracle values."""
+
+    def test_mse_known_errors(self):
+        """y_true=[1,2,3], y_pred=[[2],[3],[4]] → errors=[1,1,1], MSE=1.0."""
+        result = calculate_mse_native(np.array([1.0, 2.0, 3.0]), np.array([[2.0], [3.0], [4.0]]))
+        assert result == pytest.approx(1.0, abs=1e-10)
+
+    def test_msle_known_values(self):
+        """y_true=[e-1], y_pred=[[0]] → log1p(e-1)=1, log1p(0)=0, MSLE=1.0."""
+        result = calculate_msle_native(np.array([np.e - 1]), np.array([[0.0]]))
+        assert result == pytest.approx(1.0, abs=1e-10)
+
+    def test_rmsle_is_sqrt_msle(self):
+        """RMSLE = sqrt(MSLE) for the same input."""
+        y_true = np.array([np.e - 1])
+        y_pred = np.array([[0.0]])
+        msle = calculate_msle_native(y_true, y_pred)
+        rmsle = calculate_rmsle_native(y_true, y_pred)
+        assert rmsle == pytest.approx(np.sqrt(msle), abs=1e-10)
+
+    def test_emd_point_prediction(self):
+        """y_true=[0], y_pred=[[5]] → wasserstein_distance([5],[0]) = 5.0."""
+        result = calculate_emd_native(np.array([0.0]), np.array([[5.0]]))
+        assert result == pytest.approx(5.0, abs=1e-10)
+
+    def test_pearson_perfect_correlation(self):
+        """y_true=[1,2,3], y_pred=[[1],[2],[3]] → r = 1.0."""
+        result = calculate_pearson_native(np.array([1.0, 2.0, 3.0]), np.array([[1.0], [2.0], [3.0]]))
+        assert result == pytest.approx(1.0, abs=1e-10)
+
+    def test_pearson_perfect_negative(self):
+        """y_true=[1,2,3], y_pred=[[3],[2],[1]] → r = -1.0."""
+        result = calculate_pearson_native(np.array([1.0, 2.0, 3.0]), np.array([[3.0], [2.0], [1.0]]))
+        assert result == pytest.approx(-1.0, abs=1e-10)
+
+    def test_mtd_known_tweedie(self):
+        """Tweedie deviance with power=2 reduces to (y/mu - ln(y/mu) - 1) * 2."""
+        from sklearn.metrics import mean_tweedie_deviance
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([[2.0], [2.0], [2.0]])
+        expected = mean_tweedie_deviance(
+            np.repeat(y_true, 1), y_pred.flatten(), power=2
+        )
+        result = calculate_mtd_native(y_true, y_pred, power=2)
+        assert result == pytest.approx(expected, abs=1e-10)
+
+    def test_mcr_perfect_calibration(self):
+        """mean(y_pred) == mean(y_true) → MCR = 1.0."""
+        y_true = np.array([2.0, 4.0, 6.0])
+        y_pred = np.array([[2.0], [4.0], [6.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert result == pytest.approx(1.0, abs=1e-10)
+
+    def test_mcr_double_overprediction(self):
+        """mean(y_pred) = 2 * mean(y_true) → MCR = 2.0."""
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([[2.0], [4.0], [6.0]])
+        result = calculate_mcr_native(y_true, y_pred)
+        assert result == pytest.approx(2.0, abs=1e-10)
+
+    def test_ignorance_known_bin_distribution(self):
+        """Hand-computed Ignorance: 5 ensemble members, 3 bins, known distribution.
+
+        bins=[0,4,8,12], preds=[1,3,5,7,9] → bin counts [2,2,1]
+        smoothed=[3,3,2], total=8. Truth 5.0 → bin 1, prob=3/8.
+        Score = -log2(3/8) = log2(8/3).
+        """
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 3.0, 5.0, 7.0, 9.0]])
+        result = calculate_ignorance_score_native(
+            y_true, y_pred, bins=[0, 4, 8, 12], low_bin=0, high_bin=12,
+        )
+        expected = np.log2(8.0 / 3.0)
+        assert result == pytest.approx(expected, abs=1e-10)
+
+    def test_ap_oracle_sklearn(self):
+        """AP matches sklearn.metrics.average_precision_score."""
+        from sklearn.metrics import average_precision_score
+        y_true = np.array([1.0, 0.0, 1.0, 0.0])
+        y_pred = np.array([[0.9], [0.1], [0.8], [0.2]])
+        result = calculate_ap_native(y_true, y_pred)
+        # AP native repeats y_true for S columns, flattens y_pred
+        expected = average_precision_score(
+            np.repeat(y_true, 1), y_pred.flatten()
+        )
+        assert result == pytest.approx(expected, abs=1e-10)
+
+    def test_coverage_all_inside(self):
+        """All obs inside the central interval → coverage = 1.0."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]])
+        result = calculate_coverage_native(y_true, y_pred, alpha=0.1)
+        assert result == pytest.approx(1.0, abs=1e-10)
+
+    def test_coverage_all_outside(self):
+        """Obs far outside the interval → coverage = 0.0."""
+        y_true = np.array([100.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        result = calculate_coverage_native(y_true, y_pred, alpha=0.1)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_mis_obs_inside_interval(self):
+        """Obs inside interval → MIS = interval width only (no penalty)."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[0.0, 2.0, 4.0, 5.0, 6.0, 8.0, 10.0]])
+        alpha = 0.1
+        lower = np.quantile([0, 2, 4, 5, 6, 8, 10], alpha / 2)
+        upper = np.quantile([0, 2, 4, 5, 6, 8, 10], 1 - alpha / 2)
+        expected = upper - lower  # no penalty since obs is inside
+        result = calculate_mean_interval_score_native(y_true, y_pred, alpha=alpha)
+        assert result == pytest.approx(expected, abs=1e-10)
+
+    def test_crps_point_prediction_equals_absolute_error(self):
+        """CRPS of 1-member ensemble = |y - x|."""
+        result = calculate_crps_native(np.array([5.0]), np.array([[8.0]]))
+        assert result == pytest.approx(3.0, abs=1e-10)
+
+    def test_twcrps_zero_threshold_equals_crps(self):
+        """twCRPS with threshold=0 on non-negative data = CRPS."""
+        y_true = np.array([5.0, 10.0])
+        y_pred = np.array([[3.0, 7.0], [8.0, 12.0]])
+        crps = calculate_crps_native(y_true, y_pred)
+        twcrps = calculate_twcrps_native(y_true, y_pred, threshold=0.0)
+        assert twcrps == pytest.approx(crps, abs=1e-10)
+
+    def test_qis_symmetric_equals_mis(self):
+        """QIS with symmetric quantiles (alpha/2, 1-alpha/2) equals MIS."""
+        y_true = np.array([5.0, 15.0])
+        y_pred = np.array([[1.0, 3.0, 5.0, 7.0, 9.0], [10.0, 12.0, 14.0, 16.0, 18.0]])
+        alpha = 0.1
+        mis = calculate_mean_interval_score_native(y_true, y_pred, alpha=alpha)
+        qis = calculate_quantile_interval_score_native(
+            y_true, y_pred, lower_quantile=alpha / 2, upper_quantile=1 - alpha / 2
+        )
+        assert qis == pytest.approx(mis, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Green: Brier Score golden-value tests (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestBrierScore:
+
+    def test_brier_sample_golden_value(self):
+        """Hand-computed Brier sample: threshold=1, mixed binary outcomes."""
+        y_true = np.array([0.0, 2.0, 5.0])
+        y_pred = np.array([[0.5, 1.5], [0.5, 1.5], [4.0, 6.0]])
+        # y_binary = [0, 1, 1] (0 < 1, 2 > 1, 5 > 1)
+        # p_hat = [0.5, 0.5, 1.0] (fraction of ensemble > threshold)
+        # Brier = mean([(0.5-0)^2, (0.5-1)^2, (1.0-1)^2]) = mean([0.25, 0.25, 0]) = 1/6
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(1.0 / 6.0, abs=1e-10)
+
+    def test_brier_point_golden_value(self):
+        """Hand-computed Brier point: threshold=1, probabilities vs binary outcomes."""
+        y_true = np.array([0.0, 2.0, 5.0])
+        y_pred = np.array([[0.1], [0.7], [0.9]])
+        # y_binary = [0, 1, 1]
+        # p_hat = [0.1, 0.7, 0.9] (point prediction as probability)
+        # Brier = mean([(0.1-0)^2, (0.7-1)^2, (0.9-1)^2]) = mean([0.01, 0.09, 0.01]) = 11/300
+        result = calculate_brier_point_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(11.0 / 300.0, abs=1e-10)
+
+    def test_brier_sample_perfect(self):
+        """All above threshold, all ensemble members above → p_hat=1, y_binary=1, Brier=0."""
+        y_true = np.array([5.0, 10.0])
+        y_pred = np.array([[2.0, 3.0], [2.0, 3.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_brier_point_perfect(self):
+        """p_hat matches y_binary exactly → Brier=0."""
+        y_true = np.array([0.0, 2.0])  # binary=[0, 1] at threshold=1
+        y_pred = np.array([[0.0], [1.0]])  # perfect probability predictions
+        result = calculate_brier_point_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Green: Quantile Score (pinball loss) golden-value tests (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestQuantileScore:
+
+    def test_qs_sample_golden_value_at_median(self):
+        """Median matches observation → QS = 0."""
+        y_true = np.array([3.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        # median of [1,2,3,4,5] = 3.0, diff = 3-3 = 0, QS = 0
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.5)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_qs_point_golden_value_overprediction(self):
+        """Point overpredicts: y=3, q=5, quantile=0.9 → (1-0.9)*(5-3) = 0.2."""
+        y_true = np.array([3.0])
+        y_pred = np.array([[5.0]])
+        # diff = 3 - 5 = -2 < 0 → branch: -diff * (1-quantile) = 2 * 0.1 = 0.2
+        result = calculate_qs_point_native(y_true, y_pred, quantile=0.9)
+        assert result == pytest.approx(0.2, abs=1e-10)
+
+    def test_qs_sample_underprediction(self):
+        """Sample underpredicts: y=10, q=2.0 at quantile=0.9 → 0.9*(10-2) = 7.2."""
+        y_true = np.array([10.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        # quantile(0.9) of [1,2,3] = 2.8 via linear interpolation
+        q = np.quantile([1.0, 2.0, 3.0], 0.9)  # = 2.8
+        expected = 0.9 * (10.0 - q)
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.9)
+        assert result == pytest.approx(expected, abs=1e-10)
+
+    def test_qs_point_underprediction(self):
+        """Point underpredicts: y=10, y_hat=2, quantile=0.9 → 0.9*(10-2) = 7.2."""
+        y_true = np.array([10.0])
+        y_pred = np.array([[2.0]])
+        # diff = 10 - 2 = 8 ≥ 0 → branch: diff * quantile = 8 * 0.9 = 7.2
+        result = calculate_qs_point_native(y_true, y_pred, quantile=0.9)
+        assert result == pytest.approx(7.2, abs=1e-10)
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +752,74 @@ class TestMISBeige:
         y_true = np.array([3.0])
         y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
         result = calculate_mean_interval_score_native(y_true, y_pred, alpha=0.99)
+        assert np.isfinite(result)
+
+
+class TestBrierScoreBeige:
+
+    def test_single_observation(self):
+        """Brier handles N=1, S=1 without error."""
+        result = calculate_brier_sample_native(np.array([2.0]), np.array([[3.0]]), threshold=1.0)
+        assert np.isfinite(result)
+
+    def test_large_ensemble_stable(self):
+        """Brier is stable with S=1000 samples."""
+        rng = np.random.default_rng(42)
+        y_true = np.array([0.0, 5.0, 10.0])
+        y_pred = rng.normal(loc=y_true[:, None], scale=2.0, size=(3, 1000))
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+        assert 0 <= result <= 1  # Brier is bounded [0, 1]
+
+    def test_threshold_at_exact_data_value(self):
+        """Threshold equals an observation — no crash."""
+        y_true = np.array([5.0, 5.0])
+        y_pred = np.array([[4.0, 6.0], [4.0, 6.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=5.0)
+        assert np.isfinite(result)
+
+    def test_all_above_threshold(self):
+        """All y_true above threshold — y_binary all 1, finite result."""
+        y_true = np.array([10.0, 20.0])
+        y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+
+    def test_all_below_threshold(self):
+        """All y_true below threshold — y_binary all 0, finite result."""
+        y_true = np.array([0.0, 0.5])
+        y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+
+
+class TestQuantileScoreBeige:
+
+    def test_single_observation(self):
+        """QS handles N=1, S=1 without error."""
+        result = calculate_qs_sample_native(np.array([1.0]), np.array([[1.0]]), quantile=0.5)
+        assert np.isfinite(result)
+
+    def test_large_ensemble_stable(self):
+        """QS is stable with S=1000 samples."""
+        rng = np.random.default_rng(42)
+        y_true = np.array([5.0, 10.0, 0.0])
+        y_pred = rng.normal(loc=y_true[:, None], scale=1.0, size=(3, 1000))
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.99)
+        assert np.isfinite(result)
+        assert result >= 0
+
+    def test_extreme_quantile_near_one(self):
+        """Quantile very close to 1 — finite result."""
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.999)
+        assert np.isfinite(result)
+
+    def test_extreme_quantile_near_zero(self):
+        """Quantile very close to 0 — finite result."""
+        y_true = np.array([5.0])
+        result = calculate_qs_point_native(y_true, np.array([[2.0]]), quantile=0.001)
         assert np.isfinite(result)
 
 
@@ -756,3 +970,87 @@ class TestMCRRed:
         y_pred = np.array([[4.0], [4.0]])
         result = calculate_mcr_native(y_true, y_pred)
         assert result == -2.0
+
+
+class TestBrierScoreRed:
+
+    def test_nan_in_y_true_swallowed_by_comparison(self):
+        """NaN in y_true is swallowed by '>' comparison (NaN > x → False).
+
+        Unlike arithmetic metrics, Brier's binarization step converts NaN to
+        False (0.0) rather than propagating. This is NumPy's standard comparison
+        semantics. The EvaluationFrame boundary should reject NaN before it
+        reaches here (defense-in-depth).
+        """
+        y_true = np.array([np.nan, 1.0])
+        y_pred = np.array([[1.0], [1.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        # NaN is treated as below-threshold (False), so result is finite, not NaN
+        assert np.isfinite(result)
+
+    def test_nan_in_y_pred_swallowed_by_comparison(self):
+        """NaN in y_pred is swallowed by '>' comparison in p_hat computation."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[np.nan], [1.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        assert np.isfinite(result)
+
+    def test_negative_threshold_accepted(self):
+        """Negative threshold is mathematically valid."""
+        y_true = np.array([1.0, 2.0])
+        y_pred = np.array([[1.0, 2.0], [2.0, 3.0]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=-5.0)
+        assert np.isfinite(result)
+
+
+class TestQuantileScoreRed:
+
+    def test_nan_in_y_true_propagates(self):
+        """NaN in y_true propagates to result."""
+        y_true = np.array([np.nan, 1.0])
+        y_pred = np.array([[1.0], [1.0]])
+        result = calculate_qs_sample_native(y_true, y_pred, quantile=0.5)
+        assert np.isnan(result)
+
+    def test_nan_in_y_pred_propagates(self):
+        """NaN in y_pred propagates to result."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[np.nan], [1.0]])
+        result = calculate_qs_point_native(y_true, y_pred, quantile=0.5)
+        assert np.isnan(result)
+
+
+# ---------------------------------------------------------------------------
+# Red: Extreme-value tests (ADR-020)
+# ---------------------------------------------------------------------------
+
+class TestExtremeValues:
+    """Test metric behavior near float64 limits — no overflow, no silent corruption."""
+
+    def test_mse_large_matching_values(self):
+        """Large but equal values → MSE = 0, not overflow."""
+        result = calculate_mse_native(np.array([1e150]), np.array([[1e150]]))
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_crps_large_ensemble_values(self):
+        """CRPS with large ensemble values remains finite."""
+        y_true = np.array([1e50])
+        y_pred = np.array([[0.9e50, 1.0e50, 1.1e50]])
+        result = calculate_crps_native(y_true, y_pred)
+        assert np.isfinite(result)
+        assert result >= 0
+
+    def test_brier_extreme_threshold(self):
+        """Threshold at 1e300: all values below → y_binary all 0, p_hat all 0, Brier = 0."""
+        y_true = np.array([1.0, 2.0])
+        y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
+        result = calculate_brier_sample_native(y_true, y_pred, threshold=1e300)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_coverage_tiny_ensemble_spread(self):
+        """Extremely narrow ensemble → interval width ~ 0, coverage depends on obs position."""
+        base = 1e-15
+        y_true = np.array([base])
+        y_pred = np.array([[base - 1e-30, base + 1e-30]])
+        result = calculate_coverage_native(y_true, y_pred, alpha=0.1)
+        assert np.isfinite(result)

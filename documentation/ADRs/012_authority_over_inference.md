@@ -2,7 +2,9 @@
 
 **Status:** Accepted  
 **Date:** 2026-02-25  
-**Deciders:** Project maintainers, Gemini CLI  
+**Deciders:** Project maintainers  
+**Consulted:** —  
+**Informed:** All contributors  
 
 ---
 
@@ -58,5 +60,5 @@ the system **must fail loudly and immediately**.
 - Improves debuggability: we can inspect the `EvaluationFrame` and see exactly what the system *thinks* it is evaluating.
 
 ### Negative
-- Requires more metadata in the `EvaluationFrame` and `PandasAdapter`.
+- Requires more metadata in the `EvaluationFrame` and external adapters.
 - Some "convenient" hacks are disallowed.

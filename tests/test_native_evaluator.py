@@ -223,6 +223,48 @@ class TestNativeEvaluatorBeige:
         assert 'ts00' in d['time_series']
         assert 'step01' in d['step']
 
+    def test_multi_target_regression_and_classification(self):
+        """Config with both target types; each evaluated separately via EvaluationFrame metadata."""
+        n = 4
+        config = {
+            'steps': [1, 2],
+            'regression_targets': ['ged_sb'],
+            'classification_targets': ['by_sb'],
+            'regression_point_metrics': ['MSE'],
+            'classification_point_metrics': ['AP'],
+        }
+        # Evaluate regression target
+        ef_reg = EvaluationFrame(
+            y_true=np.array([1.0, 2.0, 3.0, 4.0]),
+            y_pred=np.array([[1.1], [2.1], [3.1], [4.1]]),
+            identifiers={
+                'time':   np.array([100, 100, 101, 101]),
+                'unit':   np.array([1, 2, 1, 2]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1, 1, 2, 2]),
+            },
+            metadata={'target': 'ged_sb'},
+        )
+        report_reg = NativeEvaluator(config).evaluate(ef_reg)
+        assert report_reg.task == 'regression'
+        assert 'MSE' in report_reg.to_dict()['schemas']['month']['month100']
+
+        # Evaluate classification target
+        ef_cls = EvaluationFrame(
+            y_true=np.array([0.0, 1.0, 0.0, 1.0]),
+            y_pred=np.array([[0.2], [0.8], [0.3], [0.7]]),
+            identifiers={
+                'time':   np.array([100, 100, 101, 101]),
+                'unit':   np.array([1, 2, 1, 2]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1, 1, 2, 2]),
+            },
+            metadata={'target': 'by_sb'},
+        )
+        report_cls = NativeEvaluator(config).evaluate(ef_cls)
+        assert report_cls.task == 'classification'
+        assert 'AP' in report_cls.to_dict()['schemas']['month']['month100']
+
     def test_classification_target(self):
         n = 6
         ef = EvaluationFrame(
@@ -245,6 +287,65 @@ class TestNativeEvaluatorBeige:
         assert report.task == 'classification'
         assert report.pred_type == 'point'
         assert 'month100' in report.to_dict()['schemas']['month']
+
+    def test_classification_sample_brier(self):
+        """Brier_sample and CRPS work for classification sample predictions."""
+        n = 6
+        ef = EvaluationFrame(
+            y_true=np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
+            y_pred=np.random.default_rng(42).uniform(0, 2, size=(n, 20)),
+            identifiers={
+                'time':   np.array([100, 100, 101, 101, 102, 102]),
+                'unit':   np.array([1, 2, 1, 2, 1, 2]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1, 1, 2, 2, 3, 3]),
+            },
+            metadata={'target': 'by_sb_best'},
+        )
+        config = {
+            'steps': [1, 2, 3],
+            'classification_targets': ['by_sb_best'],
+            'classification_sample_metrics': ['Brier_sample', 'CRPS'],
+        }
+        report = NativeEvaluator(config).evaluate(ef)
+        assert report.task == 'classification'
+        assert report.pred_type == 'sample'
+        d = report.to_dict()['schemas']
+        assert 'Brier_sample' in d['month']['month100']
+        assert 'CRPS' in d['month']['month100']
+
+    def test_classification_point_brier(self):
+        """AP and Brier_point work together for classification point predictions."""
+        n = 6
+        ef = EvaluationFrame(
+            y_true=np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
+            y_pred=np.array([[0.2], [0.8], [0.3], [0.7], [0.4], [0.6]]),
+            identifiers={
+                'time':   np.array([100, 100, 101, 101, 102, 102]),
+                'unit':   np.array([1, 2, 1, 2, 1, 2]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1, 1, 2, 2, 3, 3]),
+            },
+            metadata={'target': 'by_sb_best'},
+        )
+        config = {
+            'steps': [1, 2, 3],
+            'classification_targets': ['by_sb_best'],
+            'classification_point_metrics': ['AP', 'Brier_point'],
+        }
+        report = NativeEvaluator(config).evaluate(ef)
+        d = report.to_dict()['schemas']
+        assert 'AP' in d['step']['step01']
+        assert 'Brier_point' in d['step']['step01']
+
+    def test_evaluate_twice_produces_identical_results(self):
+        """NativeEvaluator is stateless — same input yields same output."""
+        ef = _make_parallelogram_ef(n_origins=2, n_steps=3, n_units=2)
+        config = _regression_point_config(steps=[1, 2, 3])
+        evaluator = NativeEvaluator(config)
+        report1 = evaluator.evaluate(ef)
+        report2 = evaluator.evaluate(ef)
+        assert report1.to_dict() == report2.to_dict()
 
     def test_sample_predictions_produce_point_pred_type_false(self):
         n = 4
@@ -307,6 +408,16 @@ class TestNativeEvaluatorRed:
         with pytest.raises(ValueError, match="not valid"):
             NativeEvaluator(config).evaluate(ef)
 
+    def test_empty_config_accepted_at_init_fails_at_evaluate(self):
+        """Empty config is accepted at init (C-02 known gap) but fails at evaluate().
+
+        NativeEvaluator.__init__ only validates profile name (defaults to 'base').
+        Structural config errors surface at evaluate() time, not construction.
+        """
+        ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)
+        evaluator = NativeEvaluator({})  # does NOT raise — C-02
+        with pytest.raises((ValueError, KeyError)):
+            evaluator.evaluate(ef)
     def test_classification_metric_on_regression_target_raises(self):
         """AP is only valid for classification; using it with regression_targets must fail."""
         ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)

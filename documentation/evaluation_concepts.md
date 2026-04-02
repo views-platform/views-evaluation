@@ -35,7 +35,7 @@ This parallelogram is the fundamental data structure that is analyzed by the thr
 
 ## 3. The Three Evaluation Schemas
 
-The `EvaluationManager` assesses the predictive parallelogram by "slicing" it in three different ways. Each schema groups the data differently to answer a unique question about model performance.
+The evaluation framework assesses the predictive parallelogram by "slicing" it in three different ways. Each schema groups the data differently to answer a unique question about model performance.
 
 ### Schema 1: Time-series-wise Evaluation
 
