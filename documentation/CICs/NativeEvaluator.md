@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-03-13
+**Last reviewed:** 2026-04-02
 **Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-032 (Schemas), ADR-042 (Metric Catalog)
 
 ---
@@ -96,7 +96,7 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 - **Green:** `tests/test_native_evaluator.py` — three-schema evaluation, legacy compat, metric dispatch.
 - **Beige:** `tests/test_native_evaluator.py` — sparse step configs, single-origin frames.
 - **Red:** `tests/test_native_evaluator.py`, `tests/test_adversarial_inputs.py` — undeclared targets, unimplemented metrics.
-- **Parity:** `tests/test_parity_green.py`, `tests/test_parity_beige.py`, `tests/test_parity_red.py` — bit-wise parity with legacy path (PHASE-3-DELETE).
+- **Integration:** `tests/test_adversarial_inputs.py` — undeclared targets, unimplemented metrics, NaN/Inf defense-in-depth.
 
 ---
 
@@ -110,7 +110,7 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 
 ## 12. Known Deviations
 
-- **No config validation at init:** Unlike `EvaluationManager._validate_config()`, `NativeEvaluator.__init__` only validates the profile name. Missing or malformed config keys cause cryptic errors at evaluation time rather than at construction. (Risk register C-02)
+- **No config validation at init:** `NativeEvaluator.__init__` only validates the profile name. Missing or malformed config keys cause cryptic errors at evaluation time rather than at construction. (Risk register C-02)
 - **sklearn/scipy in "pure core":** The `NativeEvaluator` dispatches to metric functions that import `sklearn` and `scipy` at module level. This contradicts the stated goal of a zero-external-dep Level 0 core (ADR-011). (Risk register C-05)
 
 ---
