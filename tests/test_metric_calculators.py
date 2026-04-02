@@ -394,8 +394,8 @@ class TestQuantileIntervalScore:
         y_pred = np.array([[1.0, 2.0, 3.0, 4.0, 5.0]])
         q_lo, q_hi = 0.1, 0.9
 
-        lower = float(np.quantile(y_pred, q_lo, axis=1))
-        upper = float(np.quantile(y_pred, q_hi, axis=1))
+        lower = np.quantile(y_pred, q_lo, axis=1).item()
+        upper = np.quantile(y_pred, q_hi, axis=1).item()
 
         width = upper - lower
         upper_penalty = (2 / (1 - q_hi)) * (20.0 - upper)
@@ -495,6 +495,33 @@ class TestGoldenValues:
         y_pred = np.array([[2.0], [4.0], [6.0]])
         result = calculate_mcr_native(y_true, y_pred)
         assert result == pytest.approx(2.0, abs=1e-10)
+
+    def test_ignorance_known_bin_distribution(self):
+        """Hand-computed Ignorance: 5 ensemble members, 3 bins, known distribution.
+
+        bins=[0,4,8,12], preds=[1,3,5,7,9] → bin counts [2,2,1]
+        smoothed=[3,3,2], total=8. Truth 5.0 → bin 1, prob=3/8.
+        Score = -log2(3/8) = log2(8/3).
+        """
+        y_true = np.array([5.0])
+        y_pred = np.array([[1.0, 3.0, 5.0, 7.0, 9.0]])
+        result = calculate_ignorance_score_native(
+            y_true, y_pred, bins=[0, 4, 8, 12], low_bin=0, high_bin=12,
+        )
+        expected = np.log2(8.0 / 3.0)
+        assert result == pytest.approx(expected, abs=1e-10)
+
+    def test_ap_oracle_sklearn(self):
+        """AP matches sklearn.metrics.average_precision_score."""
+        from sklearn.metrics import average_precision_score
+        y_true = np.array([1.0, 0.0, 1.0, 0.0])
+        y_pred = np.array([[0.9], [0.1], [0.8], [0.2]])
+        result = calculate_ap_native(y_true, y_pred)
+        # AP native repeats y_true for S columns, flattens y_pred
+        expected = average_precision_score(
+            np.repeat(y_true, 1), y_pred.flatten()
+        )
+        assert result == pytest.approx(expected, abs=1e-10)
 
     def test_coverage_all_inside(self):
         """All obs inside the central interval → coverage = 1.0."""

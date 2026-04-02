@@ -408,6 +408,16 @@ class TestNativeEvaluatorRed:
         with pytest.raises(ValueError, match="not valid"):
             NativeEvaluator(config).evaluate(ef)
 
+    def test_empty_config_accepted_at_init_fails_at_evaluate(self):
+        """Empty config is accepted at init (C-02 known gap) but fails at evaluate().
+
+        NativeEvaluator.__init__ only validates profile name (defaults to 'base').
+        Structural config errors surface at evaluate() time, not construction.
+        """
+        ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)
+        evaluator = NativeEvaluator({})  # does NOT raise — C-02
+        with pytest.raises((ValueError, KeyError)):
+            evaluator.evaluate(ef)
     def test_classification_metric_on_regression_target_raises(self):
         """AP is only valid for classification; using it with regression_targets must fail."""
         ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)
