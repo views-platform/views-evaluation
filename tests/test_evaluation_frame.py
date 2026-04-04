@@ -214,6 +214,26 @@ class TestEvaluationFrameBeige:
 
 class TestEvaluationFrameRed:
 
+    def test_object_dtype_y_true_raises(self):
+        """Object-dtype y_true must be rejected — Pure NumPy contract (ADR-011)."""
+        n = 2
+        with pytest.raises(ValueError, match="numeric"):
+            EvaluationFrame(
+                y_true=np.array([[1, 2], [3, 4]], dtype=object),
+                y_pred=np.ones((n, 1)),
+                identifiers=_make_identifiers(n),
+            )
+
+    def test_object_dtype_y_pred_raises(self):
+        """Object-dtype y_pred must be rejected — Pure NumPy contract (ADR-011)."""
+        n = 2
+        with pytest.raises(ValueError, match="numeric"):
+            EvaluationFrame(
+                y_true=np.ones(n),
+                y_pred=np.array([[1, 2], [3, 4]], dtype=object),
+                identifiers=_make_identifiers(n),
+            )
+
     def test_y_pred_row_mismatch_raises(self):
         with pytest.raises(ValueError, match="mismatch"):
             EvaluationFrame(np.ones(5), np.ones((4, 1)), _make_identifiers(5))

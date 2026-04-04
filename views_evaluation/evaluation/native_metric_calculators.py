@@ -6,33 +6,12 @@ from sklearn.metrics import (
 from scipy.stats import wasserstein_distance, pearsonr
 
 def _guard_shapes(y_true: np.ndarray, y_pred: np.ndarray):
-    """Internal guard to prevent broadcasting accidents. Handles conversion from legacy pandas.
+    """Internal guard to prevent broadcasting accidents.
 
-    Defense-in-depth: runs even when called via NativeEvaluator, which
-    validates data at construction through EvaluationFrame._validate() first.
+    Assumes numeric NumPy arrays (guaranteed by EvaluationFrame._validate()).
+    Validates shapes and normalises dimensions for metric functions.
     """
-    if hasattr(y_true, "values"):
-        # Extract values from Series/DataFrame
-        y_true = y_true.values
-    if hasattr(y_pred, "values"):
-        y_pred = y_pred.values
-
-    # Handle lists-in-cells (legacy structure)
-    def ensure_array(x):
-        if isinstance(x, (list, np.ndarray)):
-            if len(x) > 0 and isinstance(x[0], (list, np.ndarray)):
-                return np.array([ensure_array(i) for i in x])
-            return np.array(x)
-        return np.array([x])
-
-    if y_true.dtype == object:
-        y_true = np.array([x[0] if isinstance(x, (list, np.ndarray)) else x for x in y_true])
-    if y_pred.dtype == object:
-        y_pred = np.array([ensure_array(x).flatten() for x in y_pred])
-
-    # Shape validation — unconditional, runs for all dtypes (ADR-013)
-    if y_true.ndim == 2 and y_true.shape[1] == 1:
-        y_true = y_true.flatten()
+    # Shape validation (ADR-013)
     if y_true.ndim != 1:
         raise ValueError(f"y_true must be 1D, got shape {y_true.shape}")
 

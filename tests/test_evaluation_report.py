@@ -198,6 +198,17 @@ class TestEvaluationReportBeige:
 
 class TestEvaluationReportRed:
 
+    def test_non_dict_schema_value_fails_at_access(self):
+        """Malformed result dict: schema value is a string, not a dict.
+
+        Construction succeeds (no deep validation), but get_schema_results
+        fails when it tries to iterate the non-dict value.
+        """
+        results = {'month': 'not_a_dict', 'time_series': {}, 'step': {}}
+        report = EvaluationReport('t', 'regression', 'point', results)
+        with pytest.raises(AttributeError):
+            report.get_schema_results('month')
+
     def test_get_schema_results_unknown_schema_raises_key_error(self):
         report = EvaluationReport('t', 'regression', 'point', {})
         with pytest.raises(KeyError, match="nonexistent"):

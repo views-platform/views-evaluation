@@ -28,6 +28,12 @@ class EvaluationFrame:
         if y_pred.shape[0] != n_rows:
             raise ValueError(f"y_pred rows ({y_pred.shape[0]}) mismatch y_true ({n_rows})")
 
+        # ADR-011: Pure NumPy contract — reject object-dtype arrays
+        if y_true.dtype == object:
+            raise ValueError("y_true must be numeric (got dtype=object)")
+        if y_pred.dtype == object:
+            raise ValueError("y_pred must be numeric (got dtype=object)")
+
         # Rectangular sample validation: y_pred must be a dense 2D array
         if y_pred.ndim != 2:
             raise ValueError(
