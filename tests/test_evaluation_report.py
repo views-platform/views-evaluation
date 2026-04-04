@@ -6,11 +6,11 @@ Structured per ADR-020 (Red/Beige/Green):
   BEIGE — empty schema, multiple metrics per group, raw schema passthrough
   RED   — unknown schema key, invalid task/pred_type combination
 """
-import pandas as pd
 import pytest
+pd = pytest.importorskip("pandas")
 
-from views_evaluation.evaluation.evaluation_report import EvaluationReport
-from views_evaluation.evaluation.metrics import (
+from views_evaluation.evaluation.evaluation_report import EvaluationReport  # noqa: E402
+from views_evaluation.evaluation.metrics import (  # noqa: E402
     RegressionPointEvaluationMetrics,
     RegressionSampleEvaluationMetrics,
     ClassificationPointEvaluationMetrics,
