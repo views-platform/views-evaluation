@@ -347,6 +347,29 @@ class TestNativeEvaluatorBeige:
         report2 = evaluator.evaluate(ef)
         assert report1.to_dict() == report2.to_dict()
 
+    def test_step_values_above_999_not_silently_dropped(self):
+        """Steps >= 1000 must not be silently dropped by a hardcoded sentinel (C-17)."""
+        n = 4
+        ef = EvaluationFrame(
+            y_true=np.zeros(n),
+            y_pred=np.zeros((n, 1)),
+            identifiers={
+                'time':   np.array([2000, 2000, 2001, 2001]),
+                'unit':   np.array([1, 2, 1, 2]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1000, 1000, 1001, 1001]),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = _regression_point_config(steps=[1000, 1001])
+        report = NativeEvaluator(config).evaluate(ef, legacy_compatibility=False)
+        step_results = report.to_dict()['schemas']['step']
+        # Metrics must be computed (non-empty dict), not just pre-initialized
+        assert 'MSE' in step_results.get('step1000', {}), \
+            "Step 1000 metrics were silently dropped by sentinel"
+        assert 'MSE' in step_results.get('step1001', {}), \
+            "Step 1001 metrics were silently dropped by sentinel"
+
     def test_sample_predictions_produce_point_pred_type_false(self):
         n = 4
         ef = EvaluationFrame(
@@ -418,6 +441,24 @@ class TestNativeEvaluatorRed:
         evaluator = NativeEvaluator({})  # does NOT raise — C-02
         with pytest.raises((ValueError, KeyError)):
             evaluator.evaluate(ef)
+
+    def test_metric_function_error_includes_metric_name(self):
+        """When a metric function raises, the error message must name the metric (C-16)."""
+        import dataclasses
+        from unittest.mock import patch, MagicMock
+        from views_evaluation.evaluation.metric_catalog import METRIC_CATALOG
+
+        ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)
+        config = _regression_point_config(steps=[1, 2], metrics=['MSE'])
+
+        # Inject a failure into MSE's function
+        original_spec = METRIC_CATALOG['MSE']
+        broken_fn = MagicMock(side_effect=RuntimeError("sklearn internal error"))
+        broken_spec = dataclasses.replace(original_spec, function=broken_fn)
+        with patch.dict(METRIC_CATALOG, {'MSE': broken_spec}):
+            with pytest.raises(ValueError, match="MSE"):
+                NativeEvaluator(config).evaluate(ef)
+
     def test_classification_metric_on_regression_target_raises(self):
         """AP is only valid for classification; using it with regression_targets must fail."""
         ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)

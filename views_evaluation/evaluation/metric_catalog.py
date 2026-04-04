@@ -41,6 +41,9 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_jeffreys_native,
 )
 
+# Parameters that must be in the open interval (0, 1)
+_UNIT_INTERVAL_EXCLUSIVE = {"alpha", "quantile", "lower_quantile", "upper_quantile"}
+
 
 @dataclass(frozen=True)
 class MetricSpec:
@@ -191,5 +194,22 @@ def resolve_metric_params(
             f"Metric '{metric_name}' has None values for parameters: {nones}. "
             f"All hyperparameters must be explicitly set."
         )
+
+    # Bounds validation for probability/proportion parameters
+    for param, value in resolved.items():
+        if param in _UNIT_INTERVAL_EXCLUSIVE:
+            if not (0 < value < 1):
+                raise ValueError(
+                    f"Metric '{metric_name}' parameter '{param}' must be in (0, 1), "
+                    f"got {value}."
+                )
+
+    # Cross-parameter validation
+    if "lower_quantile" in resolved and "upper_quantile" in resolved:
+        if resolved["lower_quantile"] >= resolved["upper_quantile"]:
+            raise ValueError(
+                f"Metric '{metric_name}': lower_quantile ({resolved['lower_quantile']}) "
+                f"must be less than upper_quantile ({resolved['upper_quantile']})."
+            )
 
     return resolved

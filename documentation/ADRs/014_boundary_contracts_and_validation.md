@@ -46,3 +46,7 @@ Validation failures must be logged and raised explicitly (ADR-013). Warnings are
 ### Negative
 - Requires explicit schemas or validation logic.
 - Increases up-front configuration clarity requirements.
+
+### Known Deviations
+
+- **NativeEvaluator defers config validation:** `NativeEvaluator.__init__` only validates the profile name. Missing or malformed config keys (`steps`, target lists, metric lists) are not caught until `evaluate()` is called, producing cryptic errors deep in the call stack. This violates Section 2 ("validate at entry, before execution begins"). Tracked as risk register C-02 (Tier 2, High).

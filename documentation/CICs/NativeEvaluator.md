@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-04-02
+**Last reviewed:** 2026-04-04
 **Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-032 (Schemas), ADR-042 (Metric Catalog)
 
 ---
@@ -105,6 +105,8 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 - `legacy_compatibility` default was flipped to `False` in Phase 3. The flag is retained for callers that need truncation behavior.
 - Config validation may be added to `__init__` to catch structural config errors at construction time rather than at evaluation time (currently a known gap — risk register C-02).
 - The `EvaluationReport` return type is stable; the internal `_calculate_metrics` dispatch may evolve as the `MetricCatalog` grows.
+- Exception wrapping added to `_calculate_metrics()` (2026-04-04, C-16): metric function exceptions are now caught and re-raised as `ValueError` naming the metric, task, and pred_type. Test: `test_metric_function_error_includes_metric_name`.
+- Step sentinel changed from hardcoded `999` to `float('inf')` (2026-04-04, C-17): steps >= 1000 are no longer silently dropped. Test: `test_step_values_above_999_not_silently_dropped`.
 
 ---
 
