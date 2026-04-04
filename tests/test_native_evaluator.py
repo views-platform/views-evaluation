@@ -347,6 +347,83 @@ class TestNativeEvaluatorBeige:
         report2 = evaluator.evaluate(ef)
         assert report1.to_dict() == report2.to_dict()
 
+    def test_step_values_above_999_not_silently_dropped(self):
+        """Steps >= 1000 must not be silently dropped by a hardcoded sentinel (C-17)."""
+        n = 4
+        ef = EvaluationFrame(
+            y_true=np.zeros(n),
+            y_pred=np.zeros((n, 1)),
+            identifiers={
+                'time':   np.array([2000, 2000, 2001, 2001]),
+                'unit':   np.array([1, 2, 1, 2]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1000, 1000, 1001, 1001]),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = _regression_point_config(steps=[1000, 1001])
+        report = NativeEvaluator(config).evaluate(ef, legacy_compatibility=False)
+        step_results = report.to_dict()['schemas']['step']
+        # Metrics must be computed (non-empty dict), not just pre-initialized
+        assert 'MSE' in step_results.get('step1000', {}), \
+            "Step 1000 metrics were silently dropped by sentinel"
+        assert 'MSE' in step_results.get('step1001', {}), \
+            "Step 1001 metrics were silently dropped by sentinel"
+
+    def test_nan_metric_result_is_finite_checkable(self):
+        """Metric results that are NaN (e.g., Pearson on constant data) must be
+        detectable via np.isfinite. This documents that NaN can appear in results
+        when data is degenerate, and callers should check."""
+        n = 4
+        ef = EvaluationFrame(
+            y_true=np.array([1.0, 1.0, 1.0, 1.0]),  # constant → Pearson = NaN
+            y_pred=np.array([[1.0], [1.0], [1.0], [1.0]]),
+            identifiers={
+                'time':   np.array([100, 100, 101, 101]),
+                'unit':   np.array([1, 2, 1, 2]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1, 1, 2, 2]),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = _regression_point_config(steps=[1, 2], metrics=['Pearson'])
+        report = NativeEvaluator(config).evaluate(ef)
+        month_results = report.to_dict()['schemas']['month']
+        pearson_val = month_results['month100']['Pearson']
+        assert np.isnan(pearson_val), "Pearson on constant data should be NaN"
+        # Callers can detect this with np.isfinite
+        assert not np.isfinite(pearson_val)
+
+    def test_cross_schema_consistency_mse_values(self):
+        """MSE computed via month-wise on a single-month window must equal
+        step-wise MSE for the same data slice."""
+        # Single origin, single step, single month → all schemas see same data
+        n = 4
+        y_true = np.array([1.0, 2.0, 3.0, 4.0])
+        y_pred = np.array([[1.5], [2.5], [3.5], [4.5]])
+        ef = EvaluationFrame(
+            y_true=y_true,
+            y_pred=y_pred,
+            identifiers={
+                'time':   np.array([100, 100, 100, 100]),
+                'unit':   np.array([1, 2, 3, 4]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.ones(n, dtype=int),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = _regression_point_config(steps=[1], metrics=['MSE'])
+        report = NativeEvaluator(config).evaluate(ef)
+        schemas = report.to_dict()['schemas']
+        mse_month = schemas['month']['month100']['MSE']
+        mse_step = schemas['step']['step01']['MSE']
+        mse_ts = schemas['time_series']['ts00']['MSE']
+        # All three schemas see the same 4 observations → same MSE
+        assert mse_month == pytest.approx(mse_step, abs=1e-12)
+        assert mse_month == pytest.approx(mse_ts, abs=1e-12)
+        # And the value is correct: mean((0.5)^2) = 0.25
+        assert mse_month == pytest.approx(0.25, abs=1e-12)
+
     def test_sample_predictions_produce_point_pred_type_false(self):
         n = 4
         ef = EvaluationFrame(
@@ -418,6 +495,24 @@ class TestNativeEvaluatorRed:
         evaluator = NativeEvaluator({})  # does NOT raise — C-02
         with pytest.raises((ValueError, KeyError)):
             evaluator.evaluate(ef)
+
+    def test_metric_function_error_includes_metric_name(self):
+        """When a metric function raises, the error message must name the metric (C-16)."""
+        import dataclasses
+        from unittest.mock import patch, MagicMock
+        from views_evaluation.evaluation.metric_catalog import METRIC_CATALOG
+
+        ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)
+        config = _regression_point_config(steps=[1, 2], metrics=['MSE'])
+
+        # Inject a failure into MSE's function
+        original_spec = METRIC_CATALOG['MSE']
+        broken_fn = MagicMock(side_effect=RuntimeError("sklearn internal error"))
+        broken_spec = dataclasses.replace(original_spec, function=broken_fn)
+        with patch.dict(METRIC_CATALOG, {'MSE': broken_spec}):
+            with pytest.raises(ValueError, match="MSE"):
+                NativeEvaluator(config).evaluate(ef)
+
     def test_classification_metric_on_regression_target_raises(self):
         """AP is only valid for classification; using it with regression_targets must fail."""
         ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)

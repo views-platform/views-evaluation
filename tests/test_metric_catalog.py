@@ -120,6 +120,48 @@ class TestResolveMetricParamsRed:
 
 
 # ---------------------------------------------------------------------------
+# Red: bounds validation for hyperparameters (C-18)
+# ---------------------------------------------------------------------------
+
+class TestResolveMetricParamsBoundsRed:
+    """Bounds validation for metric hyperparameters."""
+
+    def test_alpha_above_one_raises(self):
+        """Coverage alpha must be in (0, 1)."""
+        with pytest.raises(ValueError, match="alpha"):
+            resolve_metric_params("Coverage", {"alpha": 1.5}, BASE_PROFILE)
+
+    def test_alpha_zero_raises(self):
+        """Coverage alpha=0 would cause division by zero in MIS."""
+        with pytest.raises(ValueError, match="alpha"):
+            resolve_metric_params("MIS", {"alpha": 0.0}, BASE_PROFILE)
+
+    def test_alpha_negative_raises(self):
+        with pytest.raises(ValueError, match="alpha"):
+            resolve_metric_params("Coverage", {"alpha": -0.1}, BASE_PROFILE)
+
+    def test_quantile_above_one_raises(self):
+        """QS quantile must be in (0, 1)."""
+        with pytest.raises(ValueError, match="quantile"):
+            resolve_metric_params("QS_sample", {"quantile": 1.0}, BASE_PROFILE)
+
+    def test_quantile_zero_raises(self):
+        with pytest.raises(ValueError, match="quantile"):
+            resolve_metric_params("QS_sample", {"quantile": 0.0}, BASE_PROFILE)
+
+    def test_quantile_negative_raises(self):
+        with pytest.raises(ValueError, match="quantile"):
+            resolve_metric_params("QS_point", {"quantile": -0.5}, BASE_PROFILE)
+
+    def test_qis_lower_quantile_above_upper_raises(self):
+        """QIS lower_quantile must be < upper_quantile."""
+        with pytest.raises(ValueError, match="quantile"):
+            resolve_metric_params(
+                "QIS", {"lower_quantile": 0.9, "upper_quantile": 0.1}, BASE_PROFILE
+            )
+
+
+# ---------------------------------------------------------------------------
 # Beige: structural integrity
 # ---------------------------------------------------------------------------
 

@@ -53,3 +53,7 @@ If a dependency feels “convenient but wrong,” it probably is.
 ### Negative
 - Requires a "middle-man" (Adapter) to convert DataFrames to `EvaluationFrame`.
 - Small amount of boilerplate for simple scripts.
+
+### Known Deviations
+
+- **sklearn/scipy in Level 0:** `native_metric_calculators.py` imports `sklearn.metrics` (AP, MTD) and `scipy.stats` (EMD, Pearson) at module level. These 4 of ~25 metrics violate the "no external imports except numpy" claim. The ADR permits `scipy`; `sklearn` is a pragmatic deviation pending pure-NumPy replacements or migration to a Level 1 module. Tracked as risk register C-05 (Tier 3).

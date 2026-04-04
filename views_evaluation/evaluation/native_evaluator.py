@@ -70,7 +70,12 @@ class NativeEvaluator:
             spec = METRIC_CATALOG[m]
             overrides = self.metric_overrides.get(m, {})
             resolved = resolve_metric_params(m, overrides, self.profile)
-            results[m] = spec.function(ef.y_true, ef.y_pred, **resolved)
+            try:
+                results[m] = spec.function(ef.y_true, ef.y_pred, **resolved)
+            except Exception as e:
+                raise ValueError(
+                    f"Metric '{m}' failed for ({task}, {pred_type}): {e}"
+                ) from e
         return results
 
     def evaluate(self, ef: EvaluationFrame, legacy_compatibility: bool = False) -> EvaluationReport:
@@ -102,7 +107,7 @@ class NativeEvaluator:
             step_results = {f"step{str(s).zfill(2)}": {} for s in config_steps}
 
         # LEGACY PARITY: Truncate steps to the shortest sequence length if in compat mode
-        max_allowed_step = 999
+        max_allowed_step = float('inf')
         if legacy_compatibility:
             origin_indices = ef.get_group_indices('origin')
             seq_lengths = []
