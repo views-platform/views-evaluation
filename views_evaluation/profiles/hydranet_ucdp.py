@@ -1,11 +1,8 @@
 """
 Evaluation profile for HydraNet models on UCDP targets.
 
-Covers probabilistic evaluation metrics that require hyperparameters:
-twCRPS, MIS, QIS. All other metrics (CRPS, AP, Brier, etc.) have
-empty genomes and need no profile entries.
-
-Values are placeholders inheriting from base — adjust per domain needs.
+Inherits all genome values from BASE_PROFILE (including Brier thresholds,
+QS quantile, Coverage alpha, etc.) and overrides where domain needs differ.
 """
 
 from views_evaluation.profiles.base import BASE_PROFILE

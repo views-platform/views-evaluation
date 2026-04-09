@@ -218,8 +218,16 @@ def calculate_quantile_interval_score_native(
 
 
 # ── Brier Score ───────────────────────────────────────────────────────────────
+#
+# Three explicit variants for the 2×2 evaluation matrix:
+#   Brier_cls_point  — classification point: y_pred is a probability
+#   Brier_cls_sample — classification sample: y_pred are probability samples (MC Dropout)
+#   Brier_rgs_sample — regression sample: y_pred are count/magnitude samples
+#
+# Brier_rgs_point is intentionally omitted: a regression point estimate
+# is not a probability, so calling the result a Brier score is misleading.
 
-def calculate_brier_sample_native(
+def calculate_brier_cls_point_native(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     target=None,
@@ -228,63 +236,85 @@ def calculate_brier_sample_native(
     **kwargs,
 ) -> float:
     """
-    Brier Score for sample-based predictions binarized at a threshold.
+    Brier Score for classification point (probability) predictions.
 
-    Binarises truth at the threshold, computes event probability from
-    the fraction of ensemble members exceeding the threshold, then
-    returns the mean squared error between predicted probability and
-    binary outcome.
+    Binarises truth at the threshold, uses the point prediction
+    directly as the predicted probability.
+
+    Brier = mean((y_pred - y_binary)^2)
+
+    y_pred values should be in [0, 1] for meaningful results.
+    For point predictions, y_pred is (N, 1) after _guard_shapes.
+
+    Args:
+        threshold: Onset threshold for binarising y_true.
+    """
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
+    y_binary = (y_true > threshold).astype(float)
+    p_hat = y_pred[:, 0]
+    return float(np.mean((p_hat - y_binary) ** 2))
+
+
+def calculate_brier_cls_sample_native(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target=None,
+    *,
+    threshold: float,
+    **kwargs,
+) -> float:
+    """
+    Brier Score for classification probability samples (e.g. MC Dropout).
+
+    Each sample in y_pred is a probability in [0, 1]. The posterior mean
+    probability is used as the point estimate:
+
+    Brier = mean((mean(y_pred, axis=1) - y_binary)^2)
+
+    where y_binary = (y_true > threshold).
+
+    This is the correct formulation for probability samples — averaging
+    probabilities preserves calibration information. Binarising probability
+    samples at a threshold (as Brier_rgs_sample does for count data) would
+    destroy discrimination.
+
+    Args:
+        threshold: Onset threshold for binarising y_true.
+    """
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
+    y_binary = (y_true > threshold).astype(float)
+    p_hat = np.mean(y_pred, axis=1)
+    return float(np.mean((p_hat - y_binary) ** 2))
+
+
+def calculate_brier_rgs_sample_native(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target=None,
+    *,
+    threshold: float,
+    **kwargs,
+) -> float:
+    """
+    Brier Score for regression (count/magnitude) samples.
+
+    Binarises both truth and each sample at the threshold, then
+    estimates the event probability from the fraction of ensemble
+    members exceeding the threshold.
 
     Brier = mean((p_hat - y_binary)^2)
 
     where p_hat = mean(y_pred > threshold, axis=1) and
     y_binary = (y_true > threshold).
 
-    Note: NaN values in y_true or y_pred are silently converted to
-    below-threshold (False) by NumPy comparison semantics. Callers
-    must validate inputs via EvaluationFrame.
-
     Args:
-        threshold: Onset threshold for binarisation. Must be provided
-                   explicitly via evaluation profile or model config.
+        threshold: Onset threshold for binarisation of both y_true
+                   and y_pred. Must be provided explicitly via
+                   evaluation profile or model config.
     """
     y_true, y_pred = _guard_shapes(y_true, y_pred)
     y_binary = (y_true > threshold).astype(float)
     p_hat = np.mean(y_pred > threshold, axis=1)
-    return float(np.mean((p_hat - y_binary) ** 2))
-
-
-def calculate_brier_point_native(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    target=None,
-    *,
-    threshold: float,
-    **kwargs,
-) -> float:
-    """
-    Brier Score for point (probability) predictions binarized at a threshold.
-
-    Binarises truth at the threshold, uses the point prediction
-    directly as the predicted probability. y_pred values should be
-    in [0, 1] for meaningful results; values outside this range
-    produce a mathematically valid but semantically misleading score.
-
-    Brier = mean((y_pred - y_binary)^2)
-
-    For point predictions, y_pred is (N, 1) after _guard_shapes.
-    The single column is the predicted probability.
-
-    Note: NaN values in y_true or y_pred are silently converted to
-    below-threshold (False) by NumPy comparison semantics. Callers
-    must validate inputs via EvaluationFrame.
-
-    Args:
-        threshold: Onset threshold for binarisation.
-    """
-    y_true, y_pred = _guard_shapes(y_true, y_pred)
-    y_binary = (y_true > threshold).astype(float)
-    p_hat = y_pred[:, 0]  # Point prediction: single column
     return float(np.mean((p_hat - y_binary) ** 2))
 
 

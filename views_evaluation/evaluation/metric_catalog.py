@@ -31,8 +31,9 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_coverage_native,
     calculate_mean_interval_score_native,
     calculate_ignorance_score_native,
-    calculate_brier_sample_native,
-    calculate_brier_point_native,
+    calculate_brier_cls_point_native,
+    calculate_brier_cls_sample_native,
+    calculate_brier_rgs_sample_native,
     calculate_qs_sample_native,
     calculate_qs_point_native,
     calculate_sd_native,
@@ -91,9 +92,10 @@ METRIC_CATALOG: Dict[str, MetricSpec] = {
     "QS_sample": MetricSpec(function=calculate_qs_sample_native, genome=("quantile",)),
     "QS_point":  MetricSpec(function=calculate_qs_point_native,  genome=("quantile",)),
 
-    # ── Brier Score ───────────────────────────────────────────────────────
-    "Brier_sample": MetricSpec(function=calculate_brier_sample_native, genome=("threshold",)),
-    "Brier_point":  MetricSpec(function=calculate_brier_point_native,  genome=("threshold",)),
+    # ── Brier Score (3 explicit variants for the 2×2 matrix) ────────────
+    "Brier_cls_point":  MetricSpec(function=calculate_brier_cls_point_native,  genome=("threshold",)),
+    "Brier_cls_sample": MetricSpec(function=calculate_brier_cls_sample_native, genome=("threshold",)),
+    "Brier_rgs_sample": MetricSpec(function=calculate_brier_rgs_sample_native, genome=("threshold",)),
 
     # ── Classification ────────────────────────────────────────────────────
     "AP":        MetricSpec(function=calculate_ap_native,        genome=()),
@@ -107,9 +109,9 @@ METRIC_MEMBERSHIP: Dict[Tuple[str, str], set] = {
                                     "SD", "pEMDiv", "Variogram"},
     ("regression", "sample"):     {"CRPS", "twCRPS", "MIS", "QIS", "QS_sample",
                                     "Coverage", "Ignorance",
-                                    "y_hat_bar", "MCR_sample"},
-    ("classification", "point"):  {"AP", "Brier_point"},
-    ("classification", "sample"): {"CRPS", "twCRPS", "Brier_sample", "Jeffreys"},
+                                    "y_hat_bar", "MCR_sample", "Brier_rgs_sample"},
+    ("classification", "point"):  {"AP", "Brier_cls_point"},
+    ("classification", "sample"): {"CRPS", "twCRPS", "Brier_cls_sample", "Jeffreys"},
 }
 
 
