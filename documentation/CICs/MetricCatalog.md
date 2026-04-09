@@ -113,6 +113,7 @@ params = resolve_metric_params("MSE", {}, BASE_PROFILE)
 - **Red:** `tests/test_metric_catalog.py` — unknown metrics, unimplemented metrics, missing params, None values, unknown overrides.
 - **Red (bounds):** `tests/test_metric_catalog.py::TestResolveMetricParamsBoundsRed` — 7 tests for out-of-range alpha/quantile and crossed QIS quantiles.
 - **Correctness:** `tests/test_metric_calculators.py::TestGoldenValues` — 17 golden-value tests for all implemented metrics.
+- **Correctness (Brier/QS):** `tests/test_metric_calculators.py::TestBrierScore` + `TestQuantileScore` — 10 golden-value tests for the 3 Brier variants and 2 QS variants.
 
 ---
 
@@ -122,14 +123,15 @@ params = resolve_metric_params("MSE", {}, BASE_PROFILE)
 - The legacy dispatch dicts were removed in Phase 3. `METRIC_MEMBERSHIP` is the single source of truth.
 - Profile structure is stable; new profiles are added by creating a new file in `profiles/`.
 - Bounds validation added for probability/proportion parameters (2026-04-04, C-18): `alpha`, `quantile`, `lower_quantile`, `upper_quantile` must be in (0, 1). Cross-parameter validation for QIS quantile ordering.
+- Explicit Brier variants added (2026-04-09): `Brier_sample`/`Brier_point` replaced by three task-explicit variants: `Brier_cls_point`, `Brier_cls_sample`, `Brier_rgs_sample`. The `_cls_`/`_rgs_` infix denotes the task context (classification vs. regression). `Brier_rgs_point` is intentionally omitted — a regression point estimate is not a probability. `Brier_cls_sample` averages probability samples (`mean(y_pred)`); `Brier_rgs_sample` binarises count samples (`mean(y_pred > threshold)`). Catalog size: 24 → 25.
 
 ---
 
 ## 12. Known Deviations
 
 - **No profile completeness validation:** There is no mechanism to verify that a profile provides values for all metrics with non-empty genomes. A profile missing a metric's params will only fail at evaluation time, not at profile registration.
-- **Golden-value coverage complete:** 17 tests in `tests/test_metric_calculators.py::TestGoldenValues` plus 8 Brier/QS golden-value tests cover all implemented metrics (C-07 closed 2026-04-02).
-- **Breaking rename:** The legacy `Brier` metric (unimplemented placeholder) was replaced by `Brier_sample` and `Brier_point` (implemented). The field in `ClassificationSampleEvaluationMetrics` was renamed from `Brier` to `Brier_sample`. External consumers accessing `.Brier` on classification sample results must update to `.Brier_sample`.
+- **Golden-value coverage complete:** 17 tests in `tests/test_metric_calculators.py::TestGoldenValues` plus 10 Brier/QS golden-value tests cover all implemented metrics (C-07 closed 2026-04-02).
+- **Breaking rename (2026-04-09):** `Brier_sample` and `Brier_point` were replaced by `Brier_cls_point`, `Brier_cls_sample`, and `Brier_rgs_sample`. Dataclass fields in `ClassificationPointEvaluationMetrics`, `ClassificationSampleEvaluationMetrics`, and `RegressionSampleEvaluationMetrics` were renamed/added accordingly. External consumers accessing `.Brier_sample` or `.Brier_point` must update.
 
 ---
 

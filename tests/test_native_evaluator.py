@@ -289,11 +289,11 @@ class TestNativeEvaluatorBeige:
         assert 'month100' in report.to_dict()['schemas']['month']
 
     def test_classification_sample_brier(self):
-        """Brier_sample and CRPS work for classification sample predictions."""
+        """Brier_cls_sample and CRPS work for classification sample predictions."""
         n = 6
         ef = EvaluationFrame(
             y_true=np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
-            y_pred=np.random.default_rng(42).uniform(0, 2, size=(n, 20)),
+            y_pred=np.random.default_rng(42).uniform(0, 1, size=(n, 20)),  # probability samples in [0,1]
             identifiers={
                 'time':   np.array([100, 100, 101, 101, 102, 102]),
                 'unit':   np.array([1, 2, 1, 2, 1, 2]),
@@ -305,17 +305,17 @@ class TestNativeEvaluatorBeige:
         config = {
             'steps': [1, 2, 3],
             'classification_targets': ['by_sb_best'],
-            'classification_sample_metrics': ['Brier_sample', 'CRPS'],
+            'classification_sample_metrics': ['Brier_cls_sample', 'CRPS'],
         }
         report = NativeEvaluator(config).evaluate(ef)
         assert report.task == 'classification'
         assert report.pred_type == 'sample'
         d = report.to_dict()['schemas']
-        assert 'Brier_sample' in d['month']['month100']
+        assert 'Brier_cls_sample' in d['month']['month100']
         assert 'CRPS' in d['month']['month100']
 
     def test_classification_point_brier(self):
-        """AP and Brier_point work together for classification point predictions."""
+        """AP and Brier_cls_point work together for classification point predictions."""
         n = 6
         ef = EvaluationFrame(
             y_true=np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
@@ -331,12 +331,12 @@ class TestNativeEvaluatorBeige:
         config = {
             'steps': [1, 2, 3],
             'classification_targets': ['by_sb_best'],
-            'classification_point_metrics': ['AP', 'Brier_point'],
+            'classification_point_metrics': ['AP', 'Brier_cls_point'],
         }
         report = NativeEvaluator(config).evaluate(ef)
         d = report.to_dict()['schemas']
         assert 'AP' in d['step']['step01']
-        assert 'Brier_point' in d['step']['step01']
+        assert 'Brier_cls_point' in d['step']['step01']
 
     def test_evaluate_twice_produces_identical_results(self):
         """NativeEvaluator is stateless — same input yields same output."""

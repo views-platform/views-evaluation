@@ -15,8 +15,9 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_mean_interval_score_native,
     calculate_mtd_native,
     calculate_mcr_native,
-    calculate_brier_sample_native,
-    calculate_brier_point_native,
+    calculate_brier_cls_point_native,
+    calculate_brier_cls_sample_native,
+    calculate_brier_rgs_sample_native,
     calculate_qs_sample_native,
     calculate_qs_point_native,
 )
@@ -145,14 +146,14 @@ def test_metric_membership_classification_point():
     """METRIC_MEMBERSHIP contains expected classification point metrics."""
     members = METRIC_MEMBERSHIP[("classification", "point")]
     assert "AP" in members
-    assert "Brier_point" in members
+    assert "Brier_cls_point" in members
     assert "RMSLE" not in members
 
 
 def test_metric_membership_classification_sample():
     """METRIC_MEMBERSHIP contains expected classification sample metrics."""
     members = METRIC_MEMBERSHIP[("classification", "sample")]
-    for m in ["CRPS", "twCRPS", "Brier_sample", "Jeffreys"]:
+    for m in ["CRPS", "twCRPS", "Brier_cls_sample", "Jeffreys"]:
         assert m in members
     assert "RMSLE" not in members
 
@@ -579,38 +580,55 @@ class TestGoldenValues:
 
 class TestBrierScore:
 
-    def test_brier_sample_golden_value(self):
-        """Hand-computed Brier sample: threshold=1, mixed binary outcomes."""
+    def test_brier_rgs_sample_golden_value(self):
+        """Hand-computed Brier rgs_sample: threshold=1, mixed binary outcomes."""
         y_true = np.array([0.0, 2.0, 5.0])
         y_pred = np.array([[0.5, 1.5], [0.5, 1.5], [4.0, 6.0]])
         # y_binary = [0, 1, 1] (0 < 1, 2 > 1, 5 > 1)
         # p_hat = [0.5, 0.5, 1.0] (fraction of ensemble > threshold)
         # Brier = mean([(0.5-0)^2, (0.5-1)^2, (1.0-1)^2]) = mean([0.25, 0.25, 0]) = 1/6
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1.0)
         assert result == pytest.approx(1.0 / 6.0, abs=1e-10)
 
-    def test_brier_point_golden_value(self):
-        """Hand-computed Brier point: threshold=1, probabilities vs binary outcomes."""
+    def test_brier_cls_point_golden_value(self):
+        """Hand-computed Brier cls_point: threshold=1, probabilities vs binary outcomes."""
         y_true = np.array([0.0, 2.0, 5.0])
         y_pred = np.array([[0.1], [0.7], [0.9]])
         # y_binary = [0, 1, 1]
         # p_hat = [0.1, 0.7, 0.9] (point prediction as probability)
         # Brier = mean([(0.1-0)^2, (0.7-1)^2, (0.9-1)^2]) = mean([0.01, 0.09, 0.01]) = 11/300
-        result = calculate_brier_point_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_cls_point_native(y_true, y_pred, threshold=1.0)
         assert result == pytest.approx(11.0 / 300.0, abs=1e-10)
 
-    def test_brier_sample_perfect(self):
+    def test_brier_cls_sample_golden_value(self):
+        """Hand-computed Brier cls_sample: average probability samples, threshold=0."""
+        y_true = np.array([1.0, 0.0])
+        y_pred = np.array([[0.9, 0.8], [0.1, 0.2]])
+        # y_binary = [1, 0] (1 > 0, 0 not > 0)
+        # p_hat = [mean(0.9, 0.8), mean(0.1, 0.2)] = [0.85, 0.15]
+        # Brier = mean([(0.85-1)^2, (0.15-0)^2]) = mean([0.0225, 0.0225]) = 0.0225
+        result = calculate_brier_cls_sample_native(y_true, y_pred, threshold=0.0)
+        assert result == pytest.approx(0.0225, abs=1e-10)
+
+    def test_brier_rgs_sample_perfect(self):
         """All above threshold, all ensemble members above → p_hat=1, y_binary=1, Brier=0."""
         y_true = np.array([5.0, 10.0])
         y_pred = np.array([[2.0, 3.0], [2.0, 3.0]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1.0)
         assert result == pytest.approx(0.0, abs=1e-10)
 
-    def test_brier_point_perfect(self):
+    def test_brier_cls_point_perfect(self):
         """p_hat matches y_binary exactly → Brier=0."""
         y_true = np.array([0.0, 2.0])  # binary=[0, 1] at threshold=1
         y_pred = np.array([[0.0], [1.0]])  # perfect probability predictions
-        result = calculate_brier_point_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_cls_point_native(y_true, y_pred, threshold=1.0)
+        assert result == pytest.approx(0.0, abs=1e-10)
+
+    def test_brier_cls_sample_perfect(self):
+        """Perfect probability samples → Brier=0."""
+        y_true = np.array([1.0, 0.0])
+        y_pred = np.array([[1.0, 1.0], [0.0, 0.0]])
+        result = calculate_brier_cls_sample_native(y_true, y_pred, threshold=0.0)
         assert result == pytest.approx(0.0, abs=1e-10)
 
 
@@ -757,40 +775,49 @@ class TestMISBeige:
 
 class TestBrierScoreBeige:
 
-    def test_single_observation(self):
-        """Brier handles N=1, S=1 without error."""
-        result = calculate_brier_sample_native(np.array([2.0]), np.array([[3.0]]), threshold=1.0)
+    def test_rgs_single_observation(self):
+        """Brier rgs_sample handles N=1, S=1 without error."""
+        result = calculate_brier_rgs_sample_native(np.array([2.0]), np.array([[3.0]]), threshold=1.0)
         assert np.isfinite(result)
 
-    def test_large_ensemble_stable(self):
-        """Brier is stable with S=1000 samples."""
+    def test_rgs_large_ensemble_stable(self):
+        """Brier rgs_sample is stable with S=1000 samples."""
         rng = np.random.default_rng(42)
         y_true = np.array([0.0, 5.0, 10.0])
         y_pred = rng.normal(loc=y_true[:, None], scale=2.0, size=(3, 1000))
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1.0)
         assert np.isfinite(result)
         assert 0 <= result <= 1  # Brier is bounded [0, 1]
 
-    def test_threshold_at_exact_data_value(self):
+    def test_rgs_threshold_at_exact_data_value(self):
         """Threshold equals an observation — no crash."""
         y_true = np.array([5.0, 5.0])
         y_pred = np.array([[4.0, 6.0], [4.0, 6.0]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=5.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=5.0)
         assert np.isfinite(result)
 
-    def test_all_above_threshold(self):
+    def test_rgs_all_above_threshold(self):
         """All y_true above threshold — y_binary all 1, finite result."""
         y_true = np.array([10.0, 20.0])
         y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1.0)
         assert np.isfinite(result)
 
-    def test_all_below_threshold(self):
+    def test_rgs_all_below_threshold(self):
         """All y_true below threshold — y_binary all 0, finite result."""
         y_true = np.array([0.0, 0.5])
         y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1.0)
         assert np.isfinite(result)
+
+    def test_cls_sample_large_ensemble_stable(self):
+        """Brier cls_sample is stable with S=1000 probability samples."""
+        rng = np.random.default_rng(42)
+        y_true = np.array([1.0, 0.0, 1.0])
+        y_pred = rng.beta(a=2, b=2, size=(3, 1000))  # probabilities in [0, 1]
+        result = calculate_brier_cls_sample_native(y_true, y_pred, threshold=0.0)
+        assert np.isfinite(result)
+        assert 0 <= result <= 1
 
 
 class TestQuantileScoreBeige:
@@ -974,7 +1001,7 @@ class TestMCRRed:
 
 class TestBrierScoreRed:
 
-    def test_nan_in_y_true_swallowed_by_comparison(self):
+    def test_rgs_nan_in_y_true_swallowed_by_comparison(self):
         """NaN in y_true is swallowed by '>' comparison (NaN > x → False).
 
         Unlike arithmetic metrics, Brier's binarization step converts NaN to
@@ -984,23 +1011,30 @@ class TestBrierScoreRed:
         """
         y_true = np.array([np.nan, 1.0])
         y_pred = np.array([[1.0], [1.0]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
-        # NaN is treated as below-threshold (False), so result is finite, not NaN
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1.0)
         assert np.isfinite(result)
 
-    def test_nan_in_y_pred_swallowed_by_comparison(self):
+    def test_rgs_nan_in_y_pred_swallowed_by_comparison(self):
         """NaN in y_pred is swallowed by '>' comparison in p_hat computation."""
         y_true = np.array([1.0, 1.0])
         y_pred = np.array([[np.nan], [1.0]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1.0)
         assert np.isfinite(result)
 
-    def test_negative_threshold_accepted(self):
-        """Negative threshold is mathematically valid."""
+    def test_rgs_negative_threshold_accepted(self):
+        """Negative threshold is mathematically valid for regression Brier."""
         y_true = np.array([1.0, 2.0])
         y_pred = np.array([[1.0, 2.0], [2.0, 3.0]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=-5.0)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=-5.0)
         assert np.isfinite(result)
+
+    def test_cls_sample_nan_in_y_pred_propagates(self):
+        """NaN in probability samples propagates via mean() — not swallowed."""
+        y_true = np.array([1.0, 1.0])
+        y_pred = np.array([[np.nan], [0.5]])
+        result = calculate_brier_cls_sample_native(y_true, y_pred, threshold=0.0)
+        # mean([nan]) = nan, (nan - 1)^2 = nan → result is nan
+        assert np.isnan(result)
 
 
 class TestQuantileScoreRed:
@@ -1040,11 +1074,11 @@ class TestExtremeValues:
         assert np.isfinite(result)
         assert result >= 0
 
-    def test_brier_extreme_threshold(self):
+    def test_brier_rgs_extreme_threshold(self):
         """Threshold at 1e300: all values below → y_binary all 0, p_hat all 0, Brier = 0."""
         y_true = np.array([1.0, 2.0])
         y_pred = np.array([[0.5, 1.5], [0.5, 1.5]])
-        result = calculate_brier_sample_native(y_true, y_pred, threshold=1e300)
+        result = calculate_brier_rgs_sample_native(y_true, y_pred, threshold=1e300)
         assert result == pytest.approx(0.0, abs=1e-10)
 
     def test_coverage_tiny_ensemble_spread(self):

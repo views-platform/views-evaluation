@@ -131,20 +131,21 @@ class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
     Coverage:   Optional[float] = None
     Ignorance:  Optional[float] = None
     y_hat_bar:  Optional[float] = None
-    MCR_sample: Optional[float] = None
+    MCR_sample:      Optional[float] = None
+    Brier_rgs_sample: Optional[float] = None
 
 
 @dataclass
 class ClassificationPointEvaluationMetrics(BaseEvaluationMetrics):
     """Metrics for classification targets evaluated with point (probability) predictions."""
-    AP:          Optional[float] = None
-    Brier_point: Optional[float] = None
+    AP:              Optional[float] = None
+    Brier_cls_point: Optional[float] = None
 
 
 @dataclass
 class ClassificationSampleEvaluationMetrics(BaseEvaluationMetrics):
     """Metrics for classification targets evaluated with sample-based predictions."""
-    CRPS:         Optional[float] = None
-    twCRPS:       Optional[float] = None
-    Brier_sample: Optional[float] = None
-    Jeffreys:     Optional[float] = None
+    CRPS:              Optional[float] = None
+    twCRPS:            Optional[float] = None
+    Brier_cls_sample:  Optional[float] = None
+    Jeffreys:          Optional[float] = None
