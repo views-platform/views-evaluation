@@ -27,9 +27,9 @@ BASE_PROFILE = {
     "QIS":           {"lower_quantile": 0.025, "upper_quantile": 0.975},
     "QS_sample":     {"quantile": 0.99},
     "QS_point":      {"quantile": 0.99},
-    "Brier_cls_point":  {"threshold": 0.0},
-    "Brier_cls_sample": {"threshold": 0.0},
-    "Brier_rgs_sample": {"threshold": 1.0},
+    "Brier_cls_point":  {"threshold": 0.0},  # hurdle event: any fatality (y > 0)
+    "Brier_cls_sample": {"threshold": 0.0},  # hurdle event: any fatality (y > 0)
+    "Brier_rgs_sample": {"threshold": 0.0},  # hurdle event: any fatality (y > 0)
     "Coverage":      {"alpha": 0.1},
     "Ignorance": {
         "bins": [0, 0.5, 2.5, 5.5, 10.5, 25.5, 50.5, 100.5, 250.5, 500.5, 1000.5],
