@@ -1,54 +1,134 @@
-# ADR Template
-(Fine name should follow convention NNN-short-title.md)
+# ADR-XXXX: <Concise decision title>
 
-## Title
-*Refinement of Model Configuration Files Structure*
-
-| ADR Info            | Details           |
-|---------------------|-------------------|
-| Subject             | [Insert Subject]  |
-| ADR Number          | [Insert Number (NNN)]   |
-| Status              | [Insert Status (proposed, accepted, rejected, deprecated)]   |
-| Author              | [Insert Author (Name)]   |
-| Date                | [Insert Date (DD.MM.YYYY)]     |
-
-## Context
-*Describe the issue that necessitated the decision, including any factors considered during the decision-making process. This should provide a clear understanding of the challenges or opportunities addressed by the ADR.*
-
-## Decision
-*Detail the decision that was made, including any alternatives that were considered and the reasons for choosing the implemented solution. Provide enough technical specifics to justify the approach.*
-
-### Overview
-*Overview of the decision in a clear and concise manner.*
-
-## Consequences
-*Discuss the positive and negative effects of the decision. Include both immediate outcomes and long-term implications for the project's architecture. Highlight how the decision aligns with the challenges outlined in the context.*
-
-**Positive Effects:**
-- List the benefits of the decision.
-
-**Negative Effects:**
-- List the potential drawbacks or challenges introduced by the decision.
-
-## Rationale
-*Explain the reasoning behind the decision, including any specific advantages that influenced the choice. This section should reflect the factors mentioned in the context.*
-
-### Considerations
-*List any considerations that were part of the decision-making process, such as potential risks, dependency issues, or impacts on existing systems.*
-
-## Additional Notes
-*Include any additional information that might be relevant to the decision, such as implications for development workflows, future maintenance, or related decisions.*
-
-## Feedback and Suggestions
-*Invite team members or stakeholders to provide feedback or suggest improvements on the decision or its implementation.*
+**Status:** Proposed | Accepted | Superseded | Deprecated  
+**Date:** YYYY-MM-DD  
+**Deciders:** <Names / roles>  
+**Consulted:** <Optional>  
+**Informed:** <Optional>  
 
 ---
 
-**How to Use This Template:**
+## Context
 
-1. **Copy the contents** of this template into a new markdown file within the ADR folder.
-2. **Fill in each section** with specific details about the architectural decision being documented.
-3. **Save the file** with a name that follows the naming convention (`NNN-subject-title.md` where `NNN` is the ADR number).
-4. **Submit for review** through your project's standard process for documentation updates.
+Describe the problem that motivated this decision.
 
-This template ensures that each architectural decision is well-documented, providing a clear and consistent record that supports project development and facilitates understanding across the team.
+Include:
+- What is *not working* or *no longer tenable*
+- Relevant technical, organizational, or scientific constraints
+- Prior assumptions that turned out to be wrong
+- Why this decision matters *now* (and not later)
+
+This section should make it obvious to a future reader **why a decision was needed at all**.
+
+---
+
+## Decision
+
+State the decision **clearly and unambiguously**.
+
+- What is being decided?
+- What is explicitly *in scope*?
+- What is explicitly *out of scope*?
+
+Use assertive language.  
+This is the **source of truth**.
+
+---
+
+## Rationale
+
+Explain *why this option was chosen* over alternatives.
+
+Include:
+- Key design principles or values (e.g. correctness > convenience)
+- Trade-offs consciously accepted
+- Alignment with long-term architecture or research goals
+- Why this decision reduces risk, ambiguity, or technical debt
+
+This is where future disagreements get defused.
+
+---
+
+## Considered Alternatives
+
+List the main alternatives that were seriously considered.
+
+For each alternative:
+- Brief description
+- Why it was *not* chosen
+- Any conditions under which it might be revisited
+
+Example format:
+
+### Alternative A: <name>
+- **Pros:**  
+- **Cons:**  
+- **Reason for rejection:**  
+
+---
+
+## Consequences
+
+Describe the consequences of this decision.
+
+### Positive
+- Benefits unlocked
+- Simplifications introduced
+- Risks reduced
+
+### Negative
+- New constraints imposed
+- Short-term pain
+- Technical debt explicitly accepted
+
+Be honest. This section builds trust.
+
+---
+
+## Implementation Notes
+
+Concrete guidance for implementation.
+
+Include:
+- Where the decision should be enforced (code, config, docs, tests)
+- Migration strategy (if applicable)
+- Required follow-up tasks or refactors
+- Guardrails to prevent regression
+
+If nothing is required yet, say so explicitly.
+
+---
+
+## Validation & Monitoring
+
+How will we know this decision was correct?
+
+Examples:
+- Tests or invariants that should hold
+- Metrics or signals to watch
+- Failure modes that would trigger reconsideration
+
+This turns the ADR into a *living* artifact.
+
+---
+
+## Open Questions
+
+List unresolved questions or known unknowns.
+
+- What do we still not know?
+- What depends on future work or data?
+- What should be revisited later?
+
+---
+
+## References
+
+Links to:
+- PRs
+- Issues
+- Design docs
+- Papers
+- Slack threads / meeting notes
+
+Future readers should be able to reconstruct the full story.

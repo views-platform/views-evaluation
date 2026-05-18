@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "views_evaluation"
-version = "0.3.1"
+version = "0.4.0"
 description = ""
 authors = [
     "Xiaolong Sun <xiaolong.sun@pcr.uu.se>",
@@ -12,11 +12,16 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
 scikit-learn = "^1.6.0"
-pandas = "^1.5.3"
 numpy = "^1.26.4"
-properscoring = "^0.1.0"
-pytest = "^8.3.3"
+pandas = {version = "^1.5.3", optional = true}
 
+[tool.poetry.extras]
+dataframe = ["pandas"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+ruff = "*"
+properscoring = "^0.1.0"  # Dev-only: used as test oracle for CRPS parity verification
 
 [build-system]
 requires = ["poetry-core"]

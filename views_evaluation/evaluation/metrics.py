@@ -1,6 +1,5 @@
-from typing import List, Dict, Tuple, Optional
+from typing import Optional
 from dataclasses import dataclass
-import pandas as pd
 
 
 @dataclass
@@ -79,7 +78,7 @@ class BaseEvaluationMetrics:
         return {f"month{str(i)}": cls() for i in range(month_start, month_end + 1)}
 
     @staticmethod
-    def evaluation_dict_to_dataframe(evaluation_dict: dict) -> pd.DataFrame:
+    def evaluation_dict_to_dataframe(evaluation_dict: dict):
         """
         Converts a dictionary of EvaluationMetrics instances into a pandas DataFrame for easy analysis.
 
@@ -95,57 +94,58 @@ class BaseEvaluationMetrics:
             >>> evaluation_df = EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
 
         """
+        import pandas as pd
         df = pd.DataFrame.from_dict(evaluation_dict, orient='index')
         return df.loc[:, df.notna().any()]
 
 
-@dataclass
-class PointEvaluationMetrics(BaseEvaluationMetrics):
-    """
-    A data class for storing and managing point evaluation metrics for time series forecasting models.
-    
-    Attributes:
-        RMSLE (Optional[float]): Root Mean Squared Logarithmic Error.
-        CRPS (Optional[float]): Continuous Ranked Probability Score.
-        AP (Optional[float]): Average Precision.
-        Brier (Optional[float]): Brier Score.
-        Jeffreys (Optional[float]): Jeffreys Divergence.
-        Coverage (Optional[float]): Coverage (Histograms).
-        EMD (Optional[float]): Earth Mover Distance.
-        SD (Optional[float]): Sinkhorn Distance.
-        pEMDiv (Optional[float]): pseudo-Earth Mover Divergence.
-        Pearson (Optional[float]): Pearson Correlation.
-        Variogram (Optional[float]): Variogram.
-    """
+# ---------------------------------------------------------------------------
+# 2×2 dataclasses: {regression, classification} × {point, sample}
+# ---------------------------------------------------------------------------
 
-    MSE: Optional[float] = None
-    MSLE: Optional[float] = None
-    RMSLE: Optional[float] = None
-    CRPS: Optional[float] = None
-    AP: Optional[float] = None
-    EMD: Optional[float] = None
-    SD: Optional[float] = None
-    pEMDiv: Optional[float] = None
-    Pearson: Optional[float] = None
+@dataclass
+class RegressionPointEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for regression targets evaluated with point predictions."""
+    MSE:       Optional[float] = None
+    MSLE:      Optional[float] = None
+    RMSLE:     Optional[float] = None
+    EMD:       Optional[float] = None
+    SD:        Optional[float] = None
+    pEMDiv:    Optional[float] = None
+    Pearson:   Optional[float] = None
     Variogram: Optional[float] = None
+    MTD:       Optional[float] = None
     y_hat_bar: Optional[float] = None
+    MCR_point: Optional[float] = None
+    QS_point:  Optional[float] = None
 
-  
+
 @dataclass
-class UncertaintyEvaluationMetrics(BaseEvaluationMetrics):
-    """
-    A data class for storing and managing uncertainty evaluation metrics for time series forecasting models.
-    
-    Attributes:
-        CRPS (Optional[float]): Continuous Ranked Probability Score.
-    """
+class RegressionSampleEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for regression targets evaluated with sample-based predictions."""
+    CRPS:       Optional[float] = None
+    twCRPS:     Optional[float] = None
+    MIS:        Optional[float] = None
+    QIS:        Optional[float] = None
+    QS_sample:  Optional[float] = None
+    Coverage:   Optional[float] = None
+    Ignorance:  Optional[float] = None
+    y_hat_bar:  Optional[float] = None
+    MCR_sample:      Optional[float] = None
+    Brier_rgs_sample: Optional[float] = None
 
-    CRPS: Optional[float] = None
-    MIS: Optional[float] = None
-    Ignorance: Optional[float] = None
-    Coverage: Optional[float] = None
-    pEMDiv: Optional[float] = None
-    Brier: Optional[float] = None
-    Jeffreys: Optional[float] = None
-    y_hat_bar: Optional[float] = None
-    
+
+@dataclass
+class ClassificationPointEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for classification targets evaluated with point (probability) predictions."""
+    AP:              Optional[float] = None
+    Brier_cls_point: Optional[float] = None
+
+
+@dataclass
+class ClassificationSampleEvaluationMetrics(BaseEvaluationMetrics):
+    """Metrics for classification targets evaluated with sample-based predictions."""
+    CRPS:              Optional[float] = None
+    twCRPS:            Optional[float] = None
+    Brier_cls_sample:  Optional[float] = None
+    Jeffreys:          Optional[float] = None
