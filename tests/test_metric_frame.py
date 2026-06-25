@@ -157,6 +157,16 @@ class TestToMetricFrameGreen:
         assert mf.metadata.evaluation_timestamp == '2026-06-25T10:00:00'
         assert mf.metadata.schema_version == SCHEMA_VERSION
 
+    def test_numpy_typed_timestamp_seed_round_trip(self):
+        """Injected numpy scalar timestamp/seed must not break json serialization (save)."""
+        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
+        mf = report.to_metric_frame(timestamp=np.int64(1700000000), seed=np.int32(42))
+        with tempfile.TemporaryDirectory() as d:
+            mf.save(d)  # would TypeError without numpy-aware json default
+            loaded = MetricFrame.load(d)
+        assert loaded.metadata.provenance.timestamp == 1700000000
+        assert loaded.metadata.provenance.seed == 42
+
     def test_save_load_round_trip_including_metadata(self):
         report = EvaluationReport('t', 'regression', 'sample', _regression_sample_results())
         mf = report.to_metric_frame(model_id='m', data_version='v1',
@@ -301,6 +311,12 @@ class TestMetricFrameConstructionRed:
     def test_non_array_values_raise(self):
         with pytest.raises(ValueError, match="numpy array"):
             MetricFrame([[0.0], [1.0]], self._valid_ids(2))
+
+    def test_two_dimensional_identifier_raises(self):
+        ids = self._valid_ids(2)
+        ids["group_id"] = np.asarray([["a"], ["b"]], dtype=str)  # (2, 1), len==2 but 2D
+        with pytest.raises(ValueError, match="1D"):
+            MetricFrame(np.zeros((2, 1), dtype=np.float32), ids)
 
 
 # ---------------------------------------------------------------------------

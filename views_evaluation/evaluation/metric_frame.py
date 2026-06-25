@@ -56,6 +56,18 @@ MEAN_GROUP_ID = "mean"
 SCHEMA_VERSION = "1.0.0"
 
 
+def _json_default(obj: Any) -> Any:
+    """JSON encoder fallback: coerce numpy scalar types (e.g. an injected np.int64
+    timestamp/seed) to native Python so ``save()`` never crashes on serialization."""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 def default_scoring_code_version() -> Optional[str]:
     """The installed views-evaluation package version (NOT a git SHA — unavailable in a wheel).
 
@@ -150,6 +162,11 @@ class MetricFrame:
             )
         for key in AXES:
             arr = identifiers[key]
+            if getattr(arr, "ndim", None) != 1:
+                raise ValueError(
+                    f"Identifier '{key}' must be a 1D array, got "
+                    f"{getattr(arr, 'ndim', '?')}D with shape {getattr(arr, 'shape', '?')}"
+                )
             if len(arr) != n_rows:
                 raise ValueError(
                     f"Identifier '{key}' length ({len(arr)}) mismatch values rows ({n_rows})"
@@ -166,7 +183,9 @@ class MetricFrame:
         path.mkdir(parents=True, exist_ok=True)
         np.save(path / "values.npy", self.values)
         np.savez(path / "identifiers.npz", **self.identifiers)
-        (path / "metadata.json").write_text(json.dumps(self.metadata.to_dict()))
+        (path / "metadata.json").write_text(
+            json.dumps(self.metadata.to_dict(), default=_json_default)
+        )
 
     @classmethod
     def load(cls, directory: Union[str, Path]) -> "MetricFrame":

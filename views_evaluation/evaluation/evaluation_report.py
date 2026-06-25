@@ -105,8 +105,11 @@ class EvaluationReport:
 
         For each schema (month/time_series/step) present, one row is emitted per
         (group_id, metric), PLUS a cross-group aggregate row with ``group_id="mean"`` carrying
-        the mean over groups (the value views-reporting matches on). Schema names are mapped to
-        the consumer-facing ``eval_type`` spelling via ``SCHEMA_TO_EVAL_TYPE``.
+        the ``nanmean`` over the groups that reported that metric (the value views-reporting
+        matches on). In the normal emit path the denominator is every group in the schema,
+        because NativeEvaluator computes the same metric set for every group; a metric present
+        in only some groups would be averaged over just those. Schema names are mapped to the
+        consumer-facing ``eval_type`` spelling via ``SCHEMA_TO_EVAL_TYPE``.
 
         Provenance is split per ADR-020 (register C-47): generic identity goes in the reused
         ``views_frames.FrameMetadata``; ``scoring_code_version`` and ``evaluation_timestamp``
