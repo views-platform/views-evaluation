@@ -2,8 +2,8 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-04-02  
-**Related ADRs:** ADR-010 (Ontology), ADR-041 (Output Schema)
+**Last reviewed:** 2026-06-25  
+**Related ADRs:** ADR-010 (Ontology), ADR-041 (Output Schema), views-frames ADR-020 (MetricFrame contract home)
 
 ---
 
@@ -47,6 +47,7 @@ A structured, framework-agnostic container for evaluation results. It decouples 
 - **`to_dict()`**: Returns a nested dictionary `{target, task, pred_type, schemas: {...}}` for persistence (ADR-041).
 - **`get_schema_results(schema)`**: Returns a dict mapping group keys to typed metrics dataclass instances.
 - **`to_dataframe(schema)`**: Returns a Pandas DataFrame for backward compatibility. `schema='raw'` is deprecated — use `to_dict()['schemas']` instead.
+- **`to_metric_frame(...)`**: Returns a `MetricFrame` (the typed, transportable, provenance-stamped evaluation-of-record per views-frames ADR-020). Flattens the nested results to rows keyed by `(eval_type, target, metric, group_id, partition, level)`, emitting per-group rows plus a `group_id="mean"` cross-group aggregate. All identity (`model_id`/`run_id`/`data_version`/`partition`/`level`) is **injected** by the caller; `scoring_code_version` (defaults to the installed package version) and `evaluation_timestamp` are stamped into the MetricFrame's own metadata (the generic header stays in the reused `views_frames.FrameMetadata`). Requires the optional `views-frames` dependency. Purely additive — `to_dict()`/`to_dataframe()` are unaffected.
 
 ---
 
@@ -55,6 +56,7 @@ A structured, framework-agnostic container for evaluation results. It decouples 
 - Raises `KeyError` if a requested schema is not found in the report.
 - Raises `ValueError` if a computed metric name has no corresponding field in the typed metrics dataclass (FM1 guard against silent metric loss).
 - Fails loud if the input result structure is inconsistent.
+- `to_metric_frame()` raises `ImportError` (loud, actionable) if the optional `views-frames` dependency is not installed.
 
 ---
 
@@ -86,9 +88,9 @@ schema = report.get_schema_results("month")     # dict → typed metrics datacla
 
 ## 10. Test Alignment
 
-- **Green:** `tests/test_evaluation_report.py` — construction, schema access, to_dict, to_dataframe.
-- **Beige:** `tests/test_evaluation_report.py` — empty schemas, single-entry schemas.
-- **Red:** `tests/test_evaluation_report.py` — missing schema keys, field mismatch (FM1 guard).
+- **Green:** `tests/test_evaluation_report.py` — construction, schema access, to_dict, to_dataframe. `tests/test_metric_frame.py` — `to_metric_frame()` for all 4 cells, envelope conformance, save/load round-trip, provenance split.
+- **Beige:** `tests/test_evaluation_report.py` — empty schemas, single-entry schemas. `tests/test_metric_frame.py` — empty/fully-empty schema, NaN values, run_id None at emit.
+- **Red:** `tests/test_evaluation_report.py` — missing schema keys, field mismatch (FM1 guard). `tests/test_metric_frame.py` — fail-loud MetricFrame construction.
 
 ---
 
@@ -102,6 +104,7 @@ schema = report.get_schema_results("month")     # dict → typed metrics datacla
 ## 12. Known Deviations
 
 - **Lazy Pandas import:** `to_dataframe()` imports `pandas` at call time, which means the Level 1 bridge concern leaks into what is otherwise a Level 0 component. This is a pragmatic compromise for backward compatibility.
+- **Lazy views-frames import:** `to_metric_frame()` imports `views_frames` at call time (gated on `importlib.util.find_spec`), the same Level-1 bridge compromise as the Pandas case. The core stays installable without the `frames` extra (ADR-011 minimal core); the method fails loud if the extra is absent.
 - **Legacy dataclass coupling:** `get_schema_results()` wraps results in legacy dataclass instances (`RegressionPointEvaluationMetrics`, etc.) from `metrics.py`. If a metric is computed but has no field in the dataclass, the FM1 guard raises. This means new metrics require coordinated updates to both `metric_catalog.py` and `metrics.py`.
 
 ---
