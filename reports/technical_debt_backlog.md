@@ -85,3 +85,23 @@ A major finding from Phase 2 (Adversarial Testing) is the EM's fragility when en
 *   **Description:** Several metrics are declared but raise `NotImplementedError` or are not yet implemented (e.g., `SD`, `pEMDiv`, `Variogram`, `Brier`, `Jeffreys`).
 *   **Impact:** Limits the comprehensiveness of the evaluation framework.
 *   **Recommendation:** Prioritize the implementation of these metrics based on user needs, ensuring each implementation is accompanied by rigorous "Golden Dataset" tests (Phase 3).
+
+---
+
+## 5. Demoted from the Risk Register (2026-06-26 strategic review)
+
+Tier-4 items with no correctness/reliability dimension — moved here from `reports/technical_risk_register.md` so the register carries signal, not cleanup tickets.
+
+### 5.1. Stale docstring references deleted `EvaluationManager` validator (was C-21)
+
+*   **Source:** `views_evaluation/evaluation/config_schema.py:17`
+*   **Description:** The docstring states "Downstream validators (`EvaluationManager._validate_config`) enforce required-key semantics at runtime." `EvaluationManager` was removed in Phase 3, so no such validator exists; config validation is genuinely unowned (the functional gap is tracked as risk **C-02**).
+*   **Impact:** A reader following the docstring to find runtime config validation hits a dead reference.
+*   **Recommendation:** Update the docstring to state that no runtime config validator currently exists. (The real risk — unowned validation — stays in the register as C-02.)
+
+### 5.2. Vestigial empty `adapters` package (was C-23)
+
+*   **Source:** `views_evaluation/adapters/__init__.py` (empty, 0 lines)
+*   **Description:** Leftover of the removed Pandas-adapter design (`PandasAdapter`/`adapters.pandas`). Nothing imports it; dead structure that implies an adapter layer that no longer exists.
+*   **Impact:** Misleads readers auditing the Phase-3/4 migration for completeness.
+*   **Recommendation:** Remove the empty package, or add a module docstring stating the adapter layer was intentionally removed.
