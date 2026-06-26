@@ -216,4 +216,9 @@ cython_debug/
 # logs
 *.log
 *.log.*
-reports/
+
+# reports/ is tracked by default (engineering reports, risk register, post-mortems —
+# audited 2026-06-26: no secrets). Put secret-prone / non-public material under
+# reports/private/, which stays ignored (its README is tracked to document the convention).
+reports/private/*
+!reports/private/README.md
