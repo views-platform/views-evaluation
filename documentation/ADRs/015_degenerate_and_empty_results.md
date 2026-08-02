@@ -83,7 +83,7 @@ Each path enumerated in the Context is ruled on individually below. These ruling
 | 4 | Unknown / misspelled config key | **Raise at construction** | Direct application of the rule |
 | 5 | Missing `steps` config key | **Raise at construction** | Direct application of the rule |
 | 6 | Zero-row `to_metric_frame()` emit | **Raise at emit** | Direct application of the rule |
-| 7 | `legacy_compatibility` truncating requested steps | **Raise** | See R7 |
+| 7 | `legacy_compatibility` truncating requested steps | **Omit the key** (revised) | ⚠ Reversed 2026-08-02; see R7 |
 | 8 | `Ignorance` observation outside the bin range | **Raise**, both tails | See R8 |
 
 ---
@@ -108,9 +108,38 @@ This leaves `MCR` and `Pearson` in the **same** category for the **same** stated
 
 **R3 — `MetricFrame` keeps permitting `NaN`.** This is a container invariant, not a computation. `MetricFrame.load()` must faithfully reconstruct whatever `save()` wrote, including historical frames; and the cross-group aggregate row deliberately carries `nanmean` semantics. Forbidding `NaN` in the container would break the round-trip and change a published cross-repo envelope that views-reporting already consumes, without preventing a single silent failure — because the failures are prevented at the *emit* site (ruling 6) where the context to diagnose them exists. Criterion 4 governs: the distinction is preserved upstream, so the container need not police it.
 
-**R7 — Truncation of *requested* steps raises.** `legacy_compatibility=True` exists to reproduce historic zip-truncation for parity, which is a legitimate opt-in. The defect is not truncation; it is that truncated steps are returned as **empty dicts** rather than omitted. Verified 2026-08-02: with `config['steps'] = [1,2,3,4,5]` and a shortest origin of 3, the report contains `step04: {}` and `step05: {}`. Those keys were **explicitly requested by the caller** and come back looking evaluated while emitting no MetricFrame rows — the same pattern that makes ruling 4 a Tier-1 concern.
+**R7 — Truncated steps are OMITTED, not raised on.** ⚠ **This ruling was reversed on 2026-08-02**, two rulings in this ADR having now been reversed for the same underlying reason. Both versions are recorded.
 
-The caller's `config['steps']` is a request list, not a hint. Silently not fulfilling it is a contract violation regardless of which flag was set. If truncation is wanted, the caller must not request the steps it does not want scored.
+*Original ruling (wrong):* raise. `legacy_compatibility=True` returned truncated steps as **empty placeholder dicts** — present in the report, looking evaluated, scoring nothing, emitting no MetricFrame rows. Since `config['steps']` is a request list rather than a hint, silently not fulfilling it was judged a contract violation regardless of the flag.
+
+*Why it was wrong:* the defect was real, but the remedy attacked the wrong thing. **`legacy_compatibility=True` is itself an explicit request to truncate** — its entire documented purpose is "cap step-wise evaluation at the shortest sequence". Raising because the caller *also* listed the steps treats one explicit instruction as a violation of another. The caller is not being silently denied; they asked for exactly this.
+
+*What made the error concrete:* `views-pipeline-core` has one evaluation call path, and it passes both together unconditionally (`managers/evaluation/stage.py`):
+
+```python
+# legacy_compatibility=True preserves step-wise truncation to shortest
+# sequence, matching the deleted EvaluationManager wrapper (C-29).
+report = evaluator.evaluate(ef=ef, legacy_compatibility=True)
+```
+
+Every views-models config sets `steps = list(range(1, 37))`, so a caller whose sequences are unequal asks for 36 steps while the shortest supplies fewer — and the call raised.
+
+**How often that happens, derived from the real partition arithmetic (2026-08-02):**
+
+`base_origin = test[0] - 1`; sequence *i* spans months `base+i+1 … base+i+36`, intersected against the test window. `core_config_sniffer` *enforces* `test_len == time_steps + MAX_SHIFT_COUNT` = 36 + 12 = **48 months**, and `MAX_SHIFT_COUNT = 12` gives **13 sequences**. Sequence 12 ends exactly on the last actual, so all 13 are full length.
+
+| eval_type | sequences | truncates? |
+|---|---|---|
+| `standard` (default), `live` | 13 | **No** — equal lengths. Checked across all 128 models × 2 run types: **0 of 256** |
+| `long` | 37 | Yes — shortest sequence is 12, so 24 of 36 steps drop. **256 of 256** |
+
+`eval_type=long` appears nowhere outside pipeline-core's own arg-parser tests.
+
+**So the raise was latent, not live.** An earlier version of this ADR stated it broke "every model in the platform, deterministically" — that was **wrong**, asserted from a fabricated unequal-sequence fixture rather than derived from the partition configs. Corrected here. The ruling is still reversed, for the reason below, which does not depend on frequency.
+
+*Corrected ruling:* a step that truncation or the data cannot supply is **omitted from the report**. This fixes the original C-20 defect — an absent key cannot masquerade as an evaluated one — without breaking the caller. Applies with the flag off too: a configured step with no data is omitted rather than emitted empty. Confirmed compatible with the consumer: `log_wandb_log_dict` iterates `step_wise.keys()` and assumes no fixed step set.
+
+*The lesson, generalised:* this ADR's exception test asks whether a degenerate case is a **fault or a data property**. Ruling 7 failed a prior question — *whose* fault. Before ruling that something must raise, identify who is being told off and whether they actually did anything wrong. Here the caller had followed the documented contract exactly.
 
 **R8 — `Ignorance` raises on out-of-range observations.** An observation outside the configured bins means the profile's `bins` do not fit the target. Two alternatives were considered and rejected under the doctrine: **clamping** into the edge bins is a silent fix that redefines the metric precisely at the tails, where conflict data matters most; **widening the base profile's ceiling** is a magic number that relocates the cliff without removing it and does nothing for the underflow. The configuration is wrong and must be corrected by the researcher.
 
@@ -163,6 +192,8 @@ Rejected on constitutional grounds, not preference. ADR-013 forbids downgrading 
 
 - Every ruling that changes behaviour carries a **Red** test per ADR-020.
 - The suite must finish with **zero warnings**. A `ConstantInputWarning` reaching the runner means a degenerate case is being *encountered* rather than *contracted*; under ruling 2 it is suppressed at the call site precisely because it is handled.
+- **Before ruling that a degenerate case must raise, identify WHOSE fault it is.** A raise tells the caller they did something wrong. If the caller followed the documented contract — or if the behaviour they are being blamed for is one they explicitly requested — the fault is not theirs and the raise is wrong. Ruling 7 was reversed on exactly this point: it raised at a caller who had asked for truncation, for truncating.
+- **Execute the real caller's path, not a reconstruction of it.** Both reversals in this ADR were found by running an actual consumer call, never by this repo's test suite. Ruling 7 was reviewed, tested, and merged before a falsification audit ran `views-pipeline-core`'s exact invocation. See register C-33 / C-35.
 - **Before ruling that a degenerate case must raise, identify the blast radius.** Rulings here apply per-metric per-group, but a raise propagates to the whole `evaluate()` call — every metric, every schema. Ruling 2 was reversed on exactly this point. Ask what legitimate workflow the raise makes impossible, and check it against a real one (for ruling 2, it was baseline comparison per ADR-041).
 - Intent Contracts (ADR-021) must record each new failure mode; a documentation-contract test enforces that they stay in step.
 - Sentinels permitted under this ADR must retain their asserting tests. Deleting such a test is a violation of criterion 3, not a test-cleanup decision.

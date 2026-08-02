@@ -1,7 +1,7 @@
 # Technical Risk Register — views-evaluation
 
 **Last updated:** 2026-08-02
-**Total open concerns:** 9
+**Total open concerns:** 10
 **Governing ADR:** ADR-023
 **Citation convention:** `Location` fields name files and symbols (functions, classes, sections), not line numbers — line numbers drift as soon as anything is inserted above them.
 
@@ -32,6 +32,17 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 
 ## Open Concerns
 
+### C-35 — Nothing in CI exercises a real consumer's call path
+- **Tier:** 2 (High)
+- **Description:** Nothing in this repo's CI exercises a real consumer's call path, so changes are verified against artifacts chosen here rather than against how the library is actually invoked. Demonstrated twice in one epic, and the second demonstration is the sharper one because it cut both ways. **(a)** A blanket unknown-config-key rejection *would* have broken every model in the platform — pipeline-core passes its whole combined model config, 17 foreign keys on a real config — caught only by reading pipeline-core, never by any test (C-33). **(b)** ADR-015 ruling 7 made `legacy_compatibility=True` raise on truncation; 356 tests, `ruff`, `validate_docs.sh` and a multi-agent code review all passed, and a falsification audit then reported it as breaking every model **on the strength of a fabricated unequal-sequence fixture**. Deriving the real partition arithmetic afterwards showed the opposite: `core_config_sniffer` enforces a 48-month window giving 13 equal-length sequences, so the default path truncates in **0 of 256** (model, run_type) combinations. The raise was latent — reachable only via `eval_type=long`, which is used nowhere outside pipeline-core's arg-parser tests. So the same missing capability produced a false negative *and* a false positive: without a real caller path, neither the danger nor the safety could be established, and the error was the same each time — validate the interface, infer the behaviour, never run the caller.
+- **Trigger:** When any change alters the behaviour of `NativeEvaluator.evaluate`, `EvaluationFrame.__init__`, or `EvaluationReport`'s emit methods, and is verified only against this repo's own tests. Nothing here fails, and the breakage surfaces downstream — or in production.
+- **Location:** `tests/` (no consumer-path fixture); `.github/workflows/run_pytest.yml` (no downstream integration job); `views_pipeline_core/managers/evaluation/stage.py` (the unexercised caller)
+- **Source:** falsification audit (2026-08-02), after the audit falsified "ready to merge to main"
+- **Mitigation path:** `tests/test_falsification_legacy_compatibility.py` now pins pipeline-core's exact invocation, and `TestCombinedConfigTolerance` pins its real combined config — two consumer-shaped fixtures, added reactively after each incident. The systemic fix is either a consumer-contract test module maintained deliberately (a small set of fixtures reproducing each real call site, reviewed when the consumer changes), or a cross-repo CI job that runs pipeline-core's evaluation stage against this branch. The reactive fixtures do not generalise: they cover the two paths that already broke.
+- **Note:** ADR-015's Validation & Monitoring section gained a standing rule from this — *execute the real caller's path, not a reconstruction of it*. Related to C-33 (the config half) and C-24 (the emit half). Both reversals in ADR-015 (rulings 2 and 7) were found by running a real workflow, never by the suite.
+
+---
+
 ### C-05 — sklearn/scipy in pure-math core
 - **Tier:** 3 (Medium)
 - **Description:** `native_metric_calculators.py` imports `sklearn.metrics` and `scipy.stats` at module level. Only 4 metric functions use these (AP, EMD, Pearson, MTD). This contradicts the zero-external-dep goal for Level 0 (ADR-011).
@@ -50,7 +61,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Location:** `views_evaluation/evaluation/native_evaluator.py` — the step-wise grouping block in `evaluate()`; `documentation/ADRs/040_evaluation_input_schema.md` (the documented convention); `documentation/CICs/EvaluationFrame.md` §8
 - **Source:** repo-assimilation (2026-06-24); scope reduced 2026-08-02 after #37 closed the truncation half
 - **Mitigation path:** This is a **cross-repo contract decision**, not a local fix — the producer of `step` lives in views-pipeline-core. Options: validate at the `EvaluationFrame` boundary that each origin's steps form a contiguous 1..n run; or record the convention as an explicit disagreement entry (D-xx) and accept it. Coordinate with pipeline-core before choosing.
-- **Note:** The **silent-truncation half of this entry was resolved on 2026-08-02** (#37, ADR-015 ruling 7): `legacy_compatibility=True` now raises if truncation would drop a step that `config['steps']` explicitly requested, instead of returning it as an empty placeholder dict. Only the semantics half above remains open. This entry is no longer part of causal cluster A.
+- **Note:** The **empty-placeholder half of this entry was resolved on 2026-08-02** (#37, ADR-015 ruling 7): a step that truncation or the data cannot supply is now **omitted** from the step-wise report rather than returned as an empty dict that looks evaluated. It was briefly implemented as a *raise*, which would have failed pipeline-core's evaluation call path whenever sequences are unequal — reachable only via `eval_type=long` (0 of 256 default-path combinations; see C-35 for the arithmetic). Reversed the same day. Only the positional-`step` semantics half above remains open. This entry is no longer part of causal cluster A.
 
 ---
 
