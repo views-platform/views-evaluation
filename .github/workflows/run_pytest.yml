@@ -30,7 +30,14 @@ jobs:
 
     - name: Install dependencies
       run: |
-        poetry install 
+        # --all-extras is REQUIRED, not tidiness. `views-frames` and `pandas` are
+        # optional extras, and tests/test_metric_frame.py (44 tests) and
+        # tests/test_evaluation_report.py (22 tests) both guard with a MODULE-LEVEL
+        # pytest.importorskip. Without the extras those files are skipped whole and
+        # CI reports a green "293 passed" that never touched the MetricFrame
+        # cross-repo contract (ADR-022 §1). Guarded by
+        # tests/test_falsification_ci_coverage_gap.py.
+        poetry install --all-extras
 
     - name: Run tests
       run: |
