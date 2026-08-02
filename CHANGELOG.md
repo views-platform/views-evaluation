@@ -13,6 +13,36 @@ while `0.x`, breaking changes may ship in a MINOR bump, but must still be announ
 
 ---
 
+## [Unreleased]
+
+### Changed — breaking for the `frames` extra
+
+- **`views-frames` floor raised from `^1.4` to `>=1.10.2,<2`.** This aligns
+  views-evaluation with `views-pipeline-core`, which already pins `^1.10.2`, so the
+  platform resolves one `views-frames` rather than negotiating a range.
+  *Migration:* if you install the `frames` extra, upgrade `views-frames` to at least
+  1.10.2. Anyone on 1.4–1.10.1 must move; the core package (no extra) is unaffected.
+  Recorded here per ADR-022 §3.1 — narrowing an accepted dependency range is a breaking
+  change for the resolvers it excludes, even though no API changed.
+
+### Fixed — CI was not testing the cross-repo contract
+
+- **CI now runs `poetry install --all-extras`.** It ran a bare `poetry install`, which
+  installs no optional dependencies, and both `tests/test_metric_frame.py` (44 tests) and
+  `tests/test_evaluation_report.py` (22 tests) guard with a **module-level**
+  `pytest.importorskip`. Both files were therefore skipped whole on every pull request:
+  361 tests pass locally, 293 ran in CI. The 68-test gap included every guard on
+  `MetricFrame`, which ADR-022 §1 designates a cross-repo contract and public API
+  "regardless of `__all__`" — and the emit path its consumers depend on.
+
+  The skip was silent by construction: a green run reporting "293 passed" was
+  indistinguishable from one that verified the contract. Every "CI green" claim made
+  while shipping 0.5.0 was true and meant less than it appeared to. Guarded against
+  recurrence by `tests/test_falsification_ci_coverage_gap.py`, which derives the required
+  extras from `pyproject.toml` rather than hardcoding them.
+
+---
+
 ## [0.5.0] — 2026-08-02
 
 The Fail-Loud Doctrine release. Paths that previously returned a value for input the
