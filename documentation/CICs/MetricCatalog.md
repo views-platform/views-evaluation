@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-04-04  
+**Last reviewed:** 2026-08-02  
 **Related ADRs:** ADR-042 (Metric Catalog), ADR-012 (Authority), ADR-013 (Observability)
 
 ---
@@ -42,6 +42,21 @@ A genome registry and Chain of Responsibility resolver for evaluation metric hyp
   - `profile` is a named evaluation profile dict (e.g. `BASE_PROFILE`).
 - **Metric functions:** Each function referenced by a `MetricSpec` must accept `(y_true, y_pred, **resolved_params)`.
 - **Genome completeness:** All hyperparameters required by a metric function must be declared in the spec's `genome` tuple.
+- **Genome honesty (converse):** Every parameter declared in a `genome` must actually be *consumed* by its function, **or be an explicitly documented reserved placeholder**. A declared-but-inert parameter that is *not* documented as such is a contract violation — it presents as a tuning knob that changes nothing, and will mislead the next person who tries to use it. Added 2026-08-02 (C-28b).
+
+  **Currently one documented exception exists:**
+
+  | Metric | Inert params | Status |
+  |---|---|---|
+  | `Ignorance` | `low_bin`, `high_bin` | **Reserved placeholders.** `np.histogram_bin_edges` ignores `range=` whenever `bins` is a sequence, which it always is in shipped profiles. Retained deliberately for planned work, **not** because they function. |
+
+  A reserved placeholder must carry **all** of:
+  1. A status block in the metric function's docstring stating plainly that it has no effect, why, and what it must conform to if activated.
+  2. Warnings at every site that supplies it — the `MetricSpec` and every profile entry — so nobody encounters the value without the caveat.
+  3. Tests pinning the *current* inert status, so activation or deletion both break a test and force the decision to be recorded rather than drift in silently (`tests/test_metric_catalog.py::TestIgnoranceReservedPlaceholders`).
+  4. An open risk-register entry (C-28) carrying the use-it-or-lose-it decision.
+
+  **A placeholder that loses any of those four stops being a placeholder and becomes dead configuration — delete it.**
 
 ---
 
@@ -64,6 +79,22 @@ A genome registry and Chain of Responsibility resolver for evaluation metric hyp
 - `ValueError` if `lower_quantile >= upper_quantile` for metrics requiring both (e.g. QIS).
 
 All failures are immediate and explicit. No warnings, no fallbacks, no silent degradation.
+
+### Degenerate-input semantics of dispatched metrics (ADR-015)
+
+The catalog dispatches to metric kernels whose degenerate-input behaviour is ruled on individually by ADR-015. A metric may return a value for degenerate input **only** where that value is genuinely the answer — documented, tested, and distinguishable:
+
+| Metric | Degenerate input | Behaviour |
+|---|---|---|
+| `MCR_point` / `MCR_sample` | `mean(y_true) == 0` | **Documented sentinel** — `inf` if `mean(y_pred) > 0`, `nan` if both are 0. A zero-truth group is a property of conflict data, not a fault. |
+| `Pearson` | either series constant | **Documented sentinel** — `nan`. Same category as `MCR`: a constant series is a fact about the data (or, for a constant prediction series, a finding about the model — it is a baseline), not a broken invariant (C-22). |
+| `Ignorance` | observation outside the configured `bins` | **Raises**, naming the value and the range. Here the *configuration* is wrong — the profile's bins do not cover the target's domain — so this is a fault, not a data property (C-27, C-28a). |
+
+The dividing line is **fault vs data property**, not whether the returned number "is an answer". `MCR` and `Pearson` sit together because both degenerate cases are caused by data with no variation; `Ignorance` is separate because a mis-scoped bin range is a configuration error.
+
+A raise here propagates to the entire `evaluate()` call — every metric, every schema. Before ruling that a degenerate case must raise, check which legitimate workflow that makes impossible. Ruling on `Pearson` was reversed on exactly this point: it aborted any evaluation of a constant baseline, which ADR-041 requires as routine.
+
+Deleting a test that asserts a permitted sentinel violates ADR-015 criterion 3 — it is not a test-cleanup decision.
 
 ---
 

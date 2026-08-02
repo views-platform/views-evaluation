@@ -125,7 +125,19 @@ The following must be logged:
 * Configuration summaries
 * All structural failures
 
-> **Scope note:** Level 0 pure-math classes (`EvaluationFrame`, `NativeEvaluator`, `EvaluationReport`) rely on exception propagation per ADR-013 and do not maintain their own loggers. Logging responsibility for these components sits at the orchestration layer (e.g. calling code in `views-pipeline-core` or equivalent orchestrators).
+> **Scope note (revised 2026-08-02):** logging responsibility in this repository splits by architectural level (ADR-011). The split is stated positively below so it cannot be re-derived by guesswork as new components are added — the previous wording named three classes and predated `MetricFrame`, which left Level 1 uncovered by omission rather than by decision.
+>
+> **Level 0 — exempt. Must NOT maintain loggers.**
+> `evaluation_frame.py`, `native_evaluator.py`, `evaluation_report.py`, `metric_catalog.py`, `native_metric_calculators.py`.
+> These are pure math and pure registry. They compute and validate; they do not act on the world. They rely on exception propagation per ADR-013, and logging responsibility sits at the orchestration layer (e.g. `views-pipeline-core`). Adding a logger here is a violation, not an improvement: it would duplicate what the orchestrator already records and put I/O in the numeric core.
+>
+> **Level 1 — must log at `ERROR` before raising.**
+> `metric_frame.py`, and the `EvaluationReport.to_metric_frame()` emit path.
+> These produce the **evaluation-of-record**: a persisted, cross-repo audit artifact written to disk by `MetricFrame.save()`. There is no orchestrator between this code and the filesystem, and a failure here means an audit record was not written or was written wrong. That must leave a trace independent of whether the caller catches the exception.
+>
+> **The `to_metric_frame()` exception.** The emit path's `ImportError` guard physically resides in `evaluation_report.py`, a Level-0 file. It logs anyway, because logging follows the **emit path**, not the file. This is deliberate and is not a precedent for logging elsewhere in that module — no other raise in `evaluation_report.py` logs.
+>
+> **Rule for new components:** a component logs if it performs or persists an observable external effect. If it only computes a value and hands it back, it does not.
 
 ### 5.2 Optional Logging
 

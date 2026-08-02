@@ -59,6 +59,51 @@ class TestResolveMetricParamsGreen:
         assert result["low_bin"] == 0
         assert result["high_bin"] == 10000
 
+
+class TestIgnoranceReservedPlaceholders:
+    """`low_bin`/`high_bin` are RESERVED PLACEHOLDERS with no effect (C-28b).
+
+    Retained deliberately for planned work. These tests pin the *current* status so it
+    cannot drift silently in either direction: if someone activates them, the inertness
+    test fails and forces the conformance spec to be met; if someone deletes them, the
+    genome test fails and forces the decision to be recorded.
+
+    Activation spec: see the status block in ``calculate_ignorance_score_native``.
+    """
+
+    def test_placeholders_are_still_declared_in_the_genome(self):
+        """Deleting them is a decision, not a tidy-up — it must break a test first."""
+        assert METRIC_CATALOG["Ignorance"].genome == ("bins", "low_bin", "high_bin")
+
+    def test_placeholders_are_still_required_by_the_resolver(self):
+        """They are inert, but not optional — a profile omitting them still fails loud."""
+        profile = {"Ignorance": {"bins": [0, 1, 2]}}
+        with pytest.raises(ValueError, match="requires parameter"):
+            resolve_metric_params("Ignorance", {}, profile)
+
+    def test_placeholders_currently_have_no_effect_on_the_result(self):
+        """The inertness itself, pinned.
+
+        If this test ever fails, `low_bin`/`high_bin` have become live — at which point
+        the conformance spec in the kernel docstring applies, and this test should be
+        replaced by one asserting what they actually do.
+        """
+        from views_evaluation.evaluation.native_metric_calculators import (
+            calculate_ignorance_score_native,
+        )
+        y_true = np.array([3.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        bins = [0, 0.5, 2.5, 5.5, 10.5]
+        wide = calculate_ignorance_score_native(y_true, y_pred, bins=bins,
+                                                low_bin=0, high_bin=10000)
+        narrow = calculate_ignorance_score_native(y_true, y_pred, bins=bins,
+                                                  low_bin=0, high_bin=1)
+        assert wide == narrow, (
+            "low_bin/high_bin changed the result — they are no longer inert. Meet the "
+            "conformance spec in calculate_ignorance_score_native's docstring and "
+            "replace this test."
+        )
+
     def test_coverage_resolves_from_profile(self):
         """Coverage alpha resolves from base profile."""
         result = resolve_metric_params("Coverage", {}, BASE_PROFILE)

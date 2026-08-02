@@ -28,6 +28,7 @@ Importing this module requires the optional ``views-frames`` dependency
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -35,6 +36,10 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 
 from views_frames import FrameMetadata
+
+# Level-1 component: logs at ERROR before raising (logging standard §5.1).
+# The Level-0 pure-math modules are exempt and must NOT acquire loggers.
+logger = logging.getLogger(__name__)
 
 # ── Vocabulary authority ────────────────────────────────────────────────────────
 # The single mapping from views-evaluation's internal schema names to the
@@ -65,7 +70,9 @@ def _json_default(obj: Any) -> Any:
         return float(obj)
     if isinstance(obj, np.bool_):
         return bool(obj)
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+    err_msg = f"Object of type {type(obj).__name__} is not JSON serializable"
+    logger.error(err_msg)
+    raise TypeError(err_msg)
 
 
 def default_scoring_code_version() -> Optional[str]:
@@ -144,33 +151,45 @@ class MetricFrame:
     def _validate(values: np.ndarray, identifiers: Dict[str, np.ndarray]) -> None:
         # ADR-013 fail-loud: structural envelope guarantees, checked at construction.
         if not isinstance(values, np.ndarray):
-            raise ValueError(f"values must be a numpy array, got {type(values).__name__}")
+            err_msg = f"values must be a numpy array, got {type(values).__name__}"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         if values.dtype != np.float32:
-            raise ValueError(f"values must be float32, got {values.dtype}")
+            err_msg = f"values must be float32, got {values.dtype}"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         if values.ndim != 2:
-            raise ValueError(
+            err_msg = (
                 f"values must be 2D (N, 1) with an explicit trailing axis, got {values.ndim}D "
                 f"with shape {values.shape}"
             )
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
         n_rows = values.shape[0]
         missing = set(AXES) - set(identifiers.keys())
         if missing:
-            raise ValueError(
+            err_msg = (
                 f"MetricFrame identifiers missing required axes: {sorted(missing)}. "
                 f"Required: {list(AXES)}"
             )
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         for key in AXES:
             arr = identifiers[key]
             if getattr(arr, "ndim", None) != 1:
-                raise ValueError(
+                err_msg = (
                     f"Identifier '{key}' must be a 1D array, got "
                     f"{getattr(arr, 'ndim', '?')}D with shape {getattr(arr, 'shape', '?')}"
                 )
+                logger.error(err_msg)
+                raise ValueError(err_msg)
             if len(arr) != n_rows:
-                raise ValueError(
+                err_msg = (
                     f"Identifier '{key}' length ({len(arr)}) mismatch values rows ({n_rows})"
                 )
+                logger.error(err_msg)
+                raise ValueError(err_msg)
 
     @property
     def n_rows(self) -> int:

@@ -128,10 +128,16 @@ class EvaluationReport:
         # genuine import errors inside numpy/metric_frame then propagate loudly (not masked).
         import importlib.util
         if importlib.util.find_spec("views_frames") is None:
-            raise ImportError(
+            # Level-1 emit path: logs before raising even though this guard physically
+            # resides in a Level-0 file. Logging follows the emit path, not the file
+            # (logging standard §5.1). No other raise in this module logs.
+            import logging
+            err_msg = (
                 "EvaluationReport.to_metric_frame() requires the optional 'views-frames' "
                 "dependency. Install it with: pip install views-evaluation[frames]"
             )
+            logging.getLogger("views_evaluation.evaluation.metric_frame").error(err_msg)
+            raise ImportError(err_msg)
         import numpy as np
         from views_frames import FrameMetadata
         from views_evaluation.evaluation.metric_frame import (
@@ -184,6 +190,27 @@ class EvaluationReport:
                 arr = np.asarray(metric_values[metric], dtype=np.float64)
                 mean = float("nan") if np.all(np.isnan(arr)) else float(np.nanmean(arr))
                 _emit(eval_type, metric, MEAN_GROUP_ID, mean)
+
+        # ADR-015 ruling 6: an empty emit produces a structurally valid zero-row
+        # MetricFrame that passes every envelope check and persists to disk as a
+        # legitimate audit artifact — indistinguishable from a real one, and rendering
+        # downstream as "not calculated" exactly like a genuine metric failure.
+        # The evaluation-of-record must never record nothing while looking complete.
+        if not values:
+            present = sorted(k for k, v in self._results.items() if v)
+            empty = sorted(k for k, v in self._results.items() if not v)
+            err_msg = (
+                f"to_metric_frame() produced no rows — the report contains no metric "
+                f"values for any schema, so the emitted evaluation-of-record would be "
+                f"empty. Target='{self.target}', task='{self.task}', "
+                f"pred_type='{self.pred_type}'. Schemas with groups but no metric "
+                f"values: {present or 'none'}; schemas with no groups: {empty or 'none'}. "
+                f"This usually means the evaluator was misconfigured."
+            )
+            # Level-1 emit path: log before raising (logging standard §5.1).
+            import logging
+            logging.getLogger("views_evaluation.evaluation.metric_frame").error(err_msg)
+            raise ValueError(err_msg)
 
         values_arr = np.asarray(values, dtype=np.float32).reshape(-1, 1)
         identifiers = {axis: np.asarray(columns[axis], dtype=str) for axis in AXES}
