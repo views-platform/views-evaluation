@@ -97,6 +97,11 @@ class TestCiRunsTheContractTests:
         # Which optional packages does the suite import-skip on?
         skipped_on = set()
         for test in (REPO_ROOT / "tests").glob("*.py"):
+            # Skip this file: its own docstring quotes `importorskip("views_frames")` as
+            # prose, which would seed `skipped_on` even if no real test import-skipped —
+            # weakening the "derived, not hardcoded" claim it makes.
+            if test.resolve() == Path(__file__).resolve():
+                continue
             for m in re.finditer(
                 r'importorskip\(\s*[\'"]([\w.]+)[\'"]', test.read_text()
             ):
@@ -120,7 +125,13 @@ class TestCiRunsTheContractTests:
             "check is obsolete, but verify before deleting it"
         )
 
-        workflow = WORKFLOW.read_text()
+        # Comments stripped first: a comment mentioning `poetry install` before the real
+        # command matched instead of it, producing a false alarm. The sibling guard was
+        # fixed for this; this one was not.
+        workflow = "\n".join(
+            line for line in WORKFLOW.read_text().splitlines()
+            if not line.strip().startswith("#")
+        )
         install = re.search(r"poetry install[^\n]*", workflow)
         assert install, "no `poetry install` step found in run_pytest.yml"
         install_cmd = install.group()

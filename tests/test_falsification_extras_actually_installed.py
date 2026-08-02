@@ -1,40 +1,27 @@
-"""FAILING TEST — falsification audit round 3, 2026-08-02.
+"""Guard: CI must PROVE the optional extras arrived, not merely request them.
 
-Claim under audit: "it is safe to shut down this session." **FALSIFIED.**
+Written as a failing test by falsification round 3 (2026-08-02), kept as a permanent
+guard once `run_pytest.yml` gained an explicit verification step.
 
-The fix for the CI coverage gap is verified one level away from the thing that matters.
+The defect it caught: `test_falsification_ci_coverage_gap.py` asserts that
+`--all-extras` appears in the workflow. That proves intent, not effect. `poetry install`
+exits 0 even when it resolves without an optional package, and every downstream guard is
+a module-level `pytest.importorskip` that turns absence into silence — so the 67
+extras-gated tests could go dark again while the guard against that stayed green. A check
+that reads a config file can only prove intent; proving effect requires asserting against
+the run.
 
-`tests/test_falsification_ci_coverage_gap.py` asserts that the string `--all-extras`
-appears in `run_pytest.yml`. That is not the same as asserting the extras were
-**installed**, and it is certainly not the same as asserting the 66 optional-dependency
-tests **ran**.
+**This guard has itself been defeated twice**, which is why it is as strict as it is.
+Round one accepted any line containing the package names — an `echo`, a step `name:`, a
+trailing comment, `|| true`. Round two still accepted `continue-on-error: true` (the
+GitHub-native `|| true`), `|| echo skip`, `set +o errexit`, `if ! ...; then true; fi`, a
+backgrounded command, a second verifying step placed *after* pytest, and a verify step in
+a different job entirely. It now requires a single step, in the same job as install and
+pytest and ordered between them, that actually executes a `python -c` import of every
+extra-provided package with its exit status intact.
 
-The failure mode it leaves open is the original one, unchanged:
-
-    poetry install --all-extras        # partially fails, or resolves without views-frames
-    poetry run pytest tests/           # test_metric_frame.py + test_evaluation_report.py
-                                       #   silently skip via module-level importorskip
-    -> CI reports "295 passed" and goes green
-    -> test_falsification_ci_coverage_gap.py still PASSES, because the yml text is intact
-
-`set -e` does not help: it guards the `pytest` step, and a `poetry install` that resolves
-successfully without an optional package is not a non-zero exit. The whole defect this
-session spent a round finding — a green CI run that never touched the `MetricFrame`
-cross-repo contract — can therefore recur with the guard in place and green.
-
-This is register C-37's shape at one further remove: the guard on the guard is vacuous.
-A check that reads a config file can only prove intent. Proving effect requires asserting
-against the run.
-
-Fix: add an explicit post-install verification step to `run_pytest.yml` that imports every
-extra-provided package and exits non-zero if any is missing, e.g.
-
-    - name: Verify optional extras are installed
-      run: poetry run python -c "import views_frames, pandas"
-
-so a failed or incomplete extras install stops CI at that step instead of quietly
-shrinking the suite. This test is expected to FAIL until such a step exists. Do not "fix"
-it by relaxing the assertion.
+Do not "fix" a failure here by relaxing the assertion: it means real coverage has gone
+dark, or the proof that it has not is no longer a proof.
 """
 import re
 from pathlib import Path
@@ -97,6 +84,44 @@ def _extra_provided_imports():
     return names
 
 
+def _strip_comment(s):
+    """Drop a trailing YAML/shell comment, ignoring `#` inside quotes.
+
+    `run: python -c "print(1)"  # import views_frames, pandas` is a comment in YAML, but
+    an earlier version of this guard read the whole line and counted the comment as the
+    command.
+    """
+    out, quote = [], None
+    for i, ch in enumerate(s):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#" and (i == 0 or s[i - 1].isspace()):
+            break
+        out.append(ch)
+    return "".join(out).rstrip()
+
+
+def _commands(run):
+    """Executable command lines from a run block, with inert ones dropped.
+
+    `echo 'python -c "import views_frames, pandas"'` prints a command; it does not run
+    one. Matching the text of a command anywhere in the step counted that as proof.
+    """
+    cmds = []
+    for line in run.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        for part in re.split(r"&&|;", line):
+            part = part.strip()
+            if part and not re.match(r"^(echo|printf|:)\b", part):
+                cmds.append(part)
+    return cmds
+
+
 def _workflow_steps(text):
     r"""[{'name':..., 'run':...}] for each `- name:` step, in file order.
 
@@ -112,6 +137,7 @@ def _workflow_steps(text):
     this guard could be satisfied by text that never executed.
     """
     steps, current, run_lines, in_block, block_indent = [], None, [], False, None
+    job = None
 
     def _flush():
         if current is not None:
@@ -120,10 +146,16 @@ def _workflow_steps(text):
 
     for raw in text.splitlines():
         stripped = raw.strip()
+        m_job = re.match(r"^  (\w[\w-]*):\s*$", raw)
+        if m_job and m_job.group(1) not in ("steps",):
+            job = m_job.group(1)
+        if current is not None and re.match(r"^\s*continue-on-error:\s*true\s*$", raw):
+            current["continue_on_error"] = True
         m_step = re.match(r"^(\s*)-\s+name:\s*(.*)$", raw)
         if m_step:
             _flush()
-            current, run_lines, in_block = {"name": m_step.group(2).strip()}, [], False
+            current, run_lines, in_block = (
+                {"name": m_step.group(2).strip(), "job": job, "continue_on_error": False}, [], False)
             continue
         if current is None:
             continue
@@ -132,7 +164,7 @@ def _workflow_steps(text):
             in_block = bool(m_run.group(2))
             block_indent = None
             if m_run.group(3):
-                run_lines.append(m_run.group(3))
+                run_lines.append(_strip_comment(m_run.group(3)))
             continue
         if in_block and stripped:
             indent = len(raw) - len(raw.lstrip())
@@ -140,7 +172,9 @@ def _workflow_steps(text):
                 block_indent = indent
             if indent >= block_indent:
                 if not stripped.startswith("#"):
-                    run_lines.append(stripped)
+                    # Strip trailing comments too: `python -c "print(1)"  # import pandas`
+                    # passed the first version of this guard.
+                    run_lines.append(_strip_comment(stripped))
                 continue
             in_block = False
     _flush()
@@ -176,21 +210,41 @@ class TestCiProvesExtrasWereInstalled:
         # the standard "unbreak the flaky step" edit, and it leaves the guard green
         # while disabling the check entirely. That is register C-37's vacuity shape
         # reproduced inside the test written to close it.
+        # Every way an executed command's failure can be prevented from failing the job.
+        # Each was confirmed to defeat an earlier version of this guard.
+        SUPPRESSED = (
+            r"\|\|",                 # `|| true`, `|| :`, `|| echo skip` — any fallback
+            r"^\s*set \+(e|o\s+errexit)",   # errexit disabled
+            r"^\s*if\s|;\s*then\b",  # wrapped in a conditional that swallows status
+            r"&\s*$",                 # backgrounded
+            r";\s*exit\s+0",          # status discarded
+        )
+
         def _verified_by(step):
             run = step["run"]
-            if "pytest" in run or not re.search(r"python\b.*-c", run):
+            if step.get("continue_on_error"):
+                return set()  # GitHub-native `|| true`: the step cannot fail the job
+            if "pytest" in run:
                 return set()
-            if re.search(r"\|\|\s*(true|:)\b", run) or re.search(r"^\s*set \+e", run, re.M):
-                return set()  # exit status suppressed — proves nothing
-            return {p for p in required if re.search(rf"\bimport\b[^\n]*\b{re.escape(p)}\b", run)}
+            if any(re.search(pat, run, re.M) for pat in SUPPRESSED):
+                return set()
+            found = set()
+            for cmd in _commands(run):
+                if not re.search(r"python[0-9.]*\b.*\s-c\b", cmd):
+                    continue
+                found |= {p for p in required
+                          if re.search(rf"\bimport\b[^\n]*\b{re.escape(p)}\b", cmd)}
+            return found
 
+        # ONE step must cover ALL required packages, in the same job as install and
+        # tests. Accumulating across steps let a second import step sit after pytest and
+        # still count; allowing a different job made the ordering window meaningless.
         verified, verified_at = set(), None
         for i, step in enumerate(steps):
             got = _verified_by(step)
-            if got:
-                verified |= got
-                if verified_at is None:
-                    verified_at = i
+            if got >= required and step.get("job") == steps[install_at].get("job") == steps[tests_at].get("job"):
+                verified, verified_at = got, i
+                break
 
         missing = sorted(required - verified)
         assert not missing, (
