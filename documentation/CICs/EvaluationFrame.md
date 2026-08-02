@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-04-02  
+**Last reviewed:** 2026-08-02  
 **Related ADRs:** ADR-010 (Ontology), ADR-011 (Topology), ADR-012 (Authority)
 
 ---
@@ -53,6 +53,13 @@ The canonical, framework-agnostic internal representation of a forecasting evalu
 - Raises `ValueError` if required identifiers (`time`, `unit`, `origin`, `step`) are absent.
 - Raises `ValueError` if any identifier array contains `NaN` or `None` (as per ADR-012).
 - Raises `ValueError` if `y_true` or `y_pred` contain `NaN` or infinity (as per ADR-013).
+- Raises `ValueError` if `y_true` or `y_pred` is object-dtype (Pure NumPy contract, ADR-011).
+- Raises `ValueError` if **`y_true` is not 1-D** `(N,)`. Added 2026-08-02 (C-31) as the symmetric partner of the `y_pred` check below; an un-squeezed `(N, 1)` column previously constructed successfully, reported a plausible `n_rows`, and failed much later inside `_guard_shapes` as a *metric* error rather than an input-contract one.
+- Raises `ValueError` if `y_pred` is not 2-D `(N, S)` (C-03).
+
+Shape is validated **after** dtype, so a non-numeric array is reported as a dtype problem rather than a shape one.
+
+**Loudness note:** this class is Level 0 and maintains **no logger** — exceptions propagate to the orchestrator (logging standard §5.1).
 
 ---
 
@@ -114,7 +121,7 @@ sub_ef = ef.select_indices(month_groups[100])
 
 ## 12. Known Deviations
 
-- **Rectangular sample invariant not enforced:** Direct construction does not validate that all rows of `y_pred` have the same number of samples. Only well-designed external adapters guard against ragged arrays. A directly-constructed frame with ragged `y_pred` would cause indexing errors deep in metric calculations. (Risk register C-03)
+- ~~**Rectangular sample invariant not enforced**~~ — **resolved.** `_validate` now rejects any `y_pred` that is not 2-D, so a ragged array (which NumPy materialises as object-dtype) cannot be constructed: it is caught by either the object-dtype gate or the ndim gate. (Risk register C-03, closed 2026-03-31; deviation cleared here 2026-08-02.)
 - **Integer identifier NaN not checked:** Validation checks float and object identifiers for NaN/None, but integer-typed identifiers are not checked (NumPy integers cannot represent NaN, so this is safe in practice but not explicitly documented).
 - **No immutability enforcement:** The contract claims "State Immutability" via new-instance methods, but `y_true`, `y_pred`, and `identifiers` are publicly mutable attributes. Nothing prevents `ef.y_true[0] = 999` after construction.
 

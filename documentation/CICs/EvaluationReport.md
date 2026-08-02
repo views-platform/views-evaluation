@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-06-25  
+**Last reviewed:** 2026-08-02  
 **Related ADRs:** ADR-010 (Ontology), ADR-041 (Output Schema), views-frames ADR-020 (MetricFrame contract home)
 
 ---
@@ -57,6 +57,9 @@ A structured, framework-agnostic container for evaluation results. It decouples 
 - Raises `ValueError` if a computed metric name has no corresponding field in the typed metrics dataclass (FM1 guard against silent metric loss).
 - Fails loud if the input result structure is inconsistent.
 - `to_metric_frame()` raises `ImportError` (loud, actionable) if the optional `views-frames` dependency is not installed.
+- `to_metric_frame()` raises `ValueError` if the report contains **no metric values for any schema** (ADR-015 ruling 6, risk register C-30). Such an emit previously produced a structurally valid **zero-row** MetricFrame that satisfied `assert_frame_envelope` and persisted to disk as a legitimate-looking audit artifact recording nothing. The message names the target and which schemas were present-but-empty. A **partial** report — at least one metric value in any schema — still emits normally.
+
+**Loudness note:** this class is Level 0 and maintains no logger, with **one deliberate exception**: the `to_metric_frame()` emit path logs at `ERROR` before raising, because it belongs to Level 1 (it produces the persisted, cross-repo evaluation-of-record). Logging follows the emit path, not the file (logging standard §5.1). No other raise in this class logs.
 
 ---
 
