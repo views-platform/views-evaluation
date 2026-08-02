@@ -6,18 +6,24 @@ once CI was fixed to `poetry install --all-extras`.
 
 The defect it caught: **the `MetricFrame` contract was not tested in CI.**
 
-`views-frames` is an **optional** extra (`pyproject.toml`: `views-frames = {version =
-"^1.4", optional = true}`, exposed as the `frames` extra). CI runs a bare
+`views-frames` is an **optional** extra (declared `optional = true` in `pyproject.toml`
+and exposed as the `frames` extra; the version constraint has since moved and is not
+restated here, because restating it is how this docstring went stale before). CI runs a bare
 `poetry install`, which does not install optional dependencies. `tests/test_metric_frame.py`
 guards with a **module-level** `pytest.importorskip("views_frames")` at line 19, so the
 entire file is skipped rather than failing.
 
 Measured, not inferred:
 
-    local (frames installed) : 361 passed
+    local (frames installed) : 359 passed   [measured at the v0.5.0 tag]
     CI   (frames absent)     : 293 passed, 4 skipped
-    delta                    : 68 tests that never run in CI
-    of which test_metric_frame.py alone accounts for 44
+    delta                    : 66 tests that never run in CI
+    of which test_metric_frame.py = 44 and test_evaluation_report.py = 22
+
+    (These read 361/68 until 2026-08-02, against a docstring claiming they were
+    "measured, not inferred". They were not: 361 was a later local count that included
+    tests added after the tag, and 68 followed from it. 44 + 22 = 66 is forced by the
+    two per-file counts on the line above.)
 
 This matters more than the raw count. ADR-022 §1 designates the `MetricFrame` on-disk
 format and axis vocabulary a **cross-repo contract**, "treated as public API regardless
@@ -68,8 +74,11 @@ class TestCiRunsTheContractTests:
                 sections[current] = []
             elif current is not None:
                 sections[current].append(line)
+        # PEP 621 FIRST: poetry >= 2.0 ignores [tool.poetry.extras] when a [project]
+        # table exists, so a stale legacy table left by a half-finished migration must
+        # not shadow the authoritative one.
         extras_block = None
-        for header in ("tool.poetry.extras", "project.optional-dependencies"):
+        for header in ("project.optional-dependencies", "tool.poetry.extras"):
             body = "\n".join(sections.get(header, []))
             if re.search(r"^\w[\w-]*\s*=\s*\[", body, re.M):
                 extras_block = body
@@ -122,8 +131,8 @@ class TestCiRunsTheContractTests:
         assert not missing, (
             f"CI runs `{install_cmd.strip()}`, which does not install the "
             f"extra(s) {missing} that the test suite import-skips on. Those tests are "
-            f"silently skipped on every pull request — locally 361 tests pass, in CI "
-            f"293 do. tests/test_metric_frame.py alone contributes 44, and MetricFrame "
+            f"silently skipped on every pull request: tests/test_metric_frame.py (44) and "
+            f"tests/test_evaluation_report.py (22) are skipped whole. MetricFrame "
             f"is designated a cross-repo contract by ADR-022 §1. "
             f"Fix: `poetry install --all-extras`."
         )

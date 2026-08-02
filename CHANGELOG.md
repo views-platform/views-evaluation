@@ -31,23 +31,42 @@ record: `views-pipeline-core` invokes `NativeEvaluator` directly, and `views-rep
 reads the emitted `MetricFrame`. That is the condition, and it is met.
 
 **There are no API changes in 1.0.0.** It contains the dependency and CI changes below
-and nothing else; 0.5.0's surface carries over unaltered. Anyone on 0.5.0 can upgrade
-without touching code, provided they satisfy the `views-frames` floor.
+and nothing else; 0.5.0's surface carries over unaltered. No caller's *code* changes. Adopting 1.0.0 does require a
+dependency edit — both consumers must widen a pin, and anyone using the `frames` extra
+must satisfy the `views-frames` floor. See Consumer uptake below.
 
-### Consumer uptake — 1.0.0 requires both consumers to act
+### Consumer uptake — 1.0.0 requires both consumers to act, in this order
 
-A MAJOR bump is invisible to a caret or `<1.0.0` pin. Verified by resolving, not assumed:
+A MAJOR bump is invisible to a caret or `<1.0.0` pin. Resolved against each consumer's
+**real** dependency graph, not a minimal reproduction:
 
 | Consumer | Declares | Effect of 1.0.0 |
 |---|---|---|
-| `views-pipeline-core` | `views-evaluation = "^0.5.0"` → `>=0.5.0,<0.6.0` | **1.0.0 is invisible.** Keeps resolving 0.5.0 from PyPI. No break; no upgrade either. Widen to `^1.0.0` to adopt. |
-| `views-reporting` | `views-evaluation[frames]>=0.4.0,<1.0.0`, **plus** a `[tool.uv.sources]` git override on branch `development` | **Silently resolves 1.0.0.** `uv` replaces the version constraint entirely when a source override is present — the lock's `requires-dist` carries no specifier — so the declared `<1.0.0` is **inert**. Confirmed by running `uv lock` against this branch: views-evaluation 1.0.0, views-frames 1.10.2, clean. |
+| `views-pipeline-core` | `views-evaluation = "^0.5.0"` → `>=0.5.0,<0.6.0` | **1.0.0 is invisible.** Keeps resolving 0.5.0 from PyPI. No break, no uptake. Must widen to `^1.0.0` to adopt. |
+| `views-reporting` | `views-evaluation[frames]>=0.4.0,<1.0.0` **plus** a `[tool.uv.sources]` git override on branch `development`; and, transitively, `views-pipeline-core>=3.0.0,<4.0.0` | **Its own `<1.0.0` is inert, but the graph becomes unsatisfiable.** `uv sync --frozen` (its CI) and a plain `uv lock` stay green — the lock pins views-evaluation at `babbce9` and a locked branch source is not chased. The break surfaces on `uv lock --upgrade-package views-evaluation`: `No solution found`, because `views-pipeline-core` requires `views-evaluation>=0.5.0,<0.6.0` and a **third-party** requirer's specifier is *not* dropped by a source override. |
 
-Two things follow. `views-pipeline-core` must widen its pin before it sees 1.0.0 at all.
-And `views-reporting`'s `<1.0.0` offers it no protection while the git override stands —
-that override is marked INTERIM in its own comments, pending the `MetricFrame` emit
-reaching PyPI, which 0.5.0 satisfied. Reverting it to a plain version pin is what makes
-its declared bound mean something again. Registered as **C-38**.
+**Ordering matters.** `views-pipeline-core` must widen to `^1.0.0` **first**; `views-reporting`
+re-locks **second**. In between, any re-lock of views-reporting fails. Once pipeline-core
+widens, views-reporting picks up 1.0.0 automatically without touching its own `<1.0.0`.
+
+A source override drops only the *first-party* specifier — confirmed in views-reporting's
+`uv.lock`, where the `views-evaluation` entry carries no `specifier` while the
+non-overridden `views-frames` entry does. That is why the declared `<1.0.0` provides no
+protection, and also why it is not what breaks the resolve. If views-reporting reverts the
+override to a plain PyPI pin — which its own comments say it intends, now that the
+`MetricFrame` emit has shipped — it **must** change `<1.0.0` → `<2.0.0` in the same edit,
+or the revert silently freezes it at 0.5.0. Registered as **C-38**.
+
+**Release sequencing.** The publish workflow triggers on a GitHub Release and reads the
+version from the release's target commitish, which for this repo is `main`. `development`
+must therefore be merged to `main` **before** the Release is cut, or the version gate
+compares against `main`'s older version and the publish fails.
+
+*An earlier draft of this table claimed views-reporting would "silently resolve 1.0.0 …
+clean". That was verified on a minimal scratch project rather than on views-reporting's
+actual graph, and a real resolve falsifies it. Recording the method as well as the
+correction: checking a consumer's resolution against a reconstruction of it is the exact
+failure C-38 exists to name.*
 
 ### Changed — breaking for the `frames` extra
 
@@ -65,7 +84,8 @@ its declared bound mean something again. Registered as **C-38**.
   installs no optional dependencies, and both `tests/test_metric_frame.py` (44 tests) and
   `tests/test_evaluation_report.py` (22 tests) guard with a **module-level**
   `pytest.importorskip`. Both files were therefore skipped whole on every pull request:
-  361 tests pass locally, 293 ran in CI. The 68-test gap included every guard on
+  359 tests passed locally at the v0.5.0 tag, 293 ran in CI. The 66-test gap (44 + 22,
+  measured per file) included every guard on
   `MetricFrame`, which ADR-022 §1 designates a cross-repo contract and public API
   "regardless of `__all__`" — and the emit path its consumers depend on.
 
@@ -75,33 +95,49 @@ its declared bound mean something again. Registered as **C-38**.
   recurrence by `tests/test_falsification_ci_coverage_gap.py`, which derives the required
   extras from `pyproject.toml` rather than hardcoding them.
 
+- **Emitted `MetricFrame`s now stamp `scoring_code_version="1.0.0"`.** Not a format or
+  axis-vocabulary change, so nothing downstream must adapt — but it is a caller-visible
+  change in the evaluation-of-record's *content*, and the "no API changes" statement above
+  is about the API surface, not this. Note the stamp reads the **installed distribution's**
+  metadata, not the running code, so on an editable install it lags the source tree until
+  reinstall; see register C-25.
+
 - **CI now verifies the extras actually arrived**, with an explicit
   `poetry run python -c "import views_frames, pandas"` step after install. Asserting
   `--all-extras` appears in the workflow proves intent, not effect: `poetry install`
   exits 0 even when it resolves without an optional package, and every downstream guard
   is a module-level `importorskip` that turns absence into silence. Without this step the
-  68-test gap above could reopen while the guard against it stayed green. Found by
+  66-test gap above could reopen while the guard against it stayed green. Found by
   falsification audit, guarded by `tests/test_falsification_extras_actually_installed.py`.
 
 ### Release checklist (ADR-022 §7)
 
 - [x] **Does this release do anything rule 2 governs — remove an `__all__` symbol, remove
-  a supported config key, narrow an accepted input, or change a raised exception type?**
-  No. 1.0.0 makes no API change of any kind; the surface is 0.5.0's, unaltered. The
+  a supported config key, narrow an accepted input, or change a raised exception type?
+  If so, did a `DeprecationWarning` ship at least one release ago?**
+  No — so the warning question does not arise. 1.0.0 makes no API change of any kind; the surface is 0.5.0's, unaltered. The
   `views-frames` floor is a dependency constraint, not an accepted input, and is governed
   by rule 3 as a breaking change for excluded resolvers.
-- [x] **Does this release make previously-accepted input fail? If so, are the release
+- [ ] **Does this release make previously-accepted input fail? If so, are the release
   notes explicit, and have known consumers been notified?** No input changes. The
   dependency floor is enumerated above with its migration. **Both consumers verified
   directly:** `views-pipeline-core` pins `views-frames ^1.10.2` (compatible) and
-  `views-reporting` is moving to `>=1.10.2,<2.0.0` on its own branch. Checking consumer
+  `views-reporting` has that bump only as **uncommitted working-tree edits on a local
+  branch that has never been pushed** — its committed state still declares
+  `views-frames>=1.0.0,<2.0.0` with a lock at 1.7.0. Citing it as verification would be
+  the same error one level down. Checking consumer
   *resolution* rather than assuming it is the specific lesson of C-38.
+  **Left unchecked, on the standard 0.5.0 set eleven lines below:** reading a consumer's
+  pyproject is verification, not notification, and no committed artifact evidences that
+  either consumer was told. Ticking it would re-commit the failure C-36 exists to track.
 - [x] **Does the version bump match the change class?** Yes. `0.5.0` → `1.0.0` is MAJOR,
   which is required for the stability commitment itself and permitted for the dependency
   narrowing.
 - [x] **Do the release notes list every breaking change with its migration?** Yes — one
   breaking change (the `views-frames` floor), with its migration stated.
-- [x] **Does `MetricFrame`'s format or axis vocabulary change?** No. Unchanged from 0.5.0.
+- [x] **Does `MetricFrame`'s format or axis vocabulary change? If so, has it been agreed
+  with views-reporting and views-pipeline-core?** No. Unchanged from 0.5.0, so no
+  agreement is owed.
   From 1.0.0 it is additionally covered by the MAJOR-bump guarantee, and — as of this
   release — its 44 guards actually run in CI, which was not true when 0.5.0 shipped.
 
