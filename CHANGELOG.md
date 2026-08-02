@@ -48,7 +48,7 @@ failed, but later, or with a message that did not name the real problem.
 | A metric invalid for its `(task, pred_type)` cell | raised at `evaluate()`: `Metric '{m}' is not valid for ({task}, {pred_type})` | **a second, different check added at `__init__`** — it validates each metric against the cell its *config key* declares, so a bad config fails before any computation. The `evaluate()`-time check is unchanged and still fires on the cell the *frame* resolves to; the two are not the same check and neither replaces the other |
 | A non-dict config | `AttributeError` immediately at `__init__`, from `config.get(...)` | raises `ValueError` naming the expected type |
 
-**Migration**, per row. For the two key-name rows: correct the key — the library reports
+**Migration**, per row. For the three key-name rows: correct the key — the library reports
 what it suspects you meant and stops, it does not interpret a typo on your behalf
 (ADR-015 forbids silent repair). For the four `steps` rows: supply `steps` as a `list` of
 positive integers, e.g. `[1, 2, 3]`; it is 1-indexed, and `list` specifically, because
@@ -129,8 +129,15 @@ register C-33.
 
 ### Known limitations
 
-- **`views-pipeline-core` pins `views-evaluation = "^0.4.0"` (i.e. `<0.5.0`)** and will
-  reject this release on install until that pin is widened. Tracked in that repository.
+- **Downstream pins are current.** `views-pipeline-core` now pins
+  `views-evaluation = "^0.5.0"` (widened in pipeline-core PR #379, merged before this
+  release was cut); `views-reporting`'s `>=0.4.0,<1.0.0` already accepted it. Published
+  `views-pipeline-core` 2.3.0 continues resolving 0.4.0, which remains on PyPI, so
+  nothing already deployed moves.
+
+  *An earlier version of this section said pipeline-core pinned `^0.4.0` and "will reject
+  this release on install". That was already false when it published — the pin had been
+  widened hours earlier. Corrected 2026-08-02.*
 - ADR-022 §3.2 requires known downstream consumers be notified **before** the release is
   cut. Nothing in this repository can evidence that a notification happened, which is
   registered as **C-36** — the release gates are prose with no enforcement point.
