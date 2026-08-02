@@ -163,7 +163,31 @@ class NativeEvaluator:
 
         # 2. 'steps' is required (CIC NativeEvaluator §4) and drives the step-wise schema.
         #    Absent, it silently produced no step-wise results at all.
-        if not config.get("steps"):
+        # Order matters: presence, then TYPE, then emptiness. Testing emptiness first
+        # means evaluating `not config["steps"]`, and truthiness is not universally
+        # defined — a numpy array raises "The truth value of an array with more than one
+        # element is ambiguous" from inside the guard itself, which is the bare crash
+        # this validation exists to replace. Check the type before asking anything of
+        # the value.
+        if "steps" not in config:
+            raise ValueError(
+                "Evaluation config requires a non-empty 'steps' list (1-indexed step "
+                "positions to evaluate, e.g. [1, 2, 3]). Without it the step-wise "
+                "schema cannot be produced."
+            )
+        # `list`, not `(list, tuple)` and not "any sequence": `EvaluationConfig` declares
+        # `steps: List[int]` and is this schema's single authority (it is where
+        # `_VALID_CONFIG_KEYS` comes from). Anything wider would make the code quietly
+        # more permissive than the contract it derives from, which is how the two drift
+        # apart. A scalar is caught here too — it is truthy, so it used to reach the
+        # comprehension below and raise a bare `TypeError: 'int' object is not iterable`,
+        # naming neither the key nor the expectation.
+        if not isinstance(config["steps"], list):
+            raise ValueError(
+                f"Evaluation config 'steps' must be a list of 1-indexed positive "
+                f"integers, e.g. [1, 2, 3]; got {type(config['steps']).__name__}."
+            )
+        if not config["steps"]:
             raise ValueError(
                 "Evaluation config requires a non-empty 'steps' list (1-indexed step "
                 "positions to evaluate, e.g. [1, 2, 3]). Without it the step-wise "
@@ -234,9 +258,13 @@ class NativeEvaluator:
         pred_type = "sample" if ef.is_sample else "point"
         metrics_list = self.config.get(f"{task}_{pred_type}_metrics", [])
 
-        # ADR-015 ruling 4: an empty metric list yields an empty-but-successful-looking
-        # report. Construction-time validation cannot catch this case, because pred_type
-        # is a property of the frame (n_samples > 1), not of the config.
+        # ADR-015's general rule, NOT one of its eight rulings: an empty metric list
+        # yields an empty-but-successful-looking report, which the doctrine forbids.
+        # (This cited "ruling 4" until 2026-08-02. Ruling 4 is "unknown / misspelled
+        # config key — raise at construction" and does not cover this case; no ruling
+        # does. ADR-015 needs one, or this stays governed by the general rule.)
+        # Construction-time validation cannot catch this case, because pred_type is a
+        # property of the frame (n_samples > 1), not of the config.
         if not metrics_list:
             raise ValueError(
                 f"No metrics configured for ({task}, {pred_type}). The frame for target "

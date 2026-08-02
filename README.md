@@ -36,16 +36,32 @@ The evaluation ontology has been updated to be more explicit and task-specific. 
 > `EvaluationManager`, which was deleted before 0.4.0 was published. There is no
 > fallback and none will be restored.
 >
-> Since 0.5.0, an unrecognised config key **fails loudly** at
-> `NativeEvaluator.__init__` rather than being silently ignored:
+> Since 0.5.0, a **legacy key** fails loudly at `NativeEvaluator.__init__` rather than
+> being silently ignored:
 >
 > ```
-> ValueError: Unknown evaluation config key(s): ['targets'].
-> Valid keys: ['classification_point_metrics', ...]
+> ValueError: Legacy evaluation config key(s) present: ['targets']. These were removed
+> in 0.4.0 and are NOT translated automatically. Rename them: 'targets' ->
+> 'regression_targets' or 'classification_targets'. See the README migration table.
+> ```
+>
+> A **misspelled** evaluation key also fails, naming what it resembles — but the
+> suspected key is only reported, never substituted:
+>
+> ```
+> ValueError: Evaluation config key 'regression_target' is not recognised, but closely
+> resembles 'regression_targets' — this looks like a typo. It has NOT been interpreted
+> as 'regression_targets'; nothing is assumed on your behalf. ...
 > ```
 >
 > Previously a legacy or misspelled metric key produced an **empty-but-successful
 > report** with no error at all. Migrate using the table above.
+>
+> **An unrecognised key that resembles nothing is ignored, deliberately.**
+> `views-pipeline-core` passes its whole combined model config through
+> (`NativeEvaluator(context.configs)`), so the dict legitimately carries dozens of
+> foreign keys — `batch_size`, `algorithm`, and so on. Rejecting unknown keys wholesale
+> would break every model in the platform. See risk register C-33.
 >
 > This removal predates the deprecation policy now in force — see
 > [ADR-022](documentation/ADRs/022_evolution_and_stability.md), which requires a

@@ -91,12 +91,16 @@ What is owed instead:
 
 This policy is checked at two points:
 
-- **Release checklist** (below) — worked through before any `poetry publish`.
+- **Release checklist** (below) — worked through before any `poetry publish`, and the
+  worked-through answers recorded in `CHANGELOG.md`, which is this repository's
+  release-notes artifact for every "release notes" obligation named above. It was created
+  for 0.5.0; nothing yet *requires* the next release to repeat the exercise, which is
+  registered as **C-36**.
 - **CI** — `tests/test_documentation_contracts.py` asserts that documentation makes no support claim the code does not honour, which is the specific failure that produced C-29.
 
 #### Release checklist
 
-- [ ] Does this release remove any `__all__` symbol or supported config key? If so, did a `DeprecationWarning` ship at least one release ago?
+- [ ] Does this release do any of the things rule 2 governs — remove an `__all__` symbol, remove a supported config key, narrow an accepted input, or change a raised exception type? If so, did a `DeprecationWarning` ship at least one release ago? *(This item asked only about symbols and config keys until 2026-08-02, under-covering the rule it enforces: 0.5.0 both narrowed an accepted input and changed an exception type, and a "no" was defensible against the old wording.)*
 - [ ] Does this release make previously-accepted input fail? If so, are the release notes explicit, and have known consumers been notified?
 - [ ] Does the version bump match the change class (rule 5)?
 - [ ] Do the release notes list every breaking change with its migration?
@@ -121,4 +125,4 @@ This policy is checked at two points:
 - ADR-015 (Degenerate and Empty Results) — the breaking changes rule 3 governs
 - `reports/technical_risk_register.md` — C-13 (this policy's origin), C-29 (the documentation half)
 - 2026-04-03 incident investigation — 6/6 downstream integration tests crashed
-- `views_evaluation/__init__.py:14-34` — the `__all__` surface this policy governs
+- `views_evaluation/__init__.py`, `__all__` — the public surface this policy governs

@@ -33,6 +33,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README = REPO_ROOT / "README.md"
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 DOCS = REPO_ROOT / "documentation"
 CICS = DOCS / "CICs"
 
@@ -104,8 +105,21 @@ def _blocks(text: str):
 
 
 def _doc_files():
-    """All documentation prose, excluding files whose job is to record history."""
-    files = [README]
+    """All documentation prose, excluding files whose job is to record history.
+
+    `CHANGELOG.md` is included deliberately. It is the release-notes artifact ADR-022
+    requires, which makes it the highest-traffic place in the repo for behavioural
+    promises to users — and it sat outside every guard here until 2026-08-02 simply
+    because it lives at the repo root rather than under `documentation/`. It is not
+    blanket-allowlisted.
+
+    Its retroactive 0.4.0 record necessarily names deleted symbols, which is handled per
+    block by `_is_historical` — but note that only the checks which opt into `_blocks()`
+    apply that filter. `TestDocumentedErrorMessagesExist` deliberately does not: a fence
+    showing an error message claims the code produces it regardless of what the
+    surrounding paragraph discusses.
+    """
+    files = [README, CHANGELOG]
     for path in DOCS.rglob("*.md"):
         rel = path.relative_to(REPO_ROOT).as_posix()
         if any(rel.startswith(prefix) for prefix in _HISTORICAL_ALLOWLIST):
@@ -117,13 +131,25 @@ def _doc_files():
 class TestDocumentationMatchesCode:
 
     def test_no_doc_lists_a_deleted_module_path(self):
-        """Guards the README-structure-tree-listing-evaluation_manager.py drift."""
+        """Guards the README-structure-tree-listing-evaluation_manager.py drift.
+
+        Block-aware since 2026-08-02, matching the deleted-class check below. It was
+        whole-file, which meant no document could ever *say* a path had been removed —
+        `CHANGELOG.md`'s "Removed" section names `adapters/pandas.py` because naming
+        what was removed is precisely a changelog's job. The claim this guards against
+        is presenting a deleted path as **current**, and a block framed as history does
+        not do that.
+        """
         offenders = []
         for path in _doc_files():
-            text = path.read_text()
-            for name in _DELETED_MODULE_PATHS:
-                if name in text:
-                    offenders.append(f"{path.relative_to(REPO_ROOT)} lists '{name}'")
+            for lineno, block in _blocks(path.read_text()):
+                if _is_historical(block):
+                    continue
+                for name in _DELETED_MODULE_PATHS:
+                    if name in block:
+                        offenders.append(
+                            f"{path.relative_to(REPO_ROOT)}:{lineno} lists '{name}'"
+                        )
         assert not offenders, (
             "Documentation lists module paths deleted in Phase 3:\n  "
             + "\n  ".join(offenders)
@@ -365,3 +391,173 @@ class TestLoggingScopeContract:
             "Level-1 gap cannot silently reopen"
         )
         assert "Level 1" in text and "Level 0" in text
+
+
+class TestDocumentedErrorMessagesExist:
+    """Every exception message a doc shows in a code fence must exist in the package.
+
+    Added 2026-08-02 after the PR #45 review found the README advertising
+
+        ValueError: Unknown evaluation config key(s): ['targets'].
+
+    a message no code in this package produces. `targets` is a *legacy* key, so the
+    real raise names it as legacy and gives the rename. The README had invented an
+    error and shown it to users as a promise.
+
+    This is deliberately a **generalising** check rather than another hand-picked
+    assertion. Register C-34 records why: C-29 was closed by adding a targeted test to
+    this very file guarding this very README, and that test did not catch the new false
+    promise added to that same README in the same epic. Targeted tests cover the claim
+    someone thought to encode. This one covers every claim of its shape, including the
+    ones nobody has written yet.
+
+    **What this does NOT check — read before trusting a pass.** It compares the *literal*
+    text of a message against the package source. Interpolated values are deleted before
+    comparison, because they are runtime values that do not appear in the source at all.
+    So a documented message can have the right literal skeleton and wrong values and pass.
+    That is not hypothetical: the corrected README initially rendered the legacy-key error
+    as `'targets' -> 'regression_targets'` when the code produces
+    `'targets' -> 'regression_targets' or 'classification_targets'`, and this check passed,
+    because the differing half sits inside the quoted span it blanks. Verifying values
+    requires executing the documented scenario and comparing the raised string. Tracked as
+    the residual half of C-37.
+    """
+
+    # A literal run must be this long to be worth asserting on. Measured across every
+    # `raise` literal in the package, NOT guessed — two earlier justifications of this
+    # constant were written from assumption and were both measurably false. The shortest
+    # longest-run of any real message is 14 ("Metric '{m}' failed for ({task}, ...)"),
+    # and eight messages sit under 20, including "Input contains NaN" (18) and
+    # "Target {target} not found in config" (19). A threshold of 20 put all eight out of
+    # scope, so 12 is chosen to keep every message in this package assertable.
+    #
+    # The asymmetry that makes a low threshold safe: a run too generic to be distinctive
+    # can only produce a false PASS (it coincidentally matches something), never a false
+    # FAILURE. Raising this number trades detection for nothing.
+    _MIN_SEGMENT = 12
+
+    @staticmethod
+    def _package_raises():
+        """[(exception_type, literal_message)] for every `raise X("...")` in the package.
+
+        Keyed by exception type, not a flat text corpus, for two reasons found by
+        adversarially probing the flat-corpus version:
+
+        * A doc could show a real message under the **wrong exception type** and pass,
+          because the type was captured and printed but never compared to anything.
+        * A fabricated message could borrow a real message's boilerplate tail and pass,
+          because matching was `any(segment in corpus)` — one shared segment exonerated
+          the whole message. Appending "See the README migration table." to the exact
+          C-34 message this class was written to catch was enough to defeat it.
+
+        Messages are implicitly-concatenated f-string fragments wrapped for line length,
+        so fragments are joined before extraction — the source's wrap points have nothing
+        to do with the doc's.
+        """
+        out = []
+        pat = re.compile(
+            r"raise\s+(\w+)\s*\(\s*((?:f?\"(?:[^\"\\]|\\.)*\"\s*)+)", re.S
+        )
+        for path in sorted((REPO_ROOT / "views_evaluation").rglob("*.py")):
+            src = re.sub(r'"\s*\n\s*f?"', "", path.read_text())
+            for m in pat.finditer(src):
+                literals = re.findall(r'f?"((?:[^"\\]|\\.)*)"', m.group(2))
+                out.append((m.group(1), re.sub(r"\s+", " ", "".join(literals))))
+        return out
+
+    @staticmethod
+    def _documented_messages():
+        """(file, exception, message) for every `SomeError: ...` shown in a fence.
+
+        `Warning` and `Exception` are matched as well as `Error`. ADR-022 is largely
+        about when a `DeprecationWarning` is owed, and C-29 was a README promising a
+        `DeprecationWarning` no code emitted — exactly the shape this check exists to
+        catch, and exactly the shape an `Error`-only pattern would miss.
+        """
+        fence = re.compile(r"^\s*(?:> )?```.*?^\s*(?:> )?```", re.M | re.S)
+        found = []
+        for path in _doc_files():
+            text = path.read_text()
+            # Deliberately NOT filtered by `_is_historical`. That helper answers
+            # "is this prose explaining a removal", which is a per-block question and
+            # is irrelevant here: showing an error message in a fence claims the code
+            # produces it, whatever the surrounding paragraph is discussing. Files that
+            # legitimately quote historical messages (ADRs, reports) are already
+            # excluded at file level by `_HISTORICAL_ALLOWLIST` in `_doc_files()`.
+            #
+            # This check was briefly written with a whole-file `_is_historical` guard
+            # and was vacuous as a result: README contains "were removed", so every
+            # fence in the file it was written to guard got skipped.
+            for block in fence.finditer(text):
+                body = "\n".join(
+                    re.sub(r"^\s*> ?", "", line) for line in block.group().splitlines()
+                )
+                # finditer, not search: a fence may show several messages, and checking
+                # only the first let a fabricated second line through.
+                for m in re.finditer(
+                    r"^(\w*(?:Error|Warning|Exception)): (.+?)"
+                    r"(?=^\w*(?:Error|Warning|Exception): |^```|\Z)",
+                    body, re.M | re.S,
+                ):
+                    found.append((path, m.group(1), re.sub(r"\s+", " ", m.group(2)).strip()))
+        return found
+
+    def test_every_documented_error_message_exists_in_the_package(self):
+        raises = self._package_raises()
+        documented = self._documented_messages()
+        # Non-vacuity floor. Every other assertion here iterates `documented`, so if
+        # extraction ever returns nothing — a changed fence style, a path that stops
+        # matching, a regex edit — the whole check passes while testing nothing. That
+        # has already happened twice (C-37). Pin the count so it cannot happen silently.
+        assert len(documented) >= 2, (
+            f"expected at least the two README error fences, found {len(documented)} — "
+            f"the extractor has stopped seeing documented messages, so this guard is "
+            f"no longer guarding anything"
+        )
+        failures, unverifiable = [], []
+        for path, exc, message in documented:
+            # Delete interpolated values, THEN split — only the literal message text
+            # is evidence. Splitting on the delimiters alone also yields the values
+            # between them, and a value can be a real identifier: the fabricated
+            # message this check was written to catch quoted
+            # 'classification_point_metrics', a genuine config key present in the
+            # source, and that one segment made the whole invented message pass.
+            # A doc may truncate a long message with a trailing ellipsis. That is honest
+            # abbreviation, not a claim, so drop it before segmenting — otherwise the
+            # final segment carries a "..." that no source message contains.
+            body = re.sub(r"\s*\.\.\.\s*$", "", message)
+            literal = re.sub(r"\[[^\]]*\]|\{[^}]*\}|'[^']*'|\"[^\"]*\"", "\x00", body)
+            segments = [
+                re.sub(r"\s+", " ", s).strip() for s in literal.split("\x00")
+            ]
+            segments = [s for s in segments if len(s) >= self._MIN_SEGMENT]
+            if not segments:
+                # Do NOT `continue` silently. A message with no assertable literal run
+                # is a message this check cannot verify, and passing quietly is
+                # indistinguishable from verifying it — the C-37 vacuity mode. Fail and
+                # say so, so the reader either shortens _MIN_SEGMENT deliberately or
+                # verifies that message by hand.
+                unverifiable.append(
+                    f"{path.relative_to(REPO_ROOT).as_posix()} documents "
+                    f"`{exc}: {message[:70]}` whose longest literal run is under "
+                    f"{self._MIN_SEGMENT} chars — this check cannot verify it"
+                )
+                continue
+            # Require ONE source message, raised as THIS exception type, containing
+            # EVERY literal run. `any(segment)` across a flat corpus was the hole:
+            # boilerplate shared with a real message exonerated a fabricated one.
+            same_type = [msg for exc_type, msg in raises if exc_type == exc]
+            if not any(all(s in cand for s in segments) for cand in same_type):
+                rel = path.relative_to(REPO_ROOT).as_posix()
+                near = "; ".join(f'"{s[:45]}"' for s in segments if
+                                 not any(s in cand for cand in same_type))
+                failures.append(
+                    f"{rel} documents `{exc}: {message[:70]}...` but no single "
+                    f"`raise {exc}(...)` in views_evaluation/ produces it"
+                    + (f". Absent literal run(s): {near}" if near else
+                       f". Every run appears, but never together in one {exc}")
+                )
+        assert not failures + unverifiable, (
+            "Documentation shows exception messages the code does not produce:\n  "
+            + "\n  ".join(failures + unverifiable)
+        )

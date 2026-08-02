@@ -163,13 +163,24 @@ class TestExplicitOverRequestStillFailsLoud:
     def test_steps_beyond_available_data_without_the_flag(self):
         """With legacy_compatibility=False, steps with no data yield nothing to score.
 
-        This currently passes (no raise). It is here to pin the boundary: if ruling 7 is
-        revised to be silent under the flag, it must not become silent without it.
+        It is here to pin the boundary: if ruling 7 is silent under the flag, it must
+        not become silent without it.
+
+        **This test was vacuous until 2026-08-02.** It used `_real_model_config()`,
+        which requests steps 1..36, against a fixture that supplies data for steps
+        1..36 — so `config_steps - data_steps` was empty and the scenario the docstring
+        names could not occur. `empty` could never be populated, and the C-20 defect was
+        verified re-injectable without this test noticing (register C-37). The config
+        below deliberately over-requests, which is what makes the assertion reachable.
         """
         ef = _rolling_origin_ef()
-        report = NativeEvaluator(_real_model_config()).evaluate(
-            ef=ef, legacy_compatibility=False
+        over_request = {**_real_model_config(), 'steps': list(range(1, 41))}
+        data_steps = set(int(s) for s in np.unique(ef.identifiers['step']))
+        assert set(over_request['steps']) - data_steps, (
+            "fixture supplies every requested step, so this test asserts nothing — "
+            "the exact vacuity this docstring records"
         )
+        report = NativeEvaluator(over_request).evaluate(ef=ef, legacy_compatibility=False)
         steps = report.to_dict()['schemas']['step']
         empty = [k for k, v in steps.items() if not v]
         assert not empty, (
