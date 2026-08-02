@@ -118,16 +118,16 @@ C-38.*
   by rule 3 as a breaking change for excluded resolvers.
 - [ ] **Does this release make previously-accepted input fail? If so, are the release
   notes explicit, and have known consumers been notified?** No input changes. The
-  dependency floor is enumerated above with its migration. **Both consumers verified
-  directly:** `views-pipeline-core` pins `views-frames ^1.10.2` (compatible) and
-  `views-reporting` has that bump only as **uncommitted working-tree edits on a local
-  branch that has never been pushed** — its committed state still declares
-  `views-frames>=1.0.0,<2.0.0` with a lock at 1.7.0. Citing it as verification would be
-  the same error one level down. Checking consumer
-  *resolution* rather than assuming it is the specific lesson of C-38.
-  **Left unchecked, on the standard 0.5.0 set eleven lines below:** reading a consumer's
-  pyproject is verification, not notification, and no committed artifact evidences that
-  either consumer was told. Ticking it would re-commit the failure C-36 exists to track.
+  dependency floor is enumerated above with its migration, and both consumers declare a
+  `views-frames` range compatible with this one.
+  **Left unchecked, on the standard the 0.5.0 checklist sets below:** reading a
+  consumer's pyproject is verification, not notification, and no committed artifact
+  evidences that either consumer was told. Ticking it would re-commit the failure C-36
+  exists to track.
+
+  *This item previously described one consumer's uncommitted, unpushed state as evidence.
+  That description was false within a minute of being written. Consumer state is not
+  recorded here any more — see Consumer uptake above for why.*
 - [x] **Does the version bump match the change class?** Yes. `0.5.0` → `1.0.0` is MAJOR,
   which is required for the stability commitment itself and permitted for the dependency
   narrowing.
