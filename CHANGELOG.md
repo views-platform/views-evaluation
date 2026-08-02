@@ -8,12 +8,61 @@ be announced in release notes with the specific inputs that now fail, and §6 re
 0.5.0 notes to retrospectively record the 0.4.0 removals. It did not exist until 0.5.0 —
 which is itself the reason 0.4.0 shipped breaking changes that reached users unannounced.
 
-The project follows Semantic Versioning with the `0.x` caveat made explicit in ADR-022 §5:
-while `0.x`, breaking changes may ship in a MINOR bump, but must still be announced here.
+The project follows Semantic Versioning. **Since 1.0.0 (2026-08-02) the public API is
+stable and any breaking change requires a MAJOR bump.** Entries below 1.0.0 were released
+under the `0.x` caveat of ADR-022 §5, where breaking changes could ship in a MINOR bump
+provided they were announced here.
 
 ---
 
-## [Unreleased]
+## [1.0.0] — 2026-08-02
+
+**The API is now stable.** Under `0.x`, ADR-022 §5 allowed breaking changes in a MINOR
+bump provided they were announced. That latitude ends here: from 1.0.0, **any breaking
+change to the public API requires a MAJOR bump**. The public API is every symbol in
+`views_evaluation/__init__.py:__all__` plus the documented behaviour of those symbols —
+constructor and method signatures, return types, raised exception types, and the config
+keys declared in `EvaluationConfig` — and, regardless of `__all__`, the `MetricFrame`
+on-disk format and axis vocabulary, which are a cross-repo contract (ADR-022 §1).
+
+ADR-022 §5 says 1.0.0 should be cut "when downstream consumers require a stability
+guarantee — not before". Both consumers now build against this library's evaluation-of-
+record: `views-pipeline-core` invokes `NativeEvaluator` directly, and `views-reporting`
+reads the emitted `MetricFrame`. That is the condition, and it is met.
+
+**There are no API changes in 1.0.0.** It contains the dependency and CI changes below
+and nothing else; 0.5.0's surface carries over unaltered. No caller's *code* changes. Adopting 1.0.0 does require a
+dependency edit — both consumers must widen a pin, and anyone using the `frames` extra
+must satisfy the `views-frames` floor. See Consumer uptake below.
+
+### Consumer uptake — what 1.0.0 requires
+
+A MAJOR bump is invisible to a `^0.x` or `<1.0.0` bound. **Any consumer whose declared
+upper bound excludes 1.0.0 must widen it to adopt this release.** At the time of writing
+`views-pipeline-core` pins `views-evaluation = "^0.5.0"`, so it must move to `^1.0.0`.
+
+Two mechanisms are worth knowing, both verified by resolving rather than by reading:
+
+- **A `[tool.uv.sources]` override silences your own bound.** When a dependency is
+  source-overridden, `uv` drops the *first-party* version specifier entirely — the lock's
+  `requires-dist` entry carries no `specifier` at all. A consumer that overrides
+  views-evaluation to a git branch will therefore install whatever that branch holds, in
+  flat violation of its own declared `<1.0.0`, with no error and no warning. If such a
+  consumer later reverts to a plain PyPI pin, it must widen the bound in the same edit or
+  the revert will silently hold it at 0.5.0.
+- **Other packages' bounds on us are not silenced.** An override collapses the candidate
+  set to one version graph-wide, so a *different* package that requires
+  `views-evaluation <1.0.0` will make the whole resolve unsatisfiable rather than
+  resolving separately. In a platform where several repos depend on this one, widening
+  has to happen in dependency order — the package others depend on goes first.
+
+*This section deliberately does not describe any particular consumer's current lock or
+what a given re-lock command does today. Three earlier drafts tried, and all three were
+wrong: a consumer's resolution state is not this repository's to assert, it changes
+without notice — one such state changed 62 seconds after a correction was written — and
+each attempt substituted a confident narration for a fact I could not keep true. What is
+stated above is this package's contract and `uv`'s documented behaviour. Registered as
+C-38.*
 
 ### Changed — breaking for the `frames` extra
 
@@ -31,8 +80,11 @@ while `0.x`, breaking changes may ship in a MINOR bump, but must still be announ
   installs no optional dependencies, and both `tests/test_metric_frame.py` (44 tests) and
   `tests/test_evaluation_report.py` (22 tests) guard with a **module-level**
   `pytest.importorskip`. Both files were therefore skipped whole on every pull request:
-  361 tests pass locally, 293 ran in CI. The 68-test gap included every guard on
-  `MetricFrame`, which ADR-022 §1 designates a cross-repo contract and public API
+  the v0.5.0 tag ran 359 tests locally and CI reported 293 passed, 4 skipped. **67 tests
+  are gated on optional extras**, counted per file rather than inferred from the delta:
+  `test_metric_frame.py` 44 and `test_falsification_legacy_compatibility.py` 1 on
+  `views_frames`, `test_evaluation_report.py` 22 on `pandas`. That set includes every
+  guard on `MetricFrame`, which ADR-022 §1 designates a cross-repo contract and public API
   "regardless of `__all__`" — and the emit path its consumers depend on.
 
   The skip was silent by construction: a green run reporting "293 passed" was
@@ -40,6 +92,52 @@ while `0.x`, breaking changes may ship in a MINOR bump, but must still be announ
   while shipping 0.5.0 was true and meant less than it appeared to. Guarded against
   recurrence by `tests/test_falsification_ci_coverage_gap.py`, which derives the required
   extras from `pyproject.toml` rather than hardcoding them.
+
+- **Emitted `MetricFrame`s now stamp `scoring_code_version="1.0.0"`.** Not a format or
+  axis-vocabulary change, so nothing downstream must adapt — but it is a caller-visible
+  change in the evaluation-of-record's *content*, and the "no API changes" statement above
+  is about the API surface, not this. Note the stamp reads the **installed distribution's**
+  metadata, not the running code, so on an editable install it lags the source tree until
+  reinstall; see register C-25.
+
+- **CI now verifies the extras actually arrived**, with an explicit
+  `poetry run python -c "import views_frames, pandas"` step after install. Asserting
+  `--all-extras` appears in the workflow proves intent, not effect: `poetry install`
+  exits 0 even when it resolves without an optional package, and every downstream guard
+  is a module-level `importorskip` that turns absence into silence. Without this step the
+  gap above could reopen while the guard against it stayed green. Found by
+  falsification audit, guarded by `tests/test_falsification_extras_actually_installed.py`.
+
+### Release checklist (ADR-022 §7)
+
+- [x] **Does this release do anything rule 2 governs — remove an `__all__` symbol, remove
+  a supported config key, narrow an accepted input, or change a raised exception type?
+  If so, did a `DeprecationWarning` ship at least one release ago?**
+  No — so the warning question does not arise. 1.0.0 makes no API change of any kind; the surface is 0.5.0's, unaltered. The
+  `views-frames` floor is a dependency constraint, not an accepted input, and is governed
+  by rule 3 as a breaking change for excluded resolvers.
+- [ ] **Does this release make previously-accepted input fail? If so, are the release
+  notes explicit, and have known consumers been notified?** No input changes. The
+  dependency floor is enumerated above with its migration, and both consumers declare a
+  `views-frames` range compatible with this one.
+  **Left unchecked, on the standard the 0.5.0 checklist sets below:** reading a
+  consumer's pyproject is verification, not notification, and no committed artifact
+  evidences that either consumer was told. Ticking it would re-commit the failure C-36
+  exists to track.
+
+  *This item previously described one consumer's uncommitted, unpushed state as evidence.
+  That description was false within a minute of being written. Consumer state is not
+  recorded here any more — see Consumer uptake above for why.*
+- [x] **Does the version bump match the change class?** Yes. `0.5.0` → `1.0.0` is MAJOR,
+  which is required for the stability commitment itself and permitted for the dependency
+  narrowing.
+- [x] **Do the release notes list every breaking change with its migration?** Yes — one
+  breaking change (the `views-frames` floor), with its migration stated.
+- [x] **Does `MetricFrame`'s format or axis vocabulary change? If so, has it been agreed
+  with views-reporting and views-pipeline-core?** No. Unchanged from 0.5.0, so no
+  agreement is owed.
+  From 1.0.0 it is additionally covered by the MAJOR-bump guarantee, and — as of this
+  release — its 44 guards actually run in CI, which was not true when 0.5.0 shipped.
 
 ---
 
