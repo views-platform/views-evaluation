@@ -54,14 +54,34 @@ class TestCiRunsTheContractTests:
         this gap.
         """
         pyproject = PYPROJECT.read_text()
-        extras_block = re.search(
-            r"\[tool\.poetry\.extras\]\n((?:.*\n)*?)\n", pyproject
+        # Both layouts: poetry warns `[tool.poetry.extras]` is deprecated in favour of
+        # PEP 621's `[project.optional-dependencies]`. Reading only the deprecated one
+        # would make a routine migration fail this guard as a false alarm.
+        # Sections split explicitly, not by regex: `(?:[^\[].*\n|\n)*` looks like it
+        # stops at the next `[section]` but `[^\[]` matches a newline, so it steps over
+        # the header and keeps going.
+        sections, current = {}, None
+        for line in pyproject.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                current = stripped[1:-1]
+                sections[current] = []
+            elif current is not None:
+                sections[current].append(line)
+        extras_block = None
+        for header in ("tool.poetry.extras", "project.optional-dependencies"):
+            body = "\n".join(sections.get(header, []))
+            if re.search(r"^\w[\w-]*\s*=\s*\[", body, re.M):
+                extras_block = body
+                break
+        assert extras_block, (
+            "no extras table found under [tool.poetry.extras] or "
+            "[project.optional-dependencies] in pyproject.toml"
         )
-        assert extras_block, "[tool.poetry.extras] not found in pyproject.toml"
         # extra name -> the distributions it pulls, e.g. frames -> views-frames
         extras = {
             m.group(1): m.group(2)
-            for m in re.finditer(r'^(\w+)\s*=\s*\[([^\]]*)\]', extras_block.group(1), re.M)
+            for m in re.finditer(r'^(\w[\w-]*)\s*=\s*\[([^\]]*)\]', extras_block, re.M)
         }
         assert extras, "no extras parsed; the pyproject layout has changed"
 
@@ -74,10 +94,17 @@ class TestCiRunsTheContractTests:
                 skipped_on.add(m.group(1).split(".")[0])
 
         # Map those back to the extras that provide them (views_frames -> views-frames).
+        def _import_names(pkgs):
+            # PEP 621 entries carry version specifiers ("views-frames>=1.10.2,<2");
+            # keep only the distribution name before mapping it to an import name.
+            for p in pkgs.split(","):
+                name = re.split(r"[<>=!~\[; ]", p.strip().strip("\"'"))[0].strip()
+                if name:
+                    yield name.replace("-", "_")
+
         required = {
             name for name, pkgs in extras.items()
-            if any(p.strip().strip('"\'').replace("-", "_") in skipped_on
-                   for p in pkgs.split(","))
+            if any(n in skipped_on for n in _import_names(pkgs))
         }
         assert required, (
             "no test import-skips on a declared extra; if that is genuinely true this "

@@ -78,6 +78,12 @@ The project follows Semantic Versioning, with the standard `0.x` caveat made exp
 
 `1.0.0` should be cut when downstream consumers require a stability guarantee — not before.
 
+**`1.0.0` was cut on 2026-08-02.** The condition was met: `views-pipeline-core` invokes
+`NativeEvaluator` directly and `views-reporting` reads the emitted `MetricFrame`, so both
+build against this library's evaluation-of-record. From that release the `0.x` latitude
+above no longer applies — a breaking change requires a MAJOR bump, not a MINOR one. The
+release itself contained no API change; the stability commitment is what it carries.
+
 ### 6. Retroactive position on the 0.4.0 removals
 
 The `EvaluationManager` / `PandasAdapter` / legacy-key removals shipped in 0.4.0 without notice. That cannot be undone, and the shim will **not** be restored: it has been absent from the released package since 2026-05-18, and after ADR-015 ruling 4 a legacy key fails loudly rather than silently, which is the better outcome.

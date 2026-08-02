@@ -1,7 +1,7 @@
 # Technical Risk Register — views-evaluation
 
 **Last updated:** 2026-08-02
-**Total open concerns:** 12
+**Total open concerns:** 13
 **Governing ADR:** ADR-023
 **Citation convention:** `Location` fields name files and symbols (functions, classes, sections), not line numbers — line numbers drift as soon as anything is inserted above them.
 
@@ -176,6 +176,18 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Source:** review-diff of the PR #45 remediation (2026-08-02) — found only because each guard was deliberately re-run against a re-injected defect rather than trusted for being green
 - **Mitigation path:** The cheap, specific version is a convention: every guard carries a companion that injects the defect into a copy of the input and asserts the guard rejects it, so the guard's own failure path is exercised on every run. That is mutation testing narrowed to the assertions that matter, and it is the only thing that distinguishes "no defect" from "no longer looking". The broader tool (`mutmut`, `cosmic-ray`) is likely disproportionate for a repo this size. Until then, the working discipline is the one that caught both instances: **when you write or edit a guard, break the thing it guards and watch it fail.** A guard never observed failing has not been shown to work.
 - **Note:** Cross-refs — C-34 (whose mitigation this undermines) and C-35 (both are instances of verifying against an artifact chosen by the verifier rather than against reality).
+
+---
+
+### C-38 — Dependency constraints are tightened without checking branch-tracking consumers
+- **Tier:** 3 (Medium)
+- **Description:** On 2026-08-02 the `views-frames` floor was raised from `^1.4` to `>=1.10.2,<2` and merged to `development` and `main`. **`views-reporting` consumes this repo by git branch**, not by version (`views-evaluation = { git = "...", branch = "development" }` in its `[tool.uv.sources]`), so the new floor reached it the moment the merge landed — with no release, no version bump, and no opportunity for it to opt in. Its `uv.lock` was pinned to `views-frames` **1.7.0** at that moment, below the new floor. The change was safe only because its maintainer happened to be mid-flight on the identical bump (`>=1.0.0,<2.0.0` → `>=1.10.2,<2.0.0`, lock 1.7.0 → 1.10.2) on branch `chore/0.3.1-prep-pins-ci`. **That is coincidence, not verification** — nobody checked the consumer's lock before tightening the constraint.
+- **Why this is not C-35:** C-35 is about not exercising a consumer's *call path*. This is about not checking a consumer's *dependency resolution*. A library can be perfectly compatible at the API level and still be unresolvable, and no test in either repo would show it — the failure appears at install time, in their CI, after our merge.
+- **Trigger:** The next time any constraint in `pyproject.toml` is narrowed — a raised floor, a lowered ceiling, a new required dependency — while any consumer resolves this repo from a branch rather than a published version. Branch-tracking makes every merge a release for that consumer, without any of a release's gates.
+- **Location:** `pyproject.toml` (dependency constraints); `views-reporting/pyproject.toml` `[tool.uv.sources]` (the branch-tracking entry, which its own comment marks as INTERIM pending the MetricFrame emit reaching PyPI — a condition satisfied by 0.5.0 on 2026-08-02 but not yet acted on)
+- **Source:** falsification audit round 3 (2026-08-02)
+- **Mitigation path:** Cheapest durable fix is to remove the reason for branch-tracking: now that the emit is published, views-reporting can revert to a plain version pin, at which point our merges stop reaching it un-gated. Failing that, treat narrowing a constraint as a breaking change under ADR-022 §3 and check the locks of known branch-tracking consumers first — the same "execute the real consumer's path" rule as C-35, applied to resolution rather than to calls.
+- **Note:** ADR-022 §3.2 already requires notifying known consumers before a release. Branch-tracking sidesteps that entirely, because there is no release to notify about. See C-35, C-36.
 
 ---
 

@@ -39,6 +39,15 @@ jobs:
         # tests/test_falsification_ci_coverage_gap.py.
         poetry install --all-extras
 
+    # Proves the extras ARRIVED, not merely that --all-extras was requested.
+    # `poetry install` exits 0 even if it resolves without an optional package, and
+    # every downstream guard is a module-level pytest.importorskip that turns absence
+    # into silence. Without this step a partial install shrinks the suite by 66 tests
+    # and CI still reports green. Guarded by
+    # tests/test_falsification_extras_actually_installed.py.
+    - name: Verify optional extras are installed
+      run: poetry run python -c "import views_frames, pandas"
+
     - name: Run tests
       run: |
         set -e
