@@ -10,6 +10,7 @@ Structured per ADR-020 (Red/Beige/Green):
 The whole module requires the optional 'views-frames' dependency; it is skipped otherwise.
 """
 import json
+import logging
 import tempfile
 
 import numpy as np
@@ -269,14 +270,29 @@ class TestToMetricFrameBeige:
         assert set(mf.identifiers['partition'].tolist()) == {""}
         assert set(mf.identifiers['level'].tolist()) == {""}
 
-    def test_fully_empty_report_yields_zero_row_frame(self):
+    def test_fully_empty_report_raises_rather_than_emitting_zero_rows(self):
+        """Superseded behaviour: this used to assert a valid zero-row frame was emitted.
+
+        ADR-015 ruling 6 forbids it — such a frame passes every envelope check and
+        persists as a legitimate-looking audit artifact recording nothing (C-30).
+        The *container* may still hold zero rows, so that load() can read back
+        whatever save() wrote; that half is asserted in
+        ``TestVacuousEmitRed.test_metricframe_itself_still_accepts_zero_rows``
+        and in ``test_zero_row_container_still_conforms`` below.
+        """
         report = EvaluationReport('t', 'regression', 'point',
                                   {'month': {}, 'time_series': {}, 'step': {}})
-        mf = report.to_metric_frame()
+        with pytest.raises(ValueError, match="produced no rows"):
+            report.to_metric_frame()
+
+    def test_zero_row_container_still_conforms(self):
+        """A directly-constructed empty frame still satisfies the views-frames envelope."""
+        ids = {axis: np.asarray([], dtype=str) for axis in AXES}
+        mf = MetricFrame(np.zeros((0, 1), dtype=np.float32), ids)
         assert mf.n_rows == 0
         assert mf.values.shape == (0, 1)
         assert mf.values.dtype == np.float32
-        assert_frame_envelope(mf)  # empty frame still conforms + round-trips
+        assert_frame_envelope(mf)  # empty container still conforms + round-trips
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +336,78 @@ class TestMetricFrameConstructionRed:
 
 
 # ---------------------------------------------------------------------------
+# RED: Level-1 log-and-raise (ADR-013; logging standard §4, §5.1, §8)
+#
+# MetricFrame is Level 1 — it persists the evaluation-of-record — so its raises
+# must ALSO log at ERROR. Level-0 modules stay exempt and are asserted separately
+# in test_level_zero_modules_have_no_logger.
+# ---------------------------------------------------------------------------
+
+class TestMetricFrameLogAndRaiseRed:
+
+    def _valid_ids(self, n):
+        return {axis: np.asarray(["x"] * n, dtype=str) for axis in AXES}
+
+    def test_non_float32_logs_error_before_raising(self, caplog):
+        with caplog.at_level(logging.ERROR, logger="views_evaluation.evaluation.metric_frame"):
+            with pytest.raises(ValueError, match="float32"):
+                MetricFrame(np.zeros((2, 1), dtype=np.float64), self._valid_ids(2))
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert errors, "structural failure raised without logging (ADR-013 requires both)"
+        assert "float32" in errors[0].getMessage()
+
+    def test_missing_axis_logs_error_before_raising(self, caplog):
+        ids = self._valid_ids(2)
+        del ids["partition"]
+        with caplog.at_level(logging.ERROR, logger="views_evaluation.evaluation.metric_frame"):
+            with pytest.raises(ValueError, match="missing required axes"):
+                MetricFrame(np.zeros((2, 1), dtype=np.float32), ids)
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert errors
+        assert "missing required axes" in errors[0].getMessage()
+
+    def test_logged_message_is_identical_to_exception_message(self, caplog):
+        """Standard §4: log and raise carry the same message — not a paraphrase."""
+        ids = self._valid_ids(2)
+        ids["metric"] = np.asarray(["only_one"], dtype=str)
+        with caplog.at_level(logging.ERROR, logger="views_evaluation.evaluation.metric_frame"):
+            with pytest.raises(ValueError) as excinfo:
+                MetricFrame(np.zeros((2, 1), dtype=np.float32), ids)
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert errors
+        assert errors[0].getMessage() == str(excinfo.value)
+
+    def test_level_zero_modules_have_no_logger(self):
+        """Logging standard §5.1: Level-0 pure-math modules must NOT acquire loggers.
+
+        Guards the exemption in the other direction — a well-meaning contributor
+        adding a logger to the numeric core is a violation, not an improvement.
+        """
+        import inspect
+        from views_evaluation.evaluation import (
+            evaluation_frame,
+            metric_catalog,
+            native_evaluator,
+            native_metric_calculators,
+        )
+        for module in (evaluation_frame, native_evaluator, metric_catalog,
+                       native_metric_calculators):
+            src = inspect.getsource(module)
+            assert "getLogger" not in src, (
+                f"{module.__name__} is Level 0 and must not maintain a logger "
+                f"(logging standard §5.1)"
+            )
+
+    def test_library_never_configures_root_logger(self):
+        """A library must not call basicConfig or attach handlers."""
+        import inspect
+        import views_evaluation.evaluation.metric_frame as mf
+        src = inspect.getsource(mf)
+        assert "basicConfig" not in src
+        assert "addHandler" not in src
+
+
+# ---------------------------------------------------------------------------
 # MetricFrameMetadata direct tests
 # ---------------------------------------------------------------------------
 
@@ -339,3 +427,63 @@ class TestMetricFrameMetadata:
     def test_schema_version_always_present(self):
         meta = MetricFrameMetadata()
         assert meta.to_dict()["schema_version"] == SCHEMA_VERSION
+
+
+# ---------------------------------------------------------------------------
+# RED: vacuous emit (ADR-015 ruling 6; risk register C-30)
+#
+# A zero-row MetricFrame passes _validate AND assert_frame_envelope — dtype,
+# dimensionality and axis alignment are all satisfied. The guard therefore has to
+# live at the emit site, which is also the only place with enough context to say
+# why the report was empty.
+# ---------------------------------------------------------------------------
+
+class TestVacuousEmitRed:
+
+    def test_report_with_no_metric_values_raises(self):
+        report = EvaluationReport('t', 'regression', 'sample',
+                                  {'month': {'month100': {}}, 'time_series': {}, 'step': {}})
+        with pytest.raises(ValueError, match="produced no rows"):
+            report.to_metric_frame(model_id='m')
+
+    def test_completely_empty_report_raises(self):
+        report = EvaluationReport('t', 'regression', 'sample',
+                                  {'month': {}, 'time_series': {}, 'step': {}})
+        with pytest.raises(ValueError, match="produced no rows"):
+            report.to_metric_frame(model_id='m')
+
+    def test_error_message_names_target_and_schemas(self):
+        report = EvaluationReport('ged_sb_best', 'regression', 'sample',
+                                  {'month': {'month100': {}}, 'time_series': {}, 'step': {}})
+        with pytest.raises(ValueError) as excinfo:
+            report.to_metric_frame(model_id='m')
+        msg = str(excinfo.value)
+        assert 'ged_sb_best' in msg
+        assert 'month' in msg
+
+    def test_vacuous_emit_logs_before_raising(self, caplog):
+        """Level-1 emit path logs at ERROR even though the raise sits in a Level-0 file."""
+        report = EvaluationReport('t', 'regression', 'sample',
+                                  {'month': {'month100': {}}, 'time_series': {}, 'step': {}})
+        with caplog.at_level(logging.ERROR, logger="views_evaluation.evaluation.metric_frame"):
+            with pytest.raises(ValueError):
+                report.to_metric_frame(model_id='m')
+        assert [r for r in caplog.records if r.levelname == "ERROR"]
+
+    def test_partial_report_still_emits(self):
+        """A single metric value in a single schema is enough — partial is not vacuous."""
+        report = EvaluationReport('t', 'regression', 'sample',
+                                  {'month': {'month100': {'CRPS': 0.5}},
+                                   'time_series': {}, 'step': {}})
+        mf = report.to_metric_frame(model_id='m')
+        assert mf.n_rows == 2      # the group row + the "mean" aggregate row
+
+    def test_metricframe_itself_still_accepts_zero_rows(self):
+        """The container must stay able to represent whatever load() reads back.
+
+        The guard belongs at emit, not in _validate — tightening the container
+        would break the save/load round-trip and change a cross-repo envelope.
+        """
+        ids = {axis: np.asarray([], dtype=str) for axis in AXES}
+        mf = MetricFrame(np.zeros((0, 1), dtype=np.float32), ids)
+        assert mf.n_rows == 0

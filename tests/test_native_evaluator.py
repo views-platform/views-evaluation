@@ -163,14 +163,67 @@ class TestNativeEvaluatorGreen:
             },
             metadata={'target': 'test_target'},
         )
+        # ADR-015 ruling 7: this used to return step03/step04 as EMPTY DICTS —
+        # requested by the caller, present in the report, looking evaluated, scoring
+        # nothing and emitting no MetricFrame rows. Silently not fulfilling an explicit
+        # request is now a loud failure (C-20, truncation half).
         config = _regression_point_config(steps=[1, 2, 3, 4])
+        with pytest.raises(ValueError, match="legacy_compatibility=True truncates"):
+            NativeEvaluator(config).evaluate(ef, legacy_compatibility=True)
+
+    def test_legacy_compatibility_true_succeeds_when_only_available_steps_requested(self):
+        """Truncation itself is still supported — ask only for steps that exist.
+
+        The flag's legacy-parity purpose is preserved: the caller declares the steps
+        the shortest sequence can supply and gets exactly those, fully scored.
+        """
+        rows = []
+        for s in range(1, 5):   # origin 0: 4 steps
+            rows.append((100 + s - 1, 1, 0, s))
+        for s in range(1, 3):   # origin 1: 2 steps
+            rows.append((101 + s - 1, 1, 1, s))
+        n = len(rows)
+        ef = EvaluationFrame(
+            y_true=np.zeros(n),
+            y_pred=np.zeros((n, 1)),
+            identifiers={
+                'time':   np.array([r[0] for r in rows]),
+                'unit':   np.array([r[1] for r in rows]),
+                'origin': np.array([r[2] for r in rows]),
+                'step':   np.array([r[3] for r in rows]),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = _regression_point_config(steps=[1, 2])   # only what origin 1 can supply
         report = NativeEvaluator(config).evaluate(ef, legacy_compatibility=True)
         step_results = report.to_dict()['schemas']['step']
-        # Steps 1 and 2 should be populated; steps 3 and 4 should be empty (truncated)
-        assert bool(step_results.get('step01'))  # non-empty dict
-        assert bool(step_results.get('step02'))  # non-empty dict
-        assert not step_results.get('step03')    # empty dict (truncated)
-        assert not step_results.get('step04')    # empty dict (truncated)
+        assert bool(step_results.get('step01'))
+        assert bool(step_results.get('step02'))
+        assert set(step_results) == {'step01', 'step02'}, \
+            "no empty placeholder keys should survive"
+
+    def test_legacy_compatibility_true_is_a_noop_for_equal_length_origins(self):
+        """Equal-length sequences truncate nothing, so the flag must not interfere."""
+        rows = []
+        for o in (0, 1):
+            for s in range(1, 4):
+                rows.append((100 + o + s - 1, 1, o, s))
+        n = len(rows)
+        ef = EvaluationFrame(
+            y_true=np.zeros(n),
+            y_pred=np.zeros((n, 1)),
+            identifiers={
+                'time':   np.array([r[0] for r in rows]),
+                'unit':   np.array([r[1] for r in rows]),
+                'origin': np.array([r[2] for r in rows]),
+                'step':   np.array([r[3] for r in rows]),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = _regression_point_config(steps=[1, 2, 3])
+        report = NativeEvaluator(config).evaluate(ef, legacy_compatibility=True)
+        step_results = report.to_dict()['schemas']['step']
+        assert all(bool(step_results.get(f'step0{s}')) for s in (1, 2, 3))
 
     def test_legacy_compatibility_false_includes_all_steps_with_data(self):
         """With legacy_compatibility=False, all steps that have data are populated."""
@@ -373,7 +426,11 @@ class TestNativeEvaluatorBeige:
     def test_nan_metric_result_is_finite_checkable(self):
         """Metric results that are NaN (e.g., Pearson on constant data) must be
         detectable via np.isfinite. This documents that NaN can appear in results
-        when data is degenerate, and callers should check."""
+        when data is degenerate, and callers should check.
+
+        ADR-015 ruling 2 (as revised): a constant series is a property of the data,
+        not a fault, so this is a documented sentinel rather than a raise.
+        """
         n = 4
         ef = EvaluationFrame(
             y_true=np.array([1.0, 1.0, 1.0, 1.0]),  # constant → Pearson = NaN
@@ -393,6 +450,36 @@ class TestNativeEvaluatorBeige:
         assert np.isnan(pearson_val), "Pearson on constant data should be NaN"
         # Callers can detect this with np.isfinite
         assert not np.isfinite(pearson_val)
+
+    def test_constant_baseline_model_evaluates_without_crashing(self):
+        """Regression guard for the ADR-015 ruling-2 reversal (2026-08-02).
+
+        A "predict zero everywhere" baseline has a constant prediction series. ADR-041
+        states reports exist to compare "ensemble models against constituent models and
+        baselines", so this is a routine workflow.
+
+        For one day, Pearson raised on constant input — which aborted the ENTIRE
+        evaluation (every metric, every schema) whenever a baseline was scored. This
+        test pins that it must not happen again: the baseline evaluates, MSE is real,
+        and Pearson records NaN for the undefined groups.
+        """
+        n = 6
+        ef = EvaluationFrame(
+            y_true=np.array([0.0, 5.0, 0.0, 12.0, 3.0, 0.0]),   # varied, real data
+            y_pred=np.zeros((n, 1)),                             # the baseline
+            identifiers={
+                'time':   np.array([100, 100, 100, 101, 101, 101]),
+                'unit':   np.array([1, 2, 3, 1, 2, 3]),
+                'origin': np.zeros(n, dtype=int),
+                'step':   np.array([1, 1, 1, 2, 2, 2]),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = _regression_point_config(steps=[1, 2], metrics=['MSE', 'Pearson'])
+        report = NativeEvaluator(config).evaluate(ef)          # must not raise
+        month = report.to_dict()['schemas']['month']
+        assert np.isfinite(month['month100']['MSE']), "MSE must still be computed"
+        assert np.isnan(month['month100']['Pearson']), "Pearson undefined → NaN, not a crash"
 
     def test_cross_schema_consistency_mse_values(self):
         """MSE computed via month-wise on a single-month window must equal
@@ -480,21 +567,107 @@ class TestNativeEvaluatorRed:
             NativeEvaluator(config).evaluate(ef)
 
     def test_invalid_metric_name_raises_value_error(self):
-        ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)
+        """Unknown metric names now fail at construction, not at evaluate() (C-02)."""
         config = _regression_point_config(steps=[1, 2], metrics=['NOSUCHMETRIC'])
-        with pytest.raises(ValueError, match="not valid"):
-            NativeEvaluator(config).evaluate(ef)
+        with pytest.raises(ValueError, match="Unknown metric"):
+            NativeEvaluator(config)
 
-    def test_empty_config_accepted_at_init_fails_at_evaluate(self):
-        """Empty config is accepted at init (C-02 known gap) but fails at evaluate().
+    def test_empty_config_rejected_at_init(self):
+        """An empty config fails loudly at construction (C-02, ADR-015 rulings 4/5).
 
-        NativeEvaluator.__init__ only validates profile name (defaults to 'base').
-        Structural config errors surface at evaluate() time, not construction.
+        Supersedes ``test_empty_config_accepted_at_init_fails_at_evaluate``, which
+        asserted the pre-ADR-015 behaviour: that ``NativeEvaluator({})`` constructed
+        successfully and only failed later. That leniency was the Tier-1 defect.
         """
-        ef = _make_parallelogram_ef(n_origins=1, n_steps=2, n_units=2)
-        evaluator = NativeEvaluator({})  # does NOT raise — C-02
-        with pytest.raises((ValueError, KeyError)):
-            evaluator.evaluate(ef)
+        with pytest.raises(ValueError):
+            NativeEvaluator({})
+
+    # ── C-02 / ADR-015 rulings 4 & 5: config must fail loud at construction ──────
+    #
+    # Each of these previously produced an empty-but-successful-looking report.
+
+    def test_misspelled_metric_list_key_rejected_at_init(self):
+        """The exact C-02 reproduction: a missing 's' silently emptied the report."""
+        config = {
+            'steps': [1],
+            'regression_targets': ['target'],
+            'regression_sample_metric': ['CRPS'],   # typo — should be ..._metrics
+        }
+        with pytest.raises(ValueError, match="Unknown evaluation config key"):
+            NativeEvaluator(config)
+
+    def test_legacy_config_keys_rejected_at_init(self):
+        """Legacy keys removed in 0.4.0 now fail loudly instead of silently (C-29)."""
+        for legacy in ('targets', 'metrics',
+                       'regression_uncertainty_metrics', 'classification_uncertainty_metrics'):
+            config = {'steps': [1], 'regression_targets': ['target'],
+                      'regression_point_metrics': ['MSE'], legacy: ['x']}
+            with pytest.raises(ValueError, match="Unknown evaluation config key"):
+                NativeEvaluator(config)
+
+    def test_missing_steps_rejected_at_init(self):
+        """Without 'steps' the entire step-wise schema was silently absent."""
+        config = {'regression_targets': ['target'], 'regression_sample_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="non-empty 'steps'"):
+            NativeEvaluator(config)
+
+    def test_empty_steps_rejected_at_init(self):
+        config = {'steps': [], 'regression_targets': ['target'],
+                  'regression_sample_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="non-empty 'steps'"):
+            NativeEvaluator(config)
+
+    def test_non_positive_step_rejected_at_init(self):
+        """'steps' is 1-indexed; step 0 would silently match no group."""
+        config = {'steps': [0, 1], 'regression_targets': ['target'],
+                  'regression_sample_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="1-indexed positive integers"):
+            NativeEvaluator(config)
+
+    def test_no_targets_rejected_at_init(self):
+        config = {'steps': [1], 'regression_sample_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="declares no targets"):
+            NativeEvaluator(config)
+
+    def test_targets_without_metrics_rejected_at_init(self):
+        """Declaring a task with no metrics for it evaluated every group to {}."""
+        config = {'steps': [1], 'regression_targets': ['target']}
+        with pytest.raises(ValueError, match="provides no metrics"):
+            NativeEvaluator(config)
+
+    def test_metric_invalid_for_its_cell_rejected_at_init(self):
+        """CRPS is a sample metric; declaring it under point metrics is a config error."""
+        config = {'steps': [1], 'regression_targets': ['target'],
+                  'regression_point_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="not valid for"):
+            NativeEvaluator(config)
+
+    def test_non_dict_config_rejected_at_init(self):
+        with pytest.raises(ValueError, match="must be a dict"):
+            NativeEvaluator(['steps', 1])
+
+    def test_sample_frame_without_sample_metrics_fails_at_evaluate(self):
+        """pred_type depends on the frame, so this can only be caught at evaluate().
+
+        A point-only config evaluating a sample frame previously produced empty
+        per-group dicts with no error.
+        """
+        # Built inline: the shared helper is point-only (y_pred is (n, 1)).
+        ef = EvaluationFrame(
+            y_true=np.zeros(4),
+            y_pred=np.zeros((4, 3)),          # 3 samples per row -> pred_type == 'sample'
+            identifiers={
+                'time':   np.array([100, 100, 101, 101]),
+                'unit':   np.array([1, 2, 1, 2]),
+                'origin': np.array([0, 0, 0, 0]),
+                'step':   np.array([1, 1, 2, 2]),
+            },
+            metadata={'target': 'test_target'},
+        )
+        config = {'steps': [1, 2], 'regression_targets': ['test_target'],
+                  'regression_point_metrics': ['MSE']}
+        with pytest.raises(ValueError, match="No metrics configured for"):
+            NativeEvaluator(config).evaluate(ef)
 
     def test_metric_function_error_includes_metric_name(self):
         """When a metric function raises, the error message must name the metric (C-16)."""

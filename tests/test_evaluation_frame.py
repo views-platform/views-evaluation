@@ -214,6 +214,36 @@ class TestEvaluationFrameBeige:
 
 class TestEvaluationFrameRed:
 
+    def test_two_dimensional_y_true_raises(self):
+        """C-31: the symmetric partner of the y_pred.ndim check (C-03).
+
+        An un-squeezed (N, 1) column — a common shape out of a DataFrame column or a
+        model head — previously constructed fine and reported a plausible n_rows,
+        failing much later as a *metric* error instead of an input-contract one.
+        """
+        with pytest.raises(ValueError, match="y_true must be 1D"):
+            EvaluationFrame(
+                y_true=np.zeros((4, 2)),
+                y_pred=np.zeros((4, 3)),
+                identifiers={
+                    'time': np.arange(4), 'unit': np.arange(4),
+                    'origin': np.zeros(4, dtype=int), 'step': np.ones(4, dtype=int),
+                },
+            )
+
+    def test_column_vector_y_true_raises(self):
+        """The realistic shape: (N, 1) rather than (N,)."""
+        with pytest.raises(ValueError, match="y_true must be 1D"):
+            EvaluationFrame(
+                y_true=np.zeros((4, 1)),
+                y_pred=np.zeros((4, 3)),
+                identifiers={
+                    'time': np.arange(4), 'unit': np.arange(4),
+                    'origin': np.zeros(4, dtype=int), 'step': np.ones(4, dtype=int),
+                },
+            )
+
+
     def test_object_dtype_y_true_raises(self):
         """Object-dtype y_true must be rejected — Pure NumPy contract (ADR-011)."""
         n = 2

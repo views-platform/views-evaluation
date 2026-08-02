@@ -1,9 +1,12 @@
+import warnings
+
 import numpy as np
 from sklearn.metrics import (
     average_precision_score,
     mean_tweedie_deviance,
 )
 from scipy.stats import wasserstein_distance, pearsonr
+from scipy.stats import ConstantInputWarning
 
 def _guard_shapes(y_true: np.ndarray, y_pred: np.ndarray):
     """Internal guard to prevent broadcasting accidents.
@@ -86,11 +89,36 @@ def calculate_emd_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **
     return np.mean(emd_list)
 
 def calculate_pearson_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
+    """
+    Pearson linear correlation between observations and predictions.
+
+    Returns np.nan if either series is constant — correlation requires variance in
+    both, so no coefficient exists for that group.
+
+    A constant series is a **property of the data**, not a broken invariant, so this
+    is a documented sentinel rather than a failure (ADR-015 ruling 2). A constant
+    prediction series means the model is a baseline (e.g. "predict zero everywhere"),
+    which is a finding about the model, not an error; a constant truth series means the
+    group had no variation to correlate against. Both are ordinary in conflict data,
+    where most units are zero most of the time.
+
+    Consumers should treat np.nan as "not computable for this group" and exclude it
+    from aggregates — `EvaluationReport.to_metric_frame()` already does, via nanmean.
+
+    See also `calculate_mcr_native`, which returns inf/nan on a zero-truth group for
+    the same reason: the degenerate case is a fact about the data, not a fault.
+    """
     y_true, y_pred = _guard_shapes(y_true, y_pred)
-    correlation, _ = pearsonr(
-        np.repeat(y_true, y_pred.shape[1]), 
-        y_pred.flatten()
-    )
+
+    observed = np.repeat(y_true, y_pred.shape[1])
+    predicted = y_pred.flatten()
+
+    # Suppress SciPy's ConstantInputWarning: the degenerate case is handled and
+    # contracted above, so the warning is noise rather than signal. Scoped to this
+    # call only — it must never mask a warning from anything else.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConstantInputWarning)
+        correlation, _ = pearsonr(observed, predicted)
     return correlation
 
 def calculate_mtd_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, *, power: float, **kwargs) -> float:
@@ -102,6 +130,10 @@ def calculate_mtd_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, *,
     )
 
 def calculate_mean_prediction_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
+    # C-32: this kernel ignores y_true, but it must still guard like every sibling.
+    # Without the call it silently returned a number for shape-mismatched input while
+    # all ~20 neighbouring kernels raised.
+    y_true, y_pred = _guard_shapes(y_true, y_pred)
     return np.mean(y_pred)
 
 def calculate_mcr_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
@@ -149,6 +181,63 @@ def calculate_ignorance_score_native(
     high_bin: int,
     **kwargs
 ) -> float:
+    """
+    Ignorance score over a set of bin edges.
+
+    Args:
+        bins: A sequence of bin edges covering the target's domain, supplied by the
+              evaluation profile. Half-open: an observation is in range for
+              ``[bins[0], bins[-1])``.
+        low_bin: **RESERVED — currently has no effect.** See the status block below.
+        high_bin: **RESERVED — currently has no effect.** See the status block below.
+
+    ┌──────────────────────────────────────────────────────────────────────────────┐
+    │ STATUS OF ``low_bin`` / ``high_bin`` — RESERVED PLACEHOLDERS, NOT LIVE        │
+    │ Recorded 2026-08-02. Risk register C-28(b).                                   │
+    └──────────────────────────────────────────────────────────────────────────────┘
+
+    **These two parameters do nothing.** They are passed to
+    ``np.histogram_bin_edges(preds, bins=bins, range=(low_bin, high_bin))``, and NumPy
+    **silently ignores ``range`` whenever ``bins`` is a sequence** — which it always is
+    in every shipped profile. Verified 2026-08-02: computing edges with
+    ``range=(0, 10000)`` and with ``range=(0, 1)`` returns byte-identical arrays.
+
+    So the genome *requires* them, ``resolve_metric_params`` *fails loud* if a profile
+    omits them, and changing them alters nothing. They are retained deliberately as
+    placeholders for planned work, not because they function.
+
+    **This is a use-it-or-lose-it parameter. It does not get to sit here indefinitely.**
+
+    ── If ACTIVATED, they must conform to all of the following ──────────────────────
+
+    1. **They must actually change the binning.** The only way ``range`` takes effect is
+       if ``bins`` is an integer *count* rather than a sequence, in which case NumPy
+       computes that many equal-width bins spanning ``(low_bin, high_bin)``. Supporting
+       that means supporting two mutually exclusive bin-specification modes.
+    2. **Contradictory configuration must fail loud, not be silently resolved**
+       (ADR-013, ADR-015). If ``bins`` is a sequence *and* ``low_bin``/``high_bin`` are
+       supplied, that is a contradiction — the caller has specified the domain twice, in
+       two ways, which may disagree. Raise; do not pick a winner.
+    3. **They must satisfy ``low_bin < high_bin``**, validated in
+       ``resolve_metric_params`` alongside the existing bounds checks for ``alpha`` and
+       the quantile parameters (``metric_catalog.py``, ``_UNIT_INTERVAL_EXCLUSIVE``).
+    4. **They must agree with ADR-015 ruling 8.** An observation outside the bins raises.
+       If ``low_bin``/``high_bin`` become the declared domain of the target, the
+       out-of-range error message must cite *them*, not ``edges[0]``/``edges[-1]``, or
+       the message will point the researcher at the wrong knob.
+    5. **The semantics must be written down** in the profile docstring and in
+       ``CICs/MetricCatalog.md`` — specifically whether they mean "the target's plausible
+       domain" (a declaration about the data) or "the span to divide into bins" (an
+       instruction about the algorithm). Those are different things and only the second
+       is what NumPy's ``range`` does.
+
+    ── If NOT activated ────────────────────────────────────────────────────────────
+
+    Delete them from ``genome`` in ``metric_catalog.py``, from every profile, and from
+    this signature. A required parameter that changes nothing is dead configuration
+    presenting itself as a control, and it will mislead the next person who tries to
+    fix an out-of-range failure by widening ``high_bin`` — which will do nothing at all.
+    """
     y_true, y_pred = _guard_shapes(y_true, y_pred)
     
     def digitize_minus_one(x, edges):
@@ -159,14 +248,36 @@ def calculate_ignorance_score_native(
         preds = y_pred[i]
         truth = float(y_true[i])
 
+        # NOTE: `range` is INERT here — NumPy ignores it whenever `bins` is a sequence,
+        # which it always is in every shipped profile. Retained as a reserved
+        # placeholder; see the status block in this function's docstring (C-28b).
         edges = np.histogram_bin_edges(preds, bins=bins, range=(low_bin, high_bin))
         binned_preds = digitize_minus_one(preds, edges)
         binned_obs = digitize_minus_one([truth], edges)[0]
 
         n_bins = len(edges) - 1
+
+        # ADR-015 ruling 8: an observation outside the configured bins means the
+        # profile's `bins` do not cover the target's domain. That is a configuration
+        # error for the caller to fix — clamping it into an edge bin would silently
+        # redefine the metric exactly at the tails, which is where conflict data
+        # matters most.
+        #
+        # Without this guard both tails failed, differently and badly:
+        #   above -> binned_obs == n_bins, an IndexError (unless a prediction happened
+        #            to also be out of range, which silently made the index valid)
+        #   below -> binned_obs == -1, which negative-indexes into the LAST bin and
+        #            returned a plausible, wrong score with no error at all.
+        if not 0 <= binned_obs < n_bins:
+            raise ValueError(
+                f"Ignorance: observation {truth} at row {i} lies outside the configured "
+                f"bin range [{edges[0]}, {edges[-1]}). Widen 'bins' in the evaluation "
+                f"profile so it covers the target's observed domain."
+            )
+
         bin_counts = np.bincount(binned_preds, minlength=n_bins)
-        smoothed_counts = bin_counts + 1 
-        
+        smoothed_counts = bin_counts + 1
+
         prob = smoothed_counts[binned_obs] / np.sum(smoothed_counts)
         scores.append(-np.log2(prob))
 
