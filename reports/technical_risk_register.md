@@ -1,82 +1,63 @@
 # Technical Risk Register — views-evaluation
 
-**Last updated:** 2026-06-26
-**Total open concerns:** 9
+**Last updated:** 2026-08-02
+**Total open concerns:** 7
 **Governing ADR:** ADR-023
+
+> **2026-08-02 — Fail-Loud Doctrine epic (#26) closed 10 concerns.** ADR-015 (Degenerate
+> and Empty Results) was written and applied; ADR-022 (Evolution and Stability) was
+> activated. Clusters A, B and F are closed; C and E are reduced. The
+> register went from 15 open concerns to 7. (C-28 remains open in reduced form: its
+> inert `low_bin`/`high_bin` params were kept as documented reserved placeholders
+> rather than deleted — a maintainer decision on 2026-08-02.)
 
 ---
 
 ## Causal Clusters
 
-Root-cause groupings of the open concerns (added 2026-06-26, strategic review). Fixing the root addresses the listed symptoms together.
+Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 by epic #26). Closed clusters are retained as a record of what the root cause was and how it was resolved.
 
-- **Cluster A — Fail-Loud violations / silent degradation** → **C-02, C-20, C-22.** The codebase espouses ADR-013 Fail-Loud, yet has output paths that emit empty/omitted/`nan` values unflagged. A single audit of metric/output paths (make loud, or document explicit sentinels à la MCR) addresses all three. **Highest priority** — holds both borderline-Tier-1 entries (C-02, C-20).
-- **Cluster B — EvaluationManager-deletion fallout / unowned config validation** → **C-02.** Phase-3 removal of `EvaluationManager` left config validation unowned. **C-02 is the keystone** (also in Cluster A). _(The dangling-docstring symptom, formerly C-21, was demoted to the tech-debt backlog on 2026-06-26.)_
-- **Cluster C — scipy/sklearn in the Level-0 core** → **C-05, C-19.** `native_metric_calculators.py` imports scipy/sklearn at module level in a nominally pure-numpy core: ADR-011 purity violation (C-05) + undeclared packaging dep (C-19). Latent — no current trigger.
-- **Cluster D — MetricFrame evaluation-of-record integrity** → **C-24, C-25, C-26.** The newly-emitted cross-repo artifact (`to_metric_frame` / `MetricFrame`) has three exposures on a young, not-yet-hardened surface: contract drift breaking consumers (C-24), a misleading provenance version-label (C-25), and float32 / `schema_version` fidelity gaps (C-26). Consumers (views-reporting, pipeline-core) are actively building against it.
+- **Cluster A — No doctrine for degenerate or empty results (Fail-Loud violations)** → **RESOLVED 2026-08-02**, one accepted residue (**C-22**). **ADR-015** now defines what a computation does when it cannot produce a result and rules on every non-raising path individually, on a **fault-vs-data-property** test. C-02, C-28(a), C-29, C-30, C-32 closed; C-20's truncation half closed. **C-22 remains open as an accepted, documented sentinel rather than a defect** — Pearson's `nan` was ruled a raise and reversed the same day when the raise proved to abort any evaluation of a constant baseline. The cluster's root cause is gone; what is left is a contract, not a silence.
+- **Cluster B — Phase-3 deletion left config validation and its documented contracts unowned** → **CLOSED 2026-08-02.** `NativeEvaluator._validate_config` (#31) restored ownership of config validation, deriving the valid key set from `EvaluationConfig` so the schema has one authority; the README was corrected (#38) and a documentation-contract test now guards it (#40). Former members C-02, C-29 closed (+ previously demoted C-21, C-23).
+- **Cluster C — scipy/sklearn in the Level-0 core** → **C-05** (reduced from C-05 + C-19). The *declaration* half closed on 2026-08-02 (#29 declared `scipy` in `pyproject.toml`, C-19). The **ADR-011 purity violation remains open**: `native_metric_calculators.py` still imports `sklearn.metrics` and `scipy.stats` at module level. Latent — no current trigger, and a scope-3 reimplementation to fix.
+- **Cluster D — MetricFrame evaluation-of-record integrity** → **C-24, C-25, C-26** (reduced from four). The vacuous-emit exposure (C-30) closed on 2026-08-02 (#34). The remaining three were deliberately deferred until **after** 0.5.0 ships, so the drift guards pin the contract that actually shipped rather than a moving one. Consumers (views-reporting, pipeline-core) are actively building against this surface.
+- **Cluster E — `Ignorance` bin contract is unsound** → **C-28** (reduced). #32 guards both tails of the bin range, raising per ADR-015 ruling 8 — C-27 closed and C-28's silent-mis-scoring half with it. What remains is **C-28(b)**: `low_bin`/`high_bin` are declared, required, and inert. Kept as documented reserved placeholders by maintainer decision rather than deleted (#33 reverted), so the cluster stays open on a use-it-or-lose-it basis.
+- **Cluster F — Input-boundary shape contract incomplete** → **CLOSED 2026-08-02.** #36 added the `y_true.ndim` check at the frame boundary and the missing `_guard_shapes` call in `y_hat_bar`. C-31, C-32 closed. (C-32 was fixed rather than demoted — the demotion recommendation from the 2026-08-02 strategic review is superseded.)
 
 ---
 
 ## Open Concerns
 
-### C-02 — NativeEvaluator does not validate config at init
-- **Tier:** 2 (High) — upgraded from 3 (2026-04-04); borders Tier 1 via the silent-no-op path below
-- **Description:** `NativeEvaluator.__init__` only validates the profile name. Missing or malformed config keys cause failures at evaluation time, not at construction. Two distinct failure modes exist: (a) missing target lists raise a loud `ValueError` ("Target X not found"); but (b) a **missing or misspelled metric-list key silently produces empty results with no error signal** — `_resolve_task_and_metrics` reads `config.get(f"{task}_{pred_type}_metrics", [])` (`native_evaluator.py:52`), so a typo like `regression_sample_metric` returns `[]`, and `evaluate()` returns an `EvaluationReport` with empty per-group dicts that looks successful. `config_schema.py` is a `TypedDict(total=False)` with zero runtime enforcement, and the documented validator (`EvaluationManager._validate_config`) was deleted in Phase 3, leaving config validation unowned.
-- **Trigger:** A caller passes a config whose metric-list key is misspelled or omitted (e.g. `regression_sample_metric`); `evaluate()` returns an empty-but-successful-looking report instead of failing, and the misconfiguration goes unnoticed. (Also: missing `steps`/target lists surface as errors only deep inside `evaluate()`.)
-- **Location:** `native_evaluator.py:28-39` (init), `native_evaluator.py:41-54` (`_resolve_task_and_metrics`, line 52), `config_schema.py` (type-only)
-- **Source:** repo-assimilation (2026-03-31), upgraded 2026-04-04 (risk register review), silent-no-op path added 2026-06-24 (repo-assimilation)
-- **Note:** This directly contradicts the Fail-Loud principle (ADR-013) upheld elsewhere in the codebase. See also C-21 (stale `EvaluationManager` validator reference). Part of causal clusters A + B.
-
----
-
 ### C-05 — sklearn/scipy in pure-math core
 - **Tier:** 3 (Medium)
 - **Description:** `native_metric_calculators.py` imports `sklearn.metrics` and `scipy.stats` at module level. Only 4 metric functions use these (AP, EMD, Pearson, MTD). This contradicts the zero-external-dep goal for Level 0 (ADR-011).
 - **Trigger:** When someone packages views-evaluation as a minimal-dep wheel, or adds a CI/import-lint check asserting Level-0 imports only numpy — the module-level `sklearn`/`scipy` imports fail it.
-- **Source:** repo-assimilation (2026-03-31); trigger sharpened 2026-06-26 (strategic review)
+- **Location:** `views_evaluation/evaluation/native_metric_calculators.py:2-6` (module-level `sklearn.metrics` and `scipy.stats` imports); used by `calculate_ap_native:76`, `calculate_emd_native:83`, `calculate_pearson_native:88`, `calculate_mtd_native:96`
+- **Source:** repo-assimilation (2026-03-31); trigger sharpened 2026-06-26 (strategic review); Location field added 2026-08-02 (strategic review — required field was missing)
 - **Mitigation path:** Replace with pure-numpy implementations or move affected metrics to a Level 1 module.
-- **Note:** See also C-19 — the `scipy` half of these imports is also an *undeclared packaging* dependency, a separate concern from the ADR-011 purity violation tracked here. Part of causal cluster C.
+- **Note:** The packaging half (C-19 — `scipy` undeclared in `pyproject.toml`) was **closed on 2026-08-02** (#29). What remains here is purely the ADR-011 purity violation: the imports are now honestly declared, but they still sit in the Level-0 core. Part of causal cluster C.
 
 ---
 
-### C-13 — No deprecation protocol for public API symbols
-- **Tier:** 2 (High)
-- **Description:** `EvaluationManager` and `PandasAdapter` were deleted in a single PR (PR #16) with no deprecation warning in a prior release. Downstream consumers (views-pipeline-core) had no advance signal. The Phase 4 wrapper existed as a bridge but was deleted in the same commit that merged the purge.
-- **Trigger:** Any future public API symbol deletion (function, class, or module) that a downstream consumer depends on.
-- **Source:** 2026-04-03 incident investigation (6/6 integration tests crashed with `ModuleNotFoundError`)
-- **Mitigation path:** Before deleting any `__all__`-exported symbol, add a `DeprecationWarning` in the previous release. Require one release cycle between deprecation and removal.
+### C-20 — Positional `step` semantics are assumed but enforced nowhere
+- **Tier:** 3 (Medium) — reduced from 2 on 2026-08-02; the silent-truncation half was fixed, leaving only the unenforced-convention half
+- **Description:** The step-wise schema groups rows by the caller-supplied `step` identifier under the convention that step = 1-indexed positional lead time (step 1 = the first month of each origin's forecast window). ADR-040 documents the convention and `CICs/EvaluationFrame.md` §8 explains its consequence, but **nothing validates it**. The adapter that used to synthesise `step` positionally (`PandasAdapter`) was deleted in Phase 3, so the assumption now rests entirely on callers. If a caller supplies `step` meaning something else — an absolute month offset, a 0-indexed position — the step groups are mislabelled and cross-model comparison is invalid, with no signal.
+- **Trigger:** When a new consumer (or a rewritten pipeline-core adapter) constructs an `EvaluationFrame` and populates `step` from something other than the 1-indexed position within an origin sequence — e.g. reusing a calendar offset — the step-wise report is silently mislabelled.
+- **Location:** `views_evaluation/evaluation/native_evaluator.py:102-128` (grouping); `documentation/ADRs/040_evaluation_input_schema.md` (the documented convention); `documentation/CICs/EvaluationFrame.md` §8
+- **Source:** repo-assimilation (2026-06-24); scope reduced 2026-08-02 after #37 closed the truncation half
+- **Mitigation path:** This is a **cross-repo contract decision**, not a local fix — the producer of `step` lives in views-pipeline-core. Options: validate at the `EvaluationFrame` boundary that each origin's steps form a contiguous 1..n run; or record the convention as an explicit disagreement entry (D-xx) and accept it. Coordinate with pipeline-core before choosing.
+- **Note:** The **silent-truncation half of this entry was resolved on 2026-08-02** (#37, ADR-015 ruling 7): `legacy_compatibility=True` now raises if truncation would drop a step that `config['steps']` explicitly requested, instead of returning it as an empty placeholder dict. Only the semantics half above remains open. This entry is no longer part of causal cluster A.
 
 ---
 
-### C-19 — `scipy` is an undeclared runtime dependency
-- **Tier:** 3 (Medium)
-- **Description:** `native_metric_calculators.py:6` does `from scipy.stats import wasserstein_distance, pearsonr` at module load (used by EMD and Pearson), but `pyproject.toml` declares no `scipy` dependency — only `scikit-learn`, `numpy`, and optional `pandas`. The import succeeds today only because `scipy` is pulled in transitively by scikit-learn (observed: scipy 1.15.1). The dependency is real and load-time, not lazy, so the packaging contract under-declares what the library needs.
-- **Trigger:** When the dependency tree is resolved in an environment where scikit-learn is present without `scipy` (a future sklearn that vendors its math, or a constrained/locked install that satisfies sklearn from a wheel without the scipy transitive), importing `views_evaluation` raises `ImportError` at module load.
-- **Location:** `views_evaluation/evaluation/native_metric_calculators.py:6`; `pyproject.toml` `[tool.poetry.dependencies]`
-- **Source:** repo-assimilation (2026-06-24)
-- **Mitigation path:** Declare `scipy` explicitly in `pyproject.toml`. Distinct from C-05, which concerns Level-0 purity rather than declaration. See also C-05.
-
----
-
-### C-20 — Step-wise schema trusts positional `step` semantics and silently truncates under `legacy_compatibility`
-- **Tier:** 2 (High)
-- **Description:** The step-wise schema groups rows by the caller-supplied `step` identifier (`native_evaluator.py:119`) under the convention that step = 1-indexed positional lead time (step 1 = first month in a sequence). This is documented as a "known semantic risk, matches legacy." Compounding it, when `evaluate(..., legacy_compatibility=True)` is used, steps beyond the shortest origin sequence are **silently dropped** (`native_evaluator.py:111-122`): `max_allowed_step` is set to the minimum per-origin sequence length and longer-horizon steps are skipped with no warning. A consumer comparing models with heterogeneous sequence lengths can silently lose long-horizon evaluation rows.
-- **Trigger:** When a caller evaluates data whose origins have unequal sequence lengths with `legacy_compatibility=True`, the step-wise report omits steps beyond the shortest sequence without any signal; or when `step` encodes something other than positional lead time, step groups are mislabeled.
-- **Location:** `views_evaluation/evaluation/native_evaluator.py:102-128`
-- **Source:** repo-assimilation (2026-06-24)
-- **Mitigation path:** Log dropped steps under truncation; document/validate the positional `step` contract at the `EvaluationFrame` boundary.
-- **Note:** Part of causal cluster A (silent degradation).
-
----
-
-### C-22 — Pearson returns `nan` on constant input with suppressed warning
-- **Tier:** 3 (Medium) — re-tiered from 4 on 2026-06-26 (silent `nan` reachable in normal use, not only adversarial input)
-- **Description:** `calculate_pearson_native` (`native_metric_calculators.py:88-94`) calls `scipy.stats.pearsonr`, which on a constant `y_true` or `y_pred` returns `nan` and emits a `ConstantInputWarning` (observed during the test run for `test_nan_metric_result_is_finite_checkable`). The `nan` flows into the `EvaluationReport` unflagged. Small or single-unit groups (a month with one unit, a short sequence) can be constant, so this is reachable in normal use, not only adversarial input.
-- **Trigger:** When a per-group view (e.g. a single-unit month or a constant-truth sequence) yields constant `y_true`/`y_pred`, the Pearson metric silently records `nan` in the report rather than signalling the degenerate case.
-- **Location:** `views_evaluation/evaluation/native_metric_calculators.py:88-94`
-- **Source:** repo-assimilation (2026-06-24)
-- **Mitigation path:** Decide on an explicit contract for degenerate Pearson groups (raise, or document `nan` as the defined sentinel like `MCR` does at lines 120-122).
-- **Note:** Part of causal cluster A (silent degradation). Re-tiered 4→3 on 2026-06-26.
+### C-22 — `Pearson` records `nan` for degenerate groups (accepted sentinel)
+- **Tier:** 4 (Low) — reduced from 3 on 2026-08-02; the behaviour is now contracted and documented rather than incidental
+- **Description:** `calculate_pearson_native` returns `nan` when either series is constant, and that `nan` flows into the `EvaluationReport` and on into `to_metric_frame()`. This was originally filed because the value appeared unflagged and undocumented. It is now an **explicitly accepted sentinel** under ADR-015 ruling 2, documented in the function docstring in `MCR`'s style, asserted by tests, and recorded in `CICs/MetricCatalog.md`. The residual concern is only that a consumer who does not read the contract may treat `nan` as a computed value.
+- **Trigger:** When a downstream consumer aggregates Pearson across groups without excluding `nan` — e.g. using `mean` rather than `nanmean` — a single degenerate group silently poisons the aggregate to `nan`. (`to_metric_frame()` already uses `nanmean` and is safe; the risk is in consumers that read `to_dict()` directly.)
+- **Location:** `views_evaluation/evaluation/native_metric_calculators.py` (`calculate_pearson_native`); `documentation/CICs/MetricCatalog.md` (degenerate-input table)
+- **Source:** repo-assimilation (2026-06-24); re-tiered 4→3 on 2026-06-26; **ruled a raise then reversed to a sentinel on 2026-08-02** (ADR-015 R2) after the raise was found to abort any evaluation of a constant baseline
+- **Mitigation path:** Accepted as designed. If it needs closing, the route is to document the `nan` contract in the consumer-facing MetricFrame docs so downstream aggregation is provably safe — not to change the metric.
+- **Note:** ⚠ **Do not "fix" this by making Pearson raise.** That was tried on 2026-08-02 and reverted within the day: a "predict zero everywhere" baseline has a constant prediction series, so the raise aborted the entire evaluation run — every metric, every schema — for a workflow ADR-041 requires as routine. `tests/test_native_evaluator.py::test_constant_baseline_model_evaluates_without_crashing` guards against the regression. See ADR-015 R2 for the full reasoning.
 
 ---
 
@@ -86,7 +67,7 @@ Root-cause groupings of the open concerns (added 2026-06-26, strategic review). 
 - **Trigger:** When someone renames/re-tokenizes a metric, changes the MetricFrame axes or `MEAN_GROUP_ID`, edits `SCHEMA_TO_EVAL_TYPE`, or changes `MetricFrame.save`/`load` format, without a matching update in views-reporting / pipeline-core.
 - **Location:** `views_evaluation/evaluation/metric_frame.py`; `views_evaluation/evaluation/evaluation_report.py` (`to_metric_frame`)
 - **Source:** review-rr strategic (2026-06-26), blind-spot analysis
-- **Mitigation path:** Extend the drift-guard test to cover axes / `MEAN_GROUP_ID` / `eval_type` vocabulary / a serialization round-trip; pin the persistence convention jointly with pipeline-core + reporting; enforce `schema_version` at load. See views-reporting C-41 (token drift, consumer side) and C-26 (serialization).
+- **Mitigation path:** Extend the drift-guard test to cover axes / `MEAN_GROUP_ID` / `eval_type` vocabulary / a serialization round-trip; pin the persistence convention jointly with pipeline-core + reporting. (**`schema_version` enforcement at load is owned by C-26(b), not here** — de-duplicated 2026-08-02, as both entries previously claimed the same fix.) See views-reporting C-41 (token drift, consumer side) and C-26 (serialization fidelity).
 - **Note:** Part of causal cluster D (MetricFrame evaluation-of-record). This repo's most consequential cross-repo surface — consumers are actively coding against it.
 
 ---
@@ -105,11 +86,22 @@ Root-cause groupings of the open concerns (added 2026-06-26, strategic review). 
 ### C-26 — MetricFrame emitted-artifact fidelity: float32 cast + unenforced `schema_version`
 - **Tier:** 3 (Medium)
 - **Description:** Two durability gaps in the persisted evaluation-of-record. (a) Metric values are computed in float64 but cast to **float32** for the views-frames envelope (`assert_frame_envelope` requires float32), so the stored record loses precision relative to the computed metric. (b) `MetricFrame` carries a `schema_version` marker (`"1.0.0"`) but `save`/`load` does **not enforce** it — an old frame loaded under a changed format is not rejected loudly (the cross-repo wire-contract half of views-frames **C-46** is open and is this repo's responsibility).
-- **Trigger:** When a metric's precision beyond ~7 significant figures matters for a downstream decision; or when `MetricFrame.save`/`load` format changes and a previously-persisted frame is loaded without a `schema_version` mismatch error.
+- **Trigger:** (a) When two models are ranked on a metric whose float64 values differ by less than the float32 representable gap (~1e-7 relative), the persisted record cannot reproduce the ranking the evaluator computed — check by comparing `to_dict()` values against the emitted `MetricFrame.values` for any near-tie. (b) When `MetricFrame.save`/`load` format changes and a previously-persisted frame is loaded without a `schema_version` mismatch error. _(Trigger (a) rewritten 2026-08-02 — the prior formulation, "when precision beyond ~7 significant figures matters," was unfalsifiable.)_
 - **Location:** `views_evaluation/evaluation/evaluation_report.py` (`to_metric_frame`, float32 cast); `views_evaluation/evaluation/metric_frame.py` (`save`/`load`, `SCHEMA_VERSION`)
 - **Source:** review-rr strategic (2026-06-26), blind-spot analysis
 - **Mitigation path:** Document float32 as the defined precision of the evaluation-of-record (accept), or persist float64 alongside; enforce `schema_version` on load (views-frames C-46 open half). See also C-24.
 - **Note:** Part of causal cluster D.
+
+---
+
+### C-28 — `Ignorance` declares two reserved placeholder params that have no effect
+- **Tier:** 3 (Medium) — reduced scope 2026-08-02; the silent-mis-scoring half (a) was fixed, leaving only the inert-parameter half (b)
+- **Description:** `Ignorance` declares `genome=("bins", "low_bin", "high_bin")`. `resolve_metric_params` treats all three as **required** and fails loud if a profile omits any. But `low_bin` and `high_bin` **have no effect whatsoever**: they are forwarded as `np.histogram_bin_edges(preds, bins=bins, range=(low_bin, high_bin))`, and NumPy **ignores `range` whenever `bins` is a sequence** — which it is in every shipped profile. Verified 2026-08-02: edges computed with `range=(0, 10000)` and `range=(0, 1)` are byte-identical. **Retained deliberately as reserved placeholders for planned work**, not fixed and not deleted — a maintainer decision taken 2026-08-02.
+- **Trigger:** When someone hits the out-of-range failure from ADR-015 ruling 8 and tries to fix it by widening `high_bin` — which will do nothing at all, because only `bins` governs the accepted domain. Or when the planned work that these placeholders exist for is scheduled, at which point the activation spec must be met.
+- **Location:** `views_evaluation/evaluation/native_metric_calculators.py` (`calculate_ignorance_score_native` — status block in the docstring); `views_evaluation/evaluation/metric_catalog.py` (genome declaration); `views_evaluation/profiles/base.py` (values)
+- **Source:** repo-assimilation (2026-08-02), empirically verified; scope reduced 2026-08-02 after #32 fixed half (a); retained as a placeholder by maintainer decision rather than deleted
+- **Mitigation path:** **Use it or lose it.** Either (1) activate them — which requires supporting integer `bins`, raising on the contradictory `bins`-sequence-plus-range case, validating `low_bin < high_bin`, and making ADR-015 ruling 8's error message cite them rather than the computed edges; or (2) delete them from the genome, every profile, and the kernel signature. The full activation spec is in the kernel docstring's status block.
+- **Note:** Guarded against silent drift in **both** directions by `tests/test_metric_catalog.py::TestIgnoranceReservedPlaceholders` — activating them breaks the inertness test, deleting them breaks the genome test. `CICs/MetricCatalog.md` records the four conditions a reserved placeholder must satisfy to remain one; failing any of them, it is dead configuration and must be deleted.
 
 ---
 
@@ -135,11 +127,24 @@ Moved out of the register (no correctness/reliability dimension) — tracked in 
 | C-07 | 4 | Golden-value test coverage incomplete | 17 golden-value tests in `TestGoldenValues` + 8 Brier/QS golden-value tests. AP uses sklearn as oracle. | 2026-04-02 |
 | C-08 | 4 | EvaluationManager config validation diverges from MetricCatalog | EvaluationManager removed in Phase 3. NativeEvaluator is the single evaluator. | 2026-04-01 |
 | C-09 | 4 | `deprecation_msgs.py` appears unused | File removed. No internal or external references found. | 2026-03-31 |
-| C-11 | 3 | pyproject.toml version not bumped for breaking change | Bumped to 0.5.0 in commit `aba663c`. ⚠️ **Regressed (2026-06-26):** version reverted to 0.4.0 (PR #20); re-tracked in open issue #23 (cut 0.5.0). | 2026-04-02 |
+| C-11 | 3 | pyproject.toml version not bumped for breaking change | Bumped to 0.5.0 in commit `aba663c`; regressed to 0.4.0 by PR #20. **Re-fixed 2026-08-02** (#41): `pyproject.toml` is 0.5.0 again, and ADR-022 rule 5 now states the versioning policy that was previously unwritten. | 2026-04-02 |
 | C-12 | 4 | `to_dataframe()` requires undeclared pandas optional dependency | Added `pandas = {version = "^1.5.3", optional = true}` and `[tool.poetry.extras] dataframe = ["pandas"]`. | 2026-04-02 |
-| C-14 | 4 | Editable install metadata stale | Ran `pip install -e ".[dataframe]"` to refresh. `pip show` now reports 0.5.0. ⚠️ **Stale (2026-06-26):** now reports 0.4.0 (version reverted, PR #20); see #23. | 2026-04-04 |
+| C-14 | 4 | Editable install metadata stale | Ran `pip install -e ".[dataframe]"` to refresh; went stale again when PR #20 reverted the version. **Re-fixed 2026-08-02** (#41): reinstalled with `[dataframe,frames]`; `importlib.metadata.version` and the MetricFrame `scoring_code_version` stamp both report 0.5.0. | 2026-04-04 |
 | C-15 | 4 | `to_dataframe()` is the only remaining dataclass consumer | Accepted as design — `to_dataframe()` owns the dataclass-to-DataFrame path internally. No action needed unless metric catalog grows beyond 30 entries. | 2026-04-04 |
 | C-16 | 3 | Metric function exceptions propagate without context | Wrapped `spec.function()` call in `_calculate_metrics()` with try/except that re-raises as `ValueError` naming the metric, task, and pred_type. Test: `test_metric_function_error_includes_metric_name`. | 2026-04-04 |
 | C-17 | 4 | `max_allowed_step = 999` hardcoded sentinel | Changed to `float('inf')`. Steps >= 1000 now correctly evaluated. Test: `test_step_values_above_999_not_silently_dropped`. | 2026-04-04 |
 | C-18 | 4 | No bounds validation on metric hyperparameters | Added bounds validation in `resolve_metric_params()` for `alpha`, `quantile`, `lower_quantile`, `upper_quantile` — all must be in (0, 1). Cross-validation: `lower_quantile < upper_quantile`. 7 tests in `TestResolveMetricParamsBoundsRed`. | 2026-04-04 |
 | C-10 | 4 | `_guard_shapes` dead Pandas handling branches | Removed 22 lines of dead code (pandas extraction, list-in-cell handling). EvaluationFrame._validate() now rejects object-dtype arrays, making these branches unreachable. | 2026-04-04 |
+
+### Closed by the Fail-Loud Doctrine epic (#26), 2026-08-02
+
+| ID | Tier | Description | Resolution | Issue |
+|----|------|-------------|------------|-------|
+| C-02 | **1** | NativeEvaluator does not validate config at init | `_validate_config()` added to `__init__`: rejects unknown/misspelled keys (valid set derived from `EvaluationConfig.__annotations__`), missing/empty/non-positive `steps`, absent target lists, declared tasks with no metrics, and invalid metric names. A resolved `(task, pred_type)` with no metrics now raises at `evaluate()` — the one case that cannot be known at construction. 10 Red tests. | #31 |
+| C-13 | 2 | No deprecation protocol for public API symbols | **ADR-022 activated** (was `Proposed (Deferred)`; its own trigger "breaking changes incur high coordination costs" had fired). Defines the public API surface, a one-release-cycle deprecation contract, the `DeprecationWarning`-vs-fail-loud boundary, `0.x` versioning, a retroactive position on the 0.4.0 removals, and a release checklist as the enforcement point. | #28 |
+| C-19 | 3 | `scipy` is an undeclared runtime dependency | Declared `scipy = "^1.11"` in `pyproject.toml`. It was a load-time import satisfied only transitively via scikit-learn. | #29 |
+| C-27 | 2 | `Ignorance` crashes on observations above the top bin edge | Both tails guarded and raise with a message naming the value and the configured range. Previously `IndexError` above (masked when a prediction was also out of range) and a wrong-bin score below. | #32 |
+| C-29 | 3 | README promises a `DeprecationWarning` no code implements | README corrected: legacy keys were removed in 0.4.0 and now raise at `__init__` as unknown keys. The shim was **not** restored — it had been absent from the published package since 2026-05-18. Guarded against recurrence by `tests/test_documentation_contracts.py`. | #38, #40 |
+| C-30 | 3 | `to_metric_frame()` emits a valid zero-row evaluation-of-record | Emit now raises when no schema has any metric value, naming the target and which schemas were present-but-empty, and logging at `ERROR` first (Level-1 emit path). `MetricFrame` itself still accepts zero rows so `load()` can read back whatever `save()` wrote. | #34 |
+| C-31 | 4 | `EvaluationFrame` does not validate `y_true.ndim` | `y_true.ndim != 1` now raises at construction, placed after the dtype gate so a non-numeric array is still reported as a dtype problem. | #36 |
+| C-32 | 4 | `y_hat_bar` bypasses the shared shape guard | `_guard_shapes` call added, matching every sibling kernel. **Fixed rather than demoted** — this supersedes the demotion recommendation from the 2026-08-02 strategic review. | #36 |
