@@ -75,18 +75,68 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(err_msg)
 
 
-def default_scoring_code_version() -> Optional[str]:
-    """The installed views-evaluation package version (NOT a git SHA — unavailable in a wheel).
+def _source_git_sha() -> Optional[str]:
+    """Short SHA of the worktree this module is running from, or None.
 
-    Returns None if the package metadata cannot be resolved (e.g. running from an
-    uninstalled source tree).
+    Read from `.git` directly rather than shelling out: `git` is not guaranteed to exist
+    where evaluations run, and a missing binary must not change what gets stamped.
+    """
+    path = Path(__file__).resolve().parent
+    for candidate in (path, *path.parents):
+        git = candidate / ".git"
+        if not git.exists():
+            continue
+        try:
+            if git.is_file():  # worktree: `.git` is a file pointing at the real dir
+                git = Path(git.read_text().split("gitdir:", 1)[1].strip())
+            head = (git / "HEAD").read_text().strip()
+            if head.startswith("ref:"):
+                ref = head.split(":", 1)[1].strip()
+                target = git / ref
+                if target.exists():
+                    return target.read_text().strip()[:7]
+                packed = git / "packed-refs"
+                if packed.exists():
+                    for line in packed.read_text().splitlines():
+                        if line.endswith(f" {ref}"):
+                            return line.split()[0][:7]
+                return None
+            return head[:7]
+        except (OSError, IndexError):
+            return None
+    return None
+
+
+def default_scoring_code_version() -> Optional[str]:
+    """The version stamped into an emitted MetricFrame's provenance.
+
+    The installed distribution's version, plus `+g<sha>` when this module is running
+    from a git worktree.
+
+    **Why the SHA.** The version alone comes from `importlib.metadata`, which reports the
+    *installed distribution*, not the code being executed. Under an editable install —
+    which is how the platform runs this package — those drift the moment the source tree
+    moves ahead of the last `pip install`. Register **C-25** records a measured instance:
+    with the tree at 1.0.0 and the dist-info still at 0.5.0, emitted frames were stamped
+    `0.5.0` by 1.0.0 code, silently, in the artifact whose entire purpose is to be the
+    record. A bare version number cannot distinguish the two states; a version plus a SHA
+    can.
+
+    A wheel install has no worktree and correctly stamps a bare version — that is a
+    property of how the package was installed, not a failure, so no SHA is not an error
+    (ADR-015's fault-versus-data-property test).
+
+    Returns None if the distribution metadata cannot be resolved at all, e.g. running
+    from an uninstalled source tree.
     """
     from importlib.metadata import PackageNotFoundError, version
 
     try:
-        return version("views_evaluation")
+        installed = version("views_evaluation")
     except PackageNotFoundError:
         return None
+    sha = _source_git_sha()
+    return f"{installed}+g{sha}" if sha else installed
 
 
 @dataclass(frozen=True)

@@ -152,7 +152,7 @@ later = MetricFrame.load("/path/to/run/evaluation")
 
 - **`schema_version` is not enforced on `load()`** — an old frame under a changed format is not rejected loudly. Register **C-26**; the cross-repo wire-contract half of views-frames C-46 is open and is this repo's responsibility.
 - **float64 → float32 cast at emit.** Metric values are computed in float64 and narrowed for the envelope, so the persisted record is less precise than the computed metric. Register **C-26**.
-- **`scoring_code_version` may be ambiguous.** It is the installed package version, not a git SHA (unavailable in a wheel), so two builds of the same version stamp identically. Register **C-25**.
+- **`scoring_code_version` identifies the code that ran, when it can.** It is the installed distribution's version, plus `+g<sha>` when the package is running from a git worktree (e.g. `1.0.0+g5469690`). A wheel install has no worktree and stamps a bare version — a property of the install, not a failure. The SHA exists because `importlib.metadata` reports the *installed distribution*, not the executing code: under an editable install those drift as soon as the source moves ahead of the last `pip install`, and a bare version cannot distinguish the two. Register **C-25**.
 - **Most of the cross-repo contract in §8 is unguarded by CI.** Register **C-24**.
 
 ---

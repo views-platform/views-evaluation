@@ -264,6 +264,46 @@ class TestToMetricFrameBeige:
         assert isinstance(mf.metadata.scoring_code_version, str)
         assert mf.metadata.scoring_code_version
 
+    def test_scoring_code_version_identifies_the_code_that_ran(self, monkeypatch):
+        """C-25: a bare version cannot distinguish the tree from the last install.
+
+        `importlib.metadata` reports the *installed distribution*, not the executing
+        code. Under an editable install they drift as soon as the source moves ahead of
+        the last `pip install` — measured on 2026-08-02 with the tree at 1.0.0 and the
+        dist-info at 0.5.0, emitting frames stamped `0.5.0` from 1.0.0 code.
+
+        The previous version of this test asserted only that the stamp was a non-empty
+        string, so it was satisfied by exactly the wrong answer.
+        """
+        import subprocess
+        from pathlib import Path
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        head = subprocess.run(
+            ["git", "rev-parse", "--short=7", "HEAD"],
+            capture_output=True, text=True, cwd=Path(__file__).parent,
+        ).stdout.strip()
+        if not head:
+            pytest.skip("not running from a git worktree")
+
+        stamp = mf_mod.default_scoring_code_version()
+        assert stamp and stamp.endswith(f"+g{head}"), (
+            f"stamp {stamp!r} does not identify the running code (HEAD {head}). A bare "
+            f"version here is the C-25 defect: it is indistinguishable from a stale one."
+        )
+
+    def test_scoring_code_version_is_bare_when_there_is_no_worktree(self, monkeypatch):
+        """A wheel install has no `.git` and correctly stamps a bare version.
+
+        That is a property of how the package was installed, not a failure — ADR-015's
+        fault-versus-data-property test — so it must not raise and must not invent a SHA.
+        """
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        monkeypatch.setattr(mf_mod, "_source_git_sha", lambda: None)
+        stamp = mf_mod.default_scoring_code_version()
+        assert stamp and "+g" not in stamp, f"expected a bare version, got {stamp!r}"
+
     def test_partition_level_default_to_empty_string(self):
         report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
         mf = report.to_metric_frame()  # no partition/level

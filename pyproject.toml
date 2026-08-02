@@ -22,7 +22,7 @@ dataframe = ["pandas"]
 frames = ["views-frames"]
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3.3"
+pytest = "^9.0.3"
 ruff = "*"
 properscoring = "^0.1.0"  # Dev-only: used as test oracle for CRPS parity verification
 
