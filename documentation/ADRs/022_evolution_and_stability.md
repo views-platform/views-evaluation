@@ -70,13 +70,20 @@ A `DeprecationWarning` announces a *future* removal of something that currently 
 
 ### 5. Versioning
 
-The project follows Semantic Versioning, with the standard `0.x` caveat made explicit:
+The project follows Semantic Versioning. The `0.x` caveat below applied until the 1.0.0
+cut on 2026-08-02 and is retained as the record of that regime:
 
 - **While `0.x`:** the public API carries no stability guarantee. Breaking changes may ship in a MINOR bump — but rules 2 and 3 still apply in full. Deferred stability is not deferred *communication*.
 - **From `1.0.0`:** breaking changes require a MAJOR bump.
 - A release that removes a symbol or breaks behaviour **must** bump at least MINOR; it may never ship as PATCH.
 
 `1.0.0` should be cut when downstream consumers require a stability guarantee — not before.
+
+**`1.0.0` was cut on 2026-08-02.** The condition was met: `views-pipeline-core` invokes
+`NativeEvaluator` directly and `views-reporting` reads the emitted `MetricFrame`, so both
+build against this library's evaluation-of-record. From that release the `0.x` latitude
+above no longer applies — a breaking change requires a MAJOR bump, not a MINOR one. The
+release itself contained no API change; the stability commitment is what it carries.
 
 ### 6. Retroactive position on the 0.4.0 removals
 
@@ -112,7 +119,9 @@ This policy is checked at two points:
 - Downstream consumers get advance signal instead of `ModuleNotFoundError` in CI.
 - The policy has a named enforcement point, so it stops depending on whoever happens to remember.
 - The fail-loud / deprecate boundary is written down, so ADR-013 and this ADR cannot be read as contradicting.
-- `0.x` flexibility is preserved without using it as an excuse for silent breakage.
+- `0.x` flexibility was preserved without being used as an excuse for silent breakage.
+  *(Superseded by the 1.0.0 cut on 2026-08-02 — see §5. The project is no longer `0.x`;
+  this consequence describes the regime that ended.)*
 
 ### Negative
 - A removal now takes at least two release cycles, which slows cleanup.
