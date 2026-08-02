@@ -81,8 +81,9 @@ A major finding from Phase 2 (Adversarial Testing) is the EM's fragility when en
 
 ## 4. Unimplemented Metrics (Future Work)
 
-*   **Source:** `reports/eval_lib_imp.md` (Section 4.1), `views_evaluation/evaluation/metric_calculators.py`
-*   **Description:** Several metrics are declared but raise `NotImplementedError` or are not yet implemented (e.g., `SD`, `pEMDiv`, `Variogram`, `Brier`, `Jeffreys`).
+*   **Source:** `reports/eval_lib_imp.md` (Section 4.1), `views_evaluation/evaluation/metric_catalog.py`
+*   **Description:** Four metrics are registered in `METRIC_CATALOG` with `implemented=False` and raise `ValueError` — not `NotImplementedError` — when requested: `SD`, `pEMDiv`, `Variogram`, `Jeffreys`. The `ValueError` choice is deliberate; see the comment at `native_metric_calculators.py`'s unimplemented-metric block.
+*   **Corrected 2026-08-02:** this entry previously listed `Brier` as unimplemented and named `NotImplementedError` as the exception. Both were wrong. Three Brier variants (`Brier_cls_point`, `Brier_cls_sample`, `Brier_rgs_sample`) shipped 2026-04-09 and carry no `implemented=False` flag. The stale source path `metric_calculators.py` names a module deleted on 2026-02-26 (commit `a256e72`) — five weeks before the Phase 3 purge (`fe6dd4c`, 2026-04-01) that the rest of this repo means by "Phase 3". Same drift as ADR-031 carried until this release — see register C-34.
 *   **Impact:** Limits the comprehensiveness of the evaluation framework.
 *   **Recommendation:** Prioritize the implementation of these metrics based on user needs, ensuring each implementation is accompanied by rigorous "Golden Dataset" tests (Phase 3).
 

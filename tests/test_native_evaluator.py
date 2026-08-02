@@ -661,6 +661,32 @@ class TestNativeEvaluatorRed:
         with pytest.raises(ValueError, match="1-indexed positive integers"):
             NativeEvaluator(config)
 
+    def test_scalar_steps_rejected_at_init(self):
+        """A bare scalar is truthy, so it slipped past the non-empty check.
+
+        It then reached the per-element comprehension and raised a bare
+        `TypeError: 'int' object is not iterable`, which names neither the offending
+        key nor what was expected of it. Found by the PR #45 review.
+        """
+        config = {'steps': 5, 'regression_targets': ['target'],
+                  'regression_sample_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="must be a list"):
+            NativeEvaluator(config)
+
+    def test_ndarray_steps_rejected_at_init(self):
+        """A numpy array has no unambiguous truth value.
+
+        The emptiness check ran before the type check, so `not config["steps"]` raised
+        `ValueError: The truth value of an array with more than one element is
+        ambiguous` from inside the guard — the bare crash this validation exists to
+        replace, produced by the validation itself. Found by the PR #45 review.
+        """
+        import numpy as np
+        config = {'steps': np.array([1, 2, 3]), 'regression_targets': ['target'],
+                  'regression_sample_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="must be a list"):
+            NativeEvaluator(config)
+
     def test_no_targets_rejected_at_init(self):
         config = {'steps': [1], 'regression_sample_metrics': ['CRPS']}
         with pytest.raises(ValueError, match="declares no targets"):

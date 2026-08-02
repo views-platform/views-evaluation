@@ -26,7 +26,7 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 
 - **Schema Preservation**: Guarantees that month-wise, sequence-wise, and step-wise regrouping logic is consistent with established Views standards (ADR-032).
 - **Stateless Execution**: Operates as a pure function of (Configuration + EvaluationFrame).
-- **Config Validation at Construction**: Guarantees that a structurally invalid config fails at `__init__`, not at `evaluate()`. Rejects legacy keys removed in 0.4.0 (an enumerated set, matched by exact name), keys that closely resemble a real evaluation key (a suspected typo), a missing or empty `steps` list, non-positive step positions, absence of any target list, a declared task with no metrics, and metric names that are unknown or invalid for the cell their key declares. Nothing is defaulted or repaired (ADR-015).
+- **Config Validation at Construction**: Guarantees that a structurally invalid config fails at `__init__`, not at `evaluate()`. Rejects legacy keys removed in 0.4.0 (an enumerated set, matched by exact name), keys that closely resemble a real evaluation key (a suspected typo), a missing, empty, or non-list `steps`, non-positive step positions, absence of any target list, a declared task with no metrics, and metric names that are unknown or invalid for the cell their key declares. Nothing is defaulted or repaired (ADR-015).
 - **Never Infers Intent**: A suspected typo is **reported and refused, never substituted**. The evaluator does not guess which key the caller meant and proceed — that is the silent repair ADR-015 forbids. This applies equally to legacy keys, which are named and rejected rather than translated.
 - **Tolerates Foreign Config Keys**: Unrecognised keys that do **not** resemble an evaluation key are ignored, not rejected. `views-pipeline-core` passes its whole *combined* model config through (`NativeEvaluator(context.configs)`), so the dict legitimately carries meta, hyperparameter, deployment and sweep keys — `batch_size`, `algorithm`, `regression_point_baselines` and so on. This tolerance is a **deliberate constraint, not laxity**: see register **C-33**, and do not tighten it without first separating the configs upstream.
 - **Legacy Compatibility**: Provides an explicit `legacy_compatibility` flag (**default `False`**) that caps step-wise evaluation to the shortest sequence in the frame, reproducing the historic zip-truncation behaviour required for parity with the legacy system. A step that truncation cannot supply is **omitted** from the report, never returned as an empty placeholder (ADR-015 ruling 7, revised 2026-08-02 — it briefly raised instead, which would have failed views-pipeline-core's evaluation call path whenever sequences are unequal; reachable only via `eval_type=long`, never on the default path).
@@ -63,7 +63,7 @@ At construction (`__init__`) — all `ValueError` (ADR-015 rulings 4/5, risk reg
 - Unknown evaluation profile name.
 - A legacy config key removed in 0.4.0 (`targets`, `metrics`, `*_uncertainty_metrics`) — named and rejected, never translated.
 - A key closely resembling a real evaluation key (suspected typo) — named and rejected, never substituted. Keys that do not resemble one are ignored (C-33).
-- `steps` missing or empty; or containing a non-integer or non-positive entry.
+- `steps` missing, empty, not a `list`, or containing a non-integer or non-positive entry.
 - No target list declared.
 - A declared task with no metrics for it.
 - A metric name absent from `METRIC_CATALOG`, or not valid for the `(task, pred_type)` cell its key declares.
@@ -109,7 +109,7 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 - Omitting `evaluation_profile` from config and expecting hardcoded defaults — the resolver requires explicit profile selection.
 - Using `legacy_compatibility=False` without understanding that step-wise results will include steps not present in all origins.
 - Expecting a configured step with no data (or one removed by truncation) to appear in the step-wise report as an empty entry — it is omitted entirely.
-- Relying on a misspelled or legacy config key being ignored — every key is now validated at construction.
+- Relying on a misspelled or legacy config key being ignored — a legacy key, and a key that closely resembles a real evaluation key, are both rejected at construction. (An unrecognised key that resembles *nothing* is still ignored, deliberately — see §3 "Tolerates Foreign Config Keys" and register C-33. This bullet claimed "every key is now validated" until 2026-08-02, contradicting §3 of this same contract.)
 
 ---
 
@@ -125,9 +125,10 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 ## 11. Evolution Notes
 
 - `legacy_compatibility` default was flipped to `False` in Phase 3. The flag is retained for callers that need truncation behavior. (§3 of this contract incorrectly stated the default was `True` until 2026-08-02.)
-- Config validation added to `__init__` (2026-08-02, C-02): structural config errors now surface at construction rather than at evaluation. The valid key set is derived from `EvaluationConfig.__annotations__`, giving that previously type-only module a runtime authority. Tests: `TestNativeEvaluatorRed` (9 cases).
+- Config validation added to `__init__` (2026-08-02, C-02): structural config errors now surface at construction rather than at evaluation. The valid key set is derived from `EvaluationConfig.__annotations__`, giving that previously type-only module a runtime authority. Tests: every `TestNativeEvaluatorRed::test_*_rejected_at_init` case. (Cited by naming convention, not by count — two documents previously carried two different counts, neither matching the code. See register C-34.)
 - Empty-metric-list guard added to `_resolve_task_and_metrics` (2026-08-02, C-02): a resolved `(task, pred_type)` with no configured metrics now raises instead of returning empty per-group dicts.
 - `legacy_compatibility` truncation no longer emits empty placeholders (2026-08-02, C-20): truncated and data-less steps are omitted from the step-wise report. Briefly implemented as a raise, reversed the same day: `legacy_compatibility=True` is itself a request to truncate, so raising blamed the caller for what they asked for. The raise was latent — 0 of 256 (model, run_type) combinations on the default path (ADR-015 R7).
+- Non-list `steps` rejected at construction (2026-08-02, PR #45 review): a scalar `steps` is truthy, so it passed the non-empty check and then raised a bare `TypeError` from the per-element comprehension — a crash naming neither the key nor the expectation. Now a `ValueError`. Restricted to `list` (not `list`-or-`tuple`) to match `EvaluationConfig`'s declared `List[int]`, which is this schema's single authority. Test: `test_scalar_steps_rejected_at_init`.
 - The `EvaluationReport` return type is stable; the internal `_calculate_metrics` dispatch may evolve as the `MetricCatalog` grows.
 - Exception wrapping added to `_calculate_metrics()` (2026-04-04, C-16): metric function exceptions are now caught and re-raised as `ValueError` naming the metric, task, and pred_type. Test: `test_metric_function_error_includes_metric_name`.
 - Step sentinel changed from hardcoded `999` to `float('inf')` (2026-04-04, C-17): steps >= 1000 are no longer silently dropped. Test: `test_step_values_above_999_not_silently_dropped`.
