@@ -81,7 +81,28 @@ A major finding from Phase 2 (Adversarial Testing) is the EM's fragility when en
 
 ## 4. Unimplemented Metrics (Future Work)
 
-*   **Source:** `reports/eval_lib_imp.md` (Section 4.1), `views_evaluation/evaluation/metric_calculators.py`
-*   **Description:** Several metrics are declared but raise `NotImplementedError` or are not yet implemented (e.g., `SD`, `pEMDiv`, `Variogram`, `Brier`, `Jeffreys`).
+*   **Source:** `reports/eval_lib_imp.md` (Section 4.1), `views_evaluation/evaluation/metric_catalog.py`
+*   **Description:** Four metrics are registered in `METRIC_CATALOG` with `implemented=False` and raise `ValueError` — not `NotImplementedError` — when requested: `SD`, `pEMDiv`, `Variogram`, `Jeffreys`. The `ValueError` choice is deliberate; see the comment at `native_metric_calculators.py`'s unimplemented-metric block.
+*   **Corrected 2026-08-02:** this entry previously listed `Brier` as unimplemented and named `NotImplementedError` as the exception. Both were wrong. Three Brier variants (`Brier_cls_point`, `Brier_cls_sample`, `Brier_rgs_sample`) shipped 2026-04-09 and carry no `implemented=False` flag. The stale source path `metric_calculators.py` names a module deleted on 2026-02-26 (commit `a256e72`) — five weeks before the Phase 3 purge (`fe6dd4c`, 2026-04-01) that the rest of this repo means by "Phase 3". Same drift as ADR-031 carried until this release — see register C-34.
 *   **Impact:** Limits the comprehensiveness of the evaluation framework.
 *   **Recommendation:** Prioritize the implementation of these metrics based on user needs, ensuring each implementation is accompanied by rigorous "Golden Dataset" tests (Phase 3).
+
+---
+
+## 5. Demoted from the Risk Register (2026-06-26 strategic review)
+
+Tier-4 items with no correctness/reliability dimension — moved here from `reports/technical_risk_register.md` so the register carries signal, not cleanup tickets.
+
+### 5.1. Stale docstring references deleted `EvaluationManager` validator (was C-21)
+
+*   **Source:** `views_evaluation/evaluation/config_schema.py:17`
+*   **Description:** The docstring states "Downstream validators (`EvaluationManager._validate_config`) enforce required-key semantics at runtime." `EvaluationManager` was removed in Phase 3, so no such validator exists; config validation is genuinely unowned (the functional gap is tracked as risk **C-02**).
+*   **Impact:** A reader following the docstring to find runtime config validation hits a dead reference.
+*   **Recommendation:** Update the docstring to state that no runtime config validator currently exists. (The real risk — unowned validation — stays in the register as C-02.)
+
+### 5.2. Vestigial empty `adapters` package (was C-23)
+
+*   **Source:** `views_evaluation/adapters/__init__.py` (empty, 0 lines)
+*   **Description:** Leftover of the removed Pandas-adapter design (`PandasAdapter`/`adapters.pandas`). Nothing imports it; dead structure that implies an adapter layer that no longer exists.
+*   **Impact:** Misleads readers auditing the Phase-3/4 migration for completeness.
+*   **Recommendation:** Remove the empty package, or add a module docstring stating the adapter layer was intentionally removed.

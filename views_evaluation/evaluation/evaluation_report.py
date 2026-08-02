@@ -1,6 +1,6 @@
 import dataclasses
 import warnings
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from views_evaluation.evaluation.metrics import (
     RegressionPointEvaluationMetrics,
     RegressionSampleEvaluationMetrics,
@@ -81,6 +81,153 @@ class EvaluationReport:
         metrics_cls = self._get_metrics_cls()
         return metrics_cls.evaluation_dict_to_dataframe(mapped_results)
 
+
+    def to_metric_frame(
+        self,
+        *,
+        model_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        data_version: Optional[str] = None,
+        run_type: Optional[str] = None,
+        timestamp: Optional[int] = None,
+        seed: Optional[int] = None,
+        partition: Optional[str] = None,
+        level: Optional[str] = None,
+        scoring_code_version: Optional[str] = None,
+        evaluation_timestamp: Optional[str] = None,
+    ):
+        """
+        Emit this report as a typed, provenance-stamped ``MetricFrame`` (views-frames ADR-020).
+
+        A Level-1 bridge: it flattens the nested per-group results into rows keyed by
+        ``(eval_type, target, metric, group_id, partition, level)`` and attaches provenance.
+        ``to_dict()``/``to_dataframe()`` are unaffected — this is purely additive.
+
+        For each schema (month/time_series/step) present, one row is emitted per
+        (group_id, metric), PLUS a cross-group aggregate row with ``group_id="mean"`` carrying
+        the ``nanmean`` over the groups that reported that metric (the value views-reporting
+        matches on). In the normal emit path the denominator is every group in the schema,
+        because NativeEvaluator computes the same metric set for every group; a metric present
+        in only some groups would be averaged over just those. Schema names are mapped to the
+        consumer-facing ``eval_type`` spelling via ``SCHEMA_TO_EVAL_TYPE``.
+
+        Provenance is split per ADR-020 (register C-47): generic identity goes in the reused
+        ``views_frames.FrameMetadata``; ``scoring_code_version`` and ``evaluation_timestamp``
+        stay in the MetricFrame's own metadata. ``scoring_code_version`` defaults to the
+        installed package version (NOT a git SHA — unavailable in an installed wheel).
+        ``evaluation_timestamp`` is caller-injected (not auto-stamped) to keep output deterministic.
+
+        All identity is injected, not inferred — pipeline-core supplies model_id/run_id/
+        data_version/partition/level at the evaluation call site (``run_id`` may be None at
+        emit time, when the WandB run does not yet exist).
+
+        Requires the optional ``views-frames`` dependency
+        (``pip install views-evaluation[frames]``).
+        """
+        # Gate on find_spec so the helpful error fires only when the extra is truly absent;
+        # genuine import errors inside numpy/metric_frame then propagate loudly (not masked).
+        import importlib.util
+        if importlib.util.find_spec("views_frames") is None:
+            # Level-1 emit path: logs before raising even though this guard physically
+            # resides in a Level-0 file. Logging follows the emit path, not the file
+            # (logging standard §5.1). No other raise in this module logs.
+            import logging
+            err_msg = (
+                "EvaluationReport.to_metric_frame() requires the optional 'views-frames' "
+                "dependency. Install it with: pip install views-evaluation[frames]"
+            )
+            logging.getLogger("views_evaluation.evaluation.metric_frame").error(err_msg)
+            raise ImportError(err_msg)
+        import numpy as np
+        from views_frames import FrameMetadata
+        from views_evaluation.evaluation.metric_frame import (
+            MetricFrame,
+            MetricFrameMetadata,
+            SCHEMA_TO_EVAL_TYPE,
+            MEAN_GROUP_ID,
+            AXES,
+            default_scoring_code_version,
+        )
+
+        if scoring_code_version is None:
+            scoring_code_version = default_scoring_code_version()
+
+        # Missing partition/level become "" — reporting does not key on these axes, but a
+        # present (constant) column keeps the frame's key space complete (ADR-020).
+        partition_str = "" if partition is None else str(partition)
+        level_str = "" if level is None else str(level)
+
+        columns: Dict[str, list] = {axis: [] for axis in AXES}
+        values: list = []
+
+        def _emit(eval_type: str, metric: str, group_id: str, value: float) -> None:
+            columns["eval_type"].append(eval_type)
+            columns["target"].append(str(self.target))
+            columns["metric"].append(str(metric))
+            columns["group_id"].append(str(group_id))
+            columns["partition"].append(partition_str)
+            columns["level"].append(level_str)
+            values.append(value)
+
+        for schema, eval_type in SCHEMA_TO_EVAL_TYPE.items():
+            group_results = self._results.get(schema, {})
+            if not group_results:
+                continue
+
+            # Per-group rows + accumulate per-metric values for the aggregate row.
+            metric_order: list = []
+            metric_values: Dict[str, list] = {}
+            for group_id, metrics in group_results.items():
+                for metric, value in metrics.items():
+                    _emit(eval_type, metric, group_id, value)
+                    if metric not in metric_values:
+                        metric_values[metric] = []
+                        metric_order.append(metric)
+                    metric_values[metric].append(value)
+
+            # Cross-group aggregate row (group_id="mean") — what views-reporting reads.
+            for metric in metric_order:
+                arr = np.asarray(metric_values[metric], dtype=np.float64)
+                mean = float("nan") if np.all(np.isnan(arr)) else float(np.nanmean(arr))
+                _emit(eval_type, metric, MEAN_GROUP_ID, mean)
+
+        # ADR-015 ruling 6: an empty emit produces a structurally valid zero-row
+        # MetricFrame that passes every envelope check and persists to disk as a
+        # legitimate audit artifact — indistinguishable from a real one, and rendering
+        # downstream as "not calculated" exactly like a genuine metric failure.
+        # The evaluation-of-record must never record nothing while looking complete.
+        if not values:
+            present = sorted(k for k, v in self._results.items() if v)
+            empty = sorted(k for k, v in self._results.items() if not v)
+            err_msg = (
+                f"to_metric_frame() produced no rows — the report contains no metric "
+                f"values for any schema, so the emitted evaluation-of-record would be "
+                f"empty. Target='{self.target}', task='{self.task}', "
+                f"pred_type='{self.pred_type}'. Schemas with groups but no metric "
+                f"values: {present or 'none'}; schemas with no groups: {empty or 'none'}. "
+                f"This usually means the evaluator was misconfigured."
+            )
+            # Level-1 emit path: log before raising (logging standard §5.1).
+            import logging
+            logging.getLogger("views_evaluation.evaluation.metric_frame").error(err_msg)
+            raise ValueError(err_msg)
+
+        values_arr = np.asarray(values, dtype=np.float32).reshape(-1, 1)
+        identifiers = {axis: np.asarray(columns[axis], dtype=str) for axis in AXES}
+
+        metadata = MetricFrameMetadata(
+            provenance=FrameMetadata(
+                model=model_id,
+                run_type=run_type,
+                timestamp=timestamp,
+                seed=seed,
+                run_id=run_id,
+                data_version=data_version,
+            ),
+            scoring_code_version=scoring_code_version,
+            evaluation_timestamp=evaluation_timestamp,
+        )
+        return MetricFrame(values=values_arr, identifiers=identifiers, metadata=metadata)
 
     def to_dict(self) -> Dict[str, Any]:
         """Converts the entire report into a nested dictionary."""

@@ -31,9 +31,19 @@ BASE_PROFILE = {
     "Brier_cls_sample": {"threshold": 0.0},  # hurdle event: any fatality (y > 0)
     "Brier_rgs_sample": {"threshold": 0.0},  # hurdle event: any fatality (y > 0)
     "Coverage":      {"alpha": 0.1},
+    # `bins` — explicit half-open bin edges: an observation is in range for [0, 1000.5).
+    #   Outside that, Ignorance raises (ADR-015 ruling 8). Widen THIS list to change the
+    #   accepted domain — it is the only one of the three that has any effect.
+    #
+    # `low_bin` / `high_bin` — ⚠ RESERVED PLACEHOLDERS, CURRENTLY INERT.
+    #   These are required by the Ignorance genome and must be present, but they change
+    #   nothing: NumPy ignores `range=` whenever `bins` is a sequence. Widening
+    #   `high_bin` to fix an out-of-range failure WILL NOT WORK — widen `bins` instead.
+    #   Use-it-or-lose-it; activation spec is in calculate_ignorance_score_native's
+    #   docstring. Risk register C-28(b).
     "Ignorance": {
         "bins": [0, 0.5, 2.5, 5.5, 10.5, 25.5, 50.5, 100.5, 250.5, 500.5, 1000.5],
-        "low_bin": 0,
-        "high_bin": 10000,
+        "low_bin": 0,       # inert — see note above
+        "high_bin": 10000,  # inert — see note above
     },
 }

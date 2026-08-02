@@ -34,7 +34,20 @@ class EvaluationFrame:
         if y_pred.dtype == object:
             raise ValueError("y_pred must be numeric (got dtype=object)")
 
-        # Rectangular sample validation: y_pred must be a dense 2D array
+        # Shape contract. Both halves live here, after the dtype gate, so a
+        # non-numeric array is reported as a dtype problem rather than a shape one.
+        #
+        # C-31 — y_true must be 1D. Without this an un-squeezed (N, 1) column (a common
+        # shape out of a DataFrame column or a model head) constructed fine and reported
+        # a plausible n_rows, failing much later inside _guard_shapes as a *metric*
+        # error rather than an input-contract one. ADR-014: the frame is the single
+        # validation gate, so both operands are checked here.
+        if y_true.ndim != 1:
+            raise ValueError(
+                f"y_true must be 1D (N,), got {y_true.ndim}D with shape {y_true.shape}"
+            )
+
+        # Rectangular sample validation: y_pred must be a dense 2D array (C-03)
         if y_pred.ndim != 2:
             raise ValueError(
                 f"y_pred must be 2D (N, S), got {y_pred.ndim}D with shape {y_pred.shape}"

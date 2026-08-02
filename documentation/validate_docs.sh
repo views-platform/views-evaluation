@@ -51,21 +51,43 @@ if [ -f "CICs/README.md" ]; then
     done < <(grep -E '^- `[A-Z].*\.md`' CICs/README.md 2>/dev/null | grep -v '>' || true)
 fi
 
-# 3. Cross-ADR reference integrity (constitutional ADRs 000-009 only;
-#    higher numbers are project-specific and not expected in the template repo)
-echo "--- Checking cross-ADR references (constitutional: 000-009) ---"
+# 3. Cross-ADR reference integrity — ALL local ADRs (000-999), not just the
+#    constitutional 00x band. Widened 2026-08-02: the previous 00x-only scope meant
+#    a reference to any project ADR (010+) was unverified, so ADR-042 sat unindexed
+#    and ADR-015's references went unchecked. See register C-34.
+#
+#    ADRs owned by OTHER repos are referenced here deliberately (e.g. views-frames
+#    ADR-020 is the MetricFrame contract home) and must not be flagged, so a
+#    reference qualified by a repo name is skipped.
+echo "--- Checking cross-ADR references (all local ADRs) ---"
 while IFS= read -r ref; do
     [[ -z "$ref" ]] && continue
     file=$(echo "$ref" | cut -d: -f1)
-    adr_num=$(echo "$ref" | grep -oP 'ADR-00\K[0-9]' | head -1)
-    if [ -n "$adr_num" ]; then
-        match_count=$(find ADRs -name "00${adr_num}_*.md" 2>/dev/null | wc -l)
+    line=$(echo "$ref" | cut -d: -f3-)
+    # STRIP cross-repo references ("views-frames ADR-020", "views-reporting ADR-029")
+    # rather than skipping the whole line. Skipping swallowed any local reference that
+    # shared a line with a cross-repo one — a silent blind spot in a checker whose job
+    # is finding blind spots (found by review-diff, 2026-08-02).
+    line=$(echo "$line" | sed -E 's/(views-[a-z-]+|pipeline-core)[[:space:]]+ADR-[0-9]{3}//g')
+    for adr_num in $(echo "$line" | grep -oP 'ADR-\K[0-9]{3}'); do
+        match_count=$(find ADRs -name "${adr_num}_*.md" 2>/dev/null | wc -l)
         if [ "$match_count" -eq 0 ]; then
-            echo "  ERROR: $file references ADR-00${adr_num} but no matching file found"
+            echo "  ERROR: $file references ADR-${adr_num} but no matching file found"
             errors=$((errors + 1))
         fi
+    done
+done < <(grep -rn 'ADR-[0-9][0-9][0-9]' --include='*.md' . 2>/dev/null || true)
+
+# 3b. Every ADR on disk must be indexed in ADRs/README.md
+echo "--- Checking ADR index completeness ---"
+for adr in ADRs/[0-9]*.md; do
+    name=$(basename "$adr")
+    [[ "$name" == *template* ]] && continue
+    if ! grep -q "$name" ADRs/README.md 2>/dev/null; then
+        echo "  ERROR: $name exists but is not indexed in ADRs/README.md"
+        errors=$((errors + 1))
     fi
-done < <(grep -rn 'ADR-00[0-9]' --include='*.md' . 2>/dev/null || true)
+done
 
 # 4. Check that referenced protocol files exist
 echo "--- Checking protocol file references ---"

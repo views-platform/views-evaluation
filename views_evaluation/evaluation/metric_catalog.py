@@ -85,6 +85,12 @@ METRIC_CATALOG: Dict[str, MetricSpec] = {
     "QIS":       MetricSpec(function=calculate_quantile_interval_score_native,
                             genome=("lower_quantile", "upper_quantile")),
     "Coverage":  MetricSpec(function=calculate_coverage_native,  genome=("alpha",)),
+    # ⚠ `low_bin` and `high_bin` are RESERVED PLACEHOLDERS that currently have NO EFFECT
+    #   (np.histogram_bin_edges ignores range= when bins is a sequence). They are
+    #   required by this genome and validated as present, but changing them alters
+    #   nothing. Use-it-or-lose-it — see the status block in
+    #   calculate_ignorance_score_native's docstring for the activation spec, and risk
+    #   register C-28(b).
     "Ignorance": MetricSpec(function=calculate_ignorance_score_native,
                             genome=("bins", "low_bin", "high_bin")),
 

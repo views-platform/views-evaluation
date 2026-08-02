@@ -14,9 +14,20 @@ The native path via `EvaluationFrame` is the sole integration path. The legacy
 
 ## Decision
 
-### Pandas Input Format (both paths)
+### Caller-side Pandas convention (NOT this library's input format)
 
-Both integration paths accept:
+> **⚠ Scope (clarified 2026-08-02).** `views-evaluation` does **not** accept DataFrames.
+> Its sole input is an `EvaluationFrame` of NumPy arrays. The Pandas layout below is the
+> **upstream convention observed by callers** (views-pipeline-core and model repos) that
+> the identifier synthesis in the next section is derived from — it documents where
+> `time`/`unit`/`origin`/`step` come from, not an interface this library exposes.
+>
+> The `PandasAdapter` that once consumed this format was deleted in Phase 3 along with
+> `EvaluationManager`; conversion is now entirely the caller's responsibility. This
+> section previously read "Pandas Input Format (both paths)", which implied a
+> DataFrame-accepting path that has not existed since 2026-04-01 (register **C-34**).
+
+Callers producing an `EvaluationFrame` typically start from:
 
 1. **Actuals**: A single `DataFrame` of observed values.
    - Index: `MultiIndex` of `(month_id, entity_id)`

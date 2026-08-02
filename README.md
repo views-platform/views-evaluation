@@ -29,7 +29,44 @@ The evaluation ontology has been updated to be more explicit and task-specific. 
 | `regression_uncertainty_metrics` | `regression_sample_metrics` |
 | `classification_uncertainty_metrics` | `classification_sample_metrics` |
 
-*Note: Legacy keys still work but will trigger a `DeprecationWarning`.*
+> **⚠️ Legacy keys were REMOVED in 0.4.0 — they no longer work.**
+>
+> Earlier documentation stated that legacy keys still worked and emitted a
+> `DeprecationWarning`. That was **incorrect**: the translation shim lived in
+> `EvaluationManager`, which was deleted before 0.4.0 was published. There is no
+> fallback and none will be restored.
+>
+> Since 0.5.0, a **legacy key** fails loudly at `NativeEvaluator.__init__` rather than
+> being silently ignored:
+>
+> ```
+> ValueError: Legacy evaluation config key(s) present: ['targets']. These were removed
+> in 0.4.0 and are NOT translated automatically. Rename them: 'targets' ->
+> 'regression_targets' or 'classification_targets'. See the README migration table.
+> ```
+>
+> A **misspelled** evaluation key also fails, naming what it resembles — but the
+> suspected key is only reported, never substituted:
+>
+> ```
+> ValueError: Evaluation config key 'regression_target' is not recognised, but closely
+> resembles 'regression_targets' — this looks like a typo. It has NOT been interpreted
+> as 'regression_targets'; nothing is assumed on your behalf. ...
+> ```
+>
+> Previously a legacy or misspelled metric key produced an **empty-but-successful
+> report** with no error at all. Migrate using the table above.
+>
+> **An unrecognised key that resembles nothing is ignored, deliberately.**
+> `views-pipeline-core` passes its whole combined model config through
+> (`NativeEvaluator(context.configs)`), so the dict legitimately carries dozens of
+> foreign keys — `batch_size`, `algorithm`, and so on. Rejecting unknown keys wholesale
+> would break every model in the platform. See risk register C-33.
+>
+> This removal predates the deprecation policy now in force — see
+> [ADR-022](documentation/ADRs/022_evolution_and_stability.md), which requires a
+> `DeprecationWarning` in a published release plus one full release cycle before any
+> public symbol or config key is removed.
 
 ---
 
@@ -222,23 +259,28 @@ pip install views_evaluation
 The library follows a strict three-layer architecture (ADR-011):
 
 ```
-Level 0 — Pure Core (NumPy + SciPy only, zero framework imports)
-  EvaluationFrame       Canonical data container (y_true, y_pred, identifiers)
-  NativeEvaluator       Stateless evaluation engine (month/sequence/step schemas)
-  MetricCatalog         Genome registry mapping metrics → functions + required params
-  Profiles              Named hyperparameter sets (base, hydranet_ucdp, ...)
+Level 0 — Pure Core (NumPy + SciPy + sklearn; no dataframe libraries)
+  EvaluationFrame            Canonical data container (y_true, y_pred, identifiers)
+  NativeEvaluator            Stateless evaluation engine (month/sequence/step schemas)
+  MetricCatalog              Genome registry mapping metrics → functions + required params
+  native_metric_calculators  The metric kernels
+  Profiles                   Named hyperparameter sets (base, hydranet_ucdp, ...)
 
-Level 1 — Bridge / Adapter
-  EvaluationFrame       Validated NumPy data container
-  EvaluationReport      Results container with DataFrame/dict export
+Level 1 — Bridge / Emit
+  EvaluationReport      Results container with dict / DataFrame / MetricFrame export
+  MetricFrame           Typed, provenance-stamped evaluation-of-record (views-frames ADR-020)
 
-Level 2 — Legacy Orchestrator
-  MetricCatalog         Genome registry and parameter resolver
+Level 2 — Orchestration
+  External to this repository (e.g. views-pipeline-core)
 ```
+
+Each component appears in exactly one level; dependencies flow toward the core (ADR-011).
 
 **Key design decisions:**
 - **ADR-011**: No Pandas/Polars imports in Level 0 — math is framework-agnostic.
 - **ADR-013**: Fail-loud — all structural failures raise exceptions with actionable messages, never silently degrade.
+- **ADR-015**: Degenerate and empty results — a computation that cannot produce a result raises; it never returns a value standing in for one. A metric may return a number for a degenerate input only where that number is genuinely the answer (e.g. `MCR`'s `inf`), documented and tested.
+- **ADR-022**: Evolution and stability — public API removals require a `DeprecationWarning` in a prior published release plus one full release cycle.
 - **ADR-042**: Metric catalog — each metric declares its required hyperparameters ("genome"); values are resolved via Chain of Responsibility.  
 
 ---
@@ -252,20 +294,20 @@ views-evaluation/
 │   ├── adapters/
 │   │   └── __init__.py                     # Reserved for future framework bridges
 │   ├── evaluation/
-│   │   ├── config_schema.py               # EvaluationConfig TypedDict
+│   │   ├── config_schema.py               # EvaluationConfig TypedDict (authoritative key set)
 │   │   ├── evaluation_frame.py            # Core data container
-│   │   ├── evaluation_manager.py          # Legacy orchestrator (deprecated)
 │   │   ├── evaluation_report.py           # Results container
+│   │   ├── metric_frame.py                # Evaluation-of-record emit artifact (needs [frames])
 │   │   ├── metric_catalog.py              # ADR-042 registry + resolver
 │   │   ├── metrics.py                     # Typed metric dataclasses
 │   │   ├── native_evaluator.py            # Core evaluation engine
 │   │   └── native_metric_calculators.py   # Metric implementations
 │   └── profiles/
-│       ├── base.py                        # Standard hyperparameter defaults
+│       ├── base.py                        # Standard hyperparameter values
 │       └── hydranet_ucdp.py               # Domain-specific profile
-├── tests/                                 # 242 tests (Green/Beige/Red)
+├── tests/                                 # Green/Beige/Red suites (ADR-020)
 ├── documentation/
-│   ├── ADRs/                              # 17 Architecture Decision Records
+│   ├── ADRs/                              # Architecture Decision Records
 │   ├── CICs/                              # Class Intent Contracts
 │   ├── integration_guide.md               # Full API walkthrough
 │   └── evaluation_concepts.md             # Domain concepts

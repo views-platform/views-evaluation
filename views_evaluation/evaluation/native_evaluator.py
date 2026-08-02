@@ -19,23 +19,230 @@ class NativeEvaluator:
     pattern for hyperparameter resolution:
         model overrides → evaluation profile → fail loud
 
-    Config keys:
+    The config is validated at construction, not at evaluate() — an invalid config
+    raises immediately rather than producing an empty-but-successful-looking report
+    (ADR-015, risk register C-02). See `_validate_config` for the full rules and
+    `documentation/CICs/NativeEvaluator.md` for the authoritative contract.
+
+    Required config keys:
+        steps (list[int]): 1-indexed step positions to evaluate. Must be non-empty.
+        regression_targets and/or classification_targets (list[str]): at least one
+            must be non-empty, and each declared task needs at least one metric list.
+        <task>_<pred_type>_metrics (list[str]): e.g. regression_sample_metrics.
+            Names must exist in METRIC_CATALOG and be valid for that cell.
+
+    Optional config keys:
         evaluation_profile (str): Name of the evaluation profile to use.
             Must be a key in PROFILES. Defaults to "base" during transition.
         metric_hyperparameters (dict): Optional per-metric overrides.
             E.g. {"twCRPS": {"threshold": 2.0}, "Coverage": {"alpha": 0.05}}
-    """
-    def __init__(self, config: EvaluationConfig):
-        self.config = config
 
-        # Resolve evaluation profile
+    Unrecognised keys are tolerated — views-pipeline-core passes its whole combined
+    model config through — EXCEPT keys that closely resemble a real evaluation key
+    (a suspected typo) or legacy keys removed in 0.4.0, both of which raise. A
+    suspected typo is reported, never substituted (register C-33).
+    """
+    # Config keys this evaluator understands, derived from the EvaluationConfig
+    # TypedDict so the schema has exactly one authority (ADR-012). Adding a key
+    # there is all that is required to support it here.
+    _VALID_CONFIG_KEYS = frozenset(EvaluationConfig.__annotations__)
+
+    # Config keys removed in 0.4.0, mapped to what replaces them. An explicit,
+    # enumerated set — presence is detected by exact name, never by inference, and
+    # the value is never translated on the caller's behalf.
+    _LEGACY_CONFIG_KEYS = {
+        "targets": "regression_targets' or 'classification_targets",
+        "metrics": "regression_point_metrics",
+        "regression_uncertainty_metrics": "regression_sample_metrics",
+        "classification_uncertainty_metrics": "classification_sample_metrics",
+    }
+
+    @staticmethod
+    def _differs_by_one_edit(a: str, b: str) -> bool:
+        """True if `a` and `b` differ by exactly one insertion, deletion or substitution."""
+        if a == b or abs(len(a) - len(b)) > 1:
+            return False
+        if len(a) == len(b):
+            return sum(x != y for x, y in zip(a, b)) == 1
+        shorter, longer = (a, b) if len(a) < len(b) else (b, a)
+        return any(longer[:i] + longer[i + 1:] == shorter for i in range(len(longer)))
+
+    @classmethod
+    def _nearest_config_key(cls, key: str):
+        """The evaluation config key `key` appears to be a typo of, or None.
+
+        Used only to *report* a suspected typo. The result is never substituted for
+        the caller's key — see `_validate_config` step 1b.
+
+        Two rules, tuned against the real key set in views-models to flag genuine
+        typos while ignoring the foreign keys that arrive via pipeline-core's combined
+        config. `regression_point_baselines` (a real pipeline-core key) must NOT match
+        `regression_point_metrics`; `regression_sample_metric` and `step` must.
+        """
+        import difflib
+
+        close = difflib.get_close_matches(key, cls._VALID_CONFIG_KEYS, n=1, cutoff=0.9)
+        if close:
+            return close[0]
+        for valid in sorted(cls._VALID_CONFIG_KEYS):
+            if cls._differs_by_one_edit(key, valid):
+                return valid
+        return None
+
+    # Each metric-list key declares the (task, pred_type) cell it supplies metrics for.
+    _METRIC_LIST_KEYS = {
+        "regression_point_metrics":      ("regression", "point"),
+        "regression_sample_metrics":     ("regression", "sample"),
+        "classification_point_metrics":  ("classification", "point"),
+        "classification_sample_metrics": ("classification", "sample"),
+    }
+
+    @classmethod
+    def _validate_config(cls, config: EvaluationConfig) -> None:
+        """
+        Fail loud on a structurally invalid config, at construction (ADR-015 rulings 4/5).
+
+        Before this existed, a misspelled metric-list key or an absent ``steps`` key
+        produced an empty-but-successful-looking report instead of an error
+        (risk register C-02, Tier 1). Nothing is defaulted or repaired here — an
+        invalid config is the caller's to fix (ADR-015).
+        """
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"Evaluation config must be a dict, got {type(config).__name__}."
+            )
+
+        # 0. Profile name. Checked first so the pre-existing "Unknown evaluation
+        #    profile" contract is preserved exactly for configs that hit both this
+        #    and a structural problem below.
         profile_name = config.get("evaluation_profile", "base")
         if profile_name not in PROFILES:
             raise ValueError(
                 f"Unknown evaluation profile '{profile_name}'. "
                 f"Available: {sorted(PROFILES.keys())}"
             )
-        self.profile = PROFILES[profile_name]
+
+        # 1a. Legacy keys, removed in 0.4.0. An explicit, enumerated set — not inferred.
+        legacy_present = sorted(set(config) & set(cls._LEGACY_CONFIG_KEYS))
+        if legacy_present:
+            replacements = "; ".join(
+                f"'{k}' -> '{cls._LEGACY_CONFIG_KEYS[k]}'" for k in legacy_present
+            )
+            raise ValueError(
+                f"Legacy evaluation config key(s) present: {legacy_present}. These were "
+                f"removed in 0.4.0 and are NOT translated automatically. Rename them: "
+                f"{replacements}. See the README migration table."
+            )
+
+        # 1b. Near-miss keys — a key that is one small edit away from a real evaluation
+        #     key is almost certainly a typo of it, and a typo silently produces an
+        #     empty report (register C-02). Fail loud, naming what it resembles.
+        #
+        #     The suspected key is REPORTED, NEVER SUBSTITUTED. This code does not
+        #     guess what the caller meant and proceed — that would be exactly the
+        #     silent repair ADR-015 forbids. The caller fixes their config.
+        #
+        #     Unrecognised keys that are NOT near-misses are ignored on purpose.
+        #     views-pipeline-core passes its *combined* model config straight through
+        #     (`NativeEvaluator(context.configs)`), so this dict legitimately carries
+        #     dozens of foreign keys — `batch_size`, `n_epochs`, `algorithm`,
+        #     `regression_point_baselines` and so on. Rejecting unrecognised keys
+        #     wholesale breaks every model in the platform. Do not "tighten" this back
+        #     up without first fixing the config split upstream (register C-33).
+        for key in sorted(set(config) - cls._VALID_CONFIG_KEYS):
+            suspected = cls._nearest_config_key(key)
+            if suspected is not None:
+                raise ValueError(
+                    f"Evaluation config key '{key}' is not recognised, but closely "
+                    f"resembles '{suspected}' — this looks like a typo. It has NOT been "
+                    f"interpreted as '{suspected}'; nothing is assumed on your behalf. "
+                    f"Either correct the key, or rename it so it does not resemble an "
+                    f"evaluation key. Valid evaluation keys: "
+                    f"{sorted(cls._VALID_CONFIG_KEYS)}."
+                )
+
+        # 2. 'steps' is required (CIC NativeEvaluator §4) and drives the step-wise schema.
+        #    Absent, it silently produced no step-wise results at all.
+        # Order matters: presence, then TYPE, then emptiness. Testing emptiness first
+        # means evaluating `not config["steps"]`, and truthiness is not universally
+        # defined — a numpy array raises "The truth value of an array with more than one
+        # element is ambiguous" from inside the guard itself, which is the bare crash
+        # this validation exists to replace. Check the type before asking anything of
+        # the value.
+        if "steps" not in config:
+            raise ValueError(
+                "Evaluation config requires a non-empty 'steps' list (1-indexed step "
+                "positions to evaluate, e.g. [1, 2, 3]). Without it the step-wise "
+                "schema cannot be produced."
+            )
+        # `list`, not `(list, tuple)` and not "any sequence": `EvaluationConfig` declares
+        # `steps: List[int]` and is this schema's single authority (it is where
+        # `_VALID_CONFIG_KEYS` comes from). Anything wider would make the code quietly
+        # more permissive than the contract it derives from, which is how the two drift
+        # apart. A scalar is caught here too — it is truthy, so it used to reach the
+        # comprehension below and raise a bare `TypeError: 'int' object is not iterable`,
+        # naming neither the key nor the expectation.
+        if not isinstance(config["steps"], list):
+            raise ValueError(
+                f"Evaluation config 'steps' must be a list of 1-indexed positive "
+                f"integers, e.g. [1, 2, 3]; got {type(config['steps']).__name__}."
+            )
+        if not config["steps"]:
+            raise ValueError(
+                "Evaluation config requires a non-empty 'steps' list (1-indexed step "
+                "positions to evaluate, e.g. [1, 2, 3]). Without it the step-wise "
+                "schema cannot be produced."
+            )
+        bad_steps = [s for s in config["steps"]
+                     if not isinstance(s, int) or isinstance(s, bool) or s < 1]
+        if bad_steps:
+            raise ValueError(
+                f"Evaluation config 'steps' must contain 1-indexed positive integers; "
+                f"got invalid entries: {bad_steps}."
+            )
+
+        # 3. At least one target list must be declared, or nothing can be evaluated.
+        declared_tasks = [
+            task for task in ("regression", "classification")
+            if config.get(f"{task}_targets")
+        ]
+        if not declared_tasks:
+            raise ValueError(
+                "Evaluation config declares no targets. Provide a non-empty "
+                "'regression_targets' and/or 'classification_targets'."
+            )
+
+        # 4. Each declared task needs at least one metric list, else every group
+        #    for that task evaluates to an empty dict.
+        for task in declared_tasks:
+            if not any(config.get(f"{task}_{pred_type}_metrics")
+                       for pred_type in ("point", "sample")):
+                raise ValueError(
+                    f"Evaluation config declares '{task}_targets' but provides no "
+                    f"metrics for it. Add a non-empty '{task}_point_metrics' and/or "
+                    f"'{task}_sample_metrics'."
+                )
+
+        # 5. Every named metric must exist and be valid for the cell its key declares.
+        for key, cell in cls._METRIC_LIST_KEYS.items():
+            for metric in config.get(key, []):
+                if metric not in METRIC_CATALOG:
+                    raise ValueError(
+                        f"Unknown metric '{metric}' in '{key}'. "
+                        f"Available: {sorted(METRIC_CATALOG)}."
+                    )
+                if metric not in METRIC_MEMBERSHIP[cell]:
+                    raise ValueError(
+                        f"Metric '{metric}' in '{key}' is not valid for {cell}. "
+                        f"Valid for {cell}: {sorted(METRIC_MEMBERSHIP[cell])}."
+                    )
+
+    def __init__(self, config: EvaluationConfig):
+        self._validate_config(config)
+        self.config = config
+
+        # Profile name was validated in _validate_config (check 0).
+        self.profile = PROFILES[config.get("evaluation_profile", "base")]
         self.metric_overrides = config.get("metric_hyperparameters", {})
 
     def _resolve_task_and_metrics(self, ef: EvaluationFrame):
@@ -50,6 +257,21 @@ class NativeEvaluator:
 
         pred_type = "sample" if ef.is_sample else "point"
         metrics_list = self.config.get(f"{task}_{pred_type}_metrics", [])
+
+        # ADR-015's general rule, NOT one of its eight rulings: an empty metric list
+        # yields an empty-but-successful-looking report, which the doctrine forbids.
+        # (This cited "ruling 4" until 2026-08-02. Ruling 4 is "unknown / misspelled
+        # config key — raise at construction" and does not cover this case; no ruling
+        # does. ADR-015 needs one, or this stays governed by the general rule.)
+        # Construction-time validation cannot catch this case, because pred_type is a
+        # property of the frame (n_samples > 1), not of the config.
+        if not metrics_list:
+            raise ValueError(
+                f"No metrics configured for ({task}, {pred_type}). The frame for target "
+                f"'{target}' has {ef.n_samples} sample(s) per row, so it is a "
+                f"'{pred_type}' evaluation and requires a non-empty "
+                f"'{task}_{pred_type}_metrics' list in the config."
+            )
 
         return metrics_list, task, pred_type
 
@@ -100,13 +322,9 @@ class NativeEvaluator:
         results["time_series"] = ts_results
 
         # 3. Step-wise
-        step_results = {}
-        config_steps = self.config.get("steps", [])
-        if config_steps:
-            # Pre-initialize only the explicitly declared steps (not all steps up to max)
-            step_results = {f"step{str(s).zfill(2)}": {} for s in config_steps}
+        config_steps = set(self.config.get("steps", []))
 
-        # LEGACY PARITY: Truncate steps to the shortest sequence length if in compat mode
+        # LEGACY PARITY: cap step-wise evaluation at the shortest sequence length.
         max_allowed_step = float('inf')
         if legacy_compatibility:
             origin_indices = ef.get_group_indices('origin')
@@ -116,15 +334,35 @@ class NativeEvaluator:
                 seq_lengths.append(len(np.unique(ef.identifiers['step'][idx])))
             max_allowed_step = min(seq_lengths) if seq_lengths else 0
 
+        # ADR-015 ruling 7 (revised): emit a key ONLY for a step that was actually
+        # scored. A step the config requested but that truncation or the data cannot
+        # supply is OMITTED — never returned as an empty dict that looks evaluated while
+        # scoring nothing and emitting no MetricFrame rows (the original C-20 defect).
+        #
+        # Ruling 7 first said this must RAISE, on the reasoning that config['steps'] is a
+        # request list and silently not fulfilling it is a contract violation. That was
+        # wrong: `legacy_compatibility=True` is *itself* an explicit request to truncate
+        # to the shortest sequence, so raising treated one explicit instruction as a
+        # violation of another — blaming the caller for doing what they asked for.
+        # views-pipeline-core passes the full 1..36 step config and this flag together
+        # from its only evaluation call site, by design.
+        #
+        # Scope, derived from the real partition arithmetic rather than assumed:
+        # core_config_sniffer enforces a 48-month test window (time_steps +
+        # MAX_SHIFT_COUNT), giving 13 equal-length sequences, so the default
+        # eval_type=standard never truncates — 0 of 256 (model, run_type) combinations.
+        # Only eval_type=long (37 sequences) produced unequal lengths, and it is used
+        # nowhere outside pipeline-core's own arg-parser tests. The raise was therefore
+        # LATENT, and this revision is a no-op on the default path. See ADR-015 R7.
+        step_results = {}
         step_indices = ef.get_group_indices('step')
         for step, idx in step_indices.items():
-            if step > max_allowed_step:
+            if step not in config_steps or step > max_allowed_step:
                 continue
-
-            key = f"step{str(step).zfill(2)}"
-            if key in step_results:
-                sub_ef = ef.select_indices(idx)
-                step_results[key] = self._calculate_metrics(sub_ef, metrics_list, task, pred_type)
+            sub_ef = ef.select_indices(idx)
+            step_results[f"step{str(step).zfill(2)}"] = self._calculate_metrics(
+                sub_ef, metrics_list, task, pred_type
+            )
         results["step"] = step_results
 
         return EvaluationReport(

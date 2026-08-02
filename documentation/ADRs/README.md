@@ -18,6 +18,7 @@ We follow a hierarchical numbering scheme to organize decisions from the most fo
 - **012**: [Authority over Inference](012_authority_over_inference.md)
 - **013**: [Observability and Explicit Failure](013_observability_and_explicit_failure.md)
 - **014**: [Boundary Contracts and Validation](014_boundary_contracts_and_validation.md)
+- **015**: [Degenerate and Empty Results](015_degenerate_and_empty_results.md)
 
 ### 02x: Engineering Discipline & Quality
 *Standards for implementation and verification.*
@@ -36,6 +37,7 @@ We follow a hierarchical numbering scheme to organize decisions from the most fo
 *Schemas for I/O and external systems.*
 - **040**: [Evaluation Input Schema](040_evaluation_input_schema.md)
 - **041**: [Evaluation Output Schema](041_evaluation_output_schema.md)
+- **042**: [Metric Catalog](042_metric_catalog.md)
 
 ---
 
@@ -46,9 +48,10 @@ We follow a hierarchical numbering scheme to organize decisions from the most fo
 - **Authority (012)** defines who owns meaning.
 - **Observability (013)** enforces failure semantics.
 - **Boundary Contracts (014)** define interaction rules.
+- **Degenerate Results (015)** defines what counts as a failure when there is nothing to compute.
 - **Testing (020)** verifies system integrity.
 - **Intent Contracts (021)** bind class-level behavior.
-- **Evolution (022)** (deferred) — rules for stability.
+- **Evolution (022)** governs deprecation, breaking changes, and versioning.
 - **Risk Register (023)** tracks structural concerns.
 - **Silicon Agent Protocol (001)** constrains automated modification.
 

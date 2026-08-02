@@ -54,6 +54,7 @@ Contracts must be clear enough that:
 - `NativeEvaluator.md` — Pure math evaluation engine
 - `EvaluationReport.md` — Structured result container
 - `MetricCatalog.md` — Genome registry and parameter resolver
+- `MetricFrame.md` — Evaluation-of-record; the cross-repo emit artifact
 
 ---
 

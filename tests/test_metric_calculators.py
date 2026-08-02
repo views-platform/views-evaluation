@@ -1088,3 +1088,165 @@ class TestExtremeValues:
         y_pred = np.array([[base - 1e-30, base + 1e-30]])
         result = calculate_coverage_native(y_true, y_pred, alpha=0.1)
         assert np.isfinite(result)
+
+
+# ---------------------------------------------------------------------------
+# Ignorance bin-range contract (ADR-015 ruling 8; risk register C-27, C-28a)
+#
+# RED   — observations outside the configured bins must raise, at BOTH tails.
+# BEIGE — boundary behaviour at the edges themselves, pinned rather than incidental.
+# ---------------------------------------------------------------------------
+
+class TestIgnoranceBinRangeRed:
+
+    def _profile(self):
+        from views_evaluation.profiles.base import BASE_PROFILE
+        return BASE_PROFILE["Ignorance"]
+
+    def test_observation_above_top_edge_raises(self):
+        """C-27: previously an IndexError on ordinary country-month fatality counts.
+
+        BASE_PROFILE's top bin edge is 1000.5; monthly country-level counts exceed
+        that routinely, so this was on the production path, not a corner case.
+        """
+        y_true = np.array([2000.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        with pytest.raises(ValueError, match="outside the configured bin range"):
+            calculate_ignorance_score_native(y_true, y_pred, **self._profile())
+
+    def test_observation_below_bottom_edge_raises(self):
+        """C-28a: previously negative-indexed into the LAST bin and returned 3.7004."""
+        y_true = np.array([-1.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        with pytest.raises(ValueError, match="outside the configured bin range"):
+            calculate_ignorance_score_native(y_true, y_pred, **self._profile())
+
+    def test_above_range_raises_even_when_a_prediction_is_also_out_of_range(self):
+        """The old crash was masked when a prediction also exceeded the range.
+
+        bincount(minlength=n_bins) grew the array, making the out-of-bounds index
+        accidentally valid. The observation is still outside the configured bins,
+        so it must raise either way.
+        """
+        y_true = np.array([2000.0])
+        y_pred = np.array([[1.0, 2.0, 5000.0]])
+        with pytest.raises(ValueError, match="outside the configured bin range"):
+            calculate_ignorance_score_native(y_true, y_pred, **self._profile())
+
+    def test_error_message_names_value_and_range(self):
+        y_true = np.array([2000.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        with pytest.raises(ValueError) as excinfo:
+            calculate_ignorance_score_native(y_true, y_pred, **self._profile())
+        msg = str(excinfo.value)
+        assert "2000.0" in msg, "message must name the offending observation"
+        assert "1000.5" in msg, "message must name the configured range"
+        assert "bins" in msg, "message must tell the caller what to change"
+
+
+class TestIgnoranceBinRangeBeige:
+
+    def _profile(self):
+        from views_evaluation.profiles.base import BASE_PROFILE
+        return BASE_PROFILE["Ignorance"]
+
+    def test_observation_on_bottom_edge_is_in_range(self):
+        """Bins are half-open [lo, hi): the bottom edge belongs to the first bin."""
+        y_true = np.array([0.0])
+        y_pred = np.array([[0.0, 1.0, 2.0]])
+        result = calculate_ignorance_score_native(y_true, y_pred, **self._profile())
+        assert np.isfinite(result)
+
+    def test_observation_on_top_edge_raises(self):
+        """Half-open range: the top edge is in no bin, so it is out of range."""
+        y_true = np.array([1000.5])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        with pytest.raises(ValueError, match="outside the configured bin range"):
+            calculate_ignorance_score_native(y_true, y_pred, **self._profile())
+
+    def test_in_range_value_is_unchanged_by_the_guard(self):
+        """The guard must not alter any previously-correct result."""
+        y_true = np.array([3.0])
+        y_pred = np.array([[1.0, 2.0, 3.0]])
+        result = calculate_ignorance_score_native(y_true, y_pred, **self._profile())
+        assert np.isfinite(result) and result > 0
+
+
+# ---------------------------------------------------------------------------
+# Pearson constant-input contract (ADR-015 ruling 2; risk register C-22)
+#
+# Contrast with MCR (TestMCR*), whose inf/nan IS retained as a documented sentinel:
+# MCR's inf is a real answer ("predicted conflict where none occurred"); Pearson's
+# nan is the absence of one. That asymmetry is the whole of ADR-015's exception test.
+# ---------------------------------------------------------------------------
+
+class TestPearsonConstantInputBeige:
+    """`Pearson` returns NaN on constant input — a documented sentinel (ADR-015 R2).
+
+    Same category as MCR's inf/nan: a constant series is a property of the data, not a
+    broken invariant. These asserted a raise for one day; the ruling was reversed when
+    it emerged that it aborted any evaluation of a constant baseline (ADR-041 workflow).
+    """
+
+    def test_constant_y_true_returns_nan(self):
+        y_true = np.array([1.0, 1.0, 1.0])
+        y_pred = np.array([[1.0], [2.0], [3.0]])
+        assert np.isnan(calculate_pearson_native(y_true, y_pred))
+
+    def test_constant_y_pred_returns_nan(self):
+        """The baseline-model case: constant predictions, varied truth."""
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([[5.0], [5.0], [5.0]])
+        assert np.isnan(calculate_pearson_native(y_true, y_pred))
+
+    def test_no_constant_input_warning_escapes(self):
+        """The case is contracted and handled, so SciPy's warning is noise.
+
+        A ConstantInputWarning reaching the runner would mean the degenerate case is
+        being encountered rather than handled (ADR-015, Validation & Monitoring).
+        """
+        import warnings as _w
+        y_true = np.array([1.0, 1.0, 1.0])
+        y_pred = np.array([[1.0], [2.0], [3.0]])
+        with _w.catch_warnings():
+            _w.simplefilter("error")      # any escaping warning becomes an exception
+            assert np.isnan(calculate_pearson_native(y_true, y_pred))
+
+
+class TestPearsonGreen:
+
+    def test_non_constant_input_is_unchanged(self):
+        """Perfect positive correlation still returns 1.0 — the guard changes nothing."""
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([[1.0], [2.0], [3.0]])
+        assert calculate_pearson_native(y_true, y_pred) == pytest.approx(1.0)
+
+    def test_perfect_negative_correlation(self):
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([[3.0], [2.0], [1.0]])
+        assert calculate_pearson_native(y_true, y_pred) == pytest.approx(-1.0)
+
+
+class TestMeanPredictionShapeGuardRed:
+    """C-32: y_hat_bar must guard like every sibling kernel, not succeed silently."""
+
+    def test_row_mismatch_raises(self):
+        from views_evaluation.evaluation.native_metric_calculators import (
+            calculate_mean_prediction_native,
+        )
+        with pytest.raises(ValueError, match="Row mismatch"):
+            calculate_mean_prediction_native(np.zeros(4), np.zeros((7, 3)))
+
+    def test_two_dimensional_y_true_raises(self):
+        from views_evaluation.evaluation.native_metric_calculators import (
+            calculate_mean_prediction_native,
+        )
+        with pytest.raises(ValueError, match="y_true must be 1D"):
+            calculate_mean_prediction_native(np.zeros((4, 2)), np.zeros((4, 3)))
+
+    def test_valid_input_value_is_unchanged(self):
+        from views_evaluation.evaluation.native_metric_calculators import (
+            calculate_mean_prediction_native,
+        )
+        y_pred = np.array([[1.0, 2.0], [3.0, 4.0]])
+        assert calculate_mean_prediction_native(np.zeros(2), y_pred) == pytest.approx(2.5)
