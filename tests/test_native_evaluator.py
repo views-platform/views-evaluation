@@ -163,13 +163,25 @@ class TestNativeEvaluatorGreen:
             },
             metadata={'target': 'test_target'},
         )
-        # ADR-015 ruling 7: this used to return step03/step04 as EMPTY DICTS —
-        # requested by the caller, present in the report, looking evaluated, scoring
-        # nothing and emitting no MetricFrame rows. Silently not fulfilling an explicit
-        # request is now a loud failure (C-20, truncation half).
+        # ADR-015 ruling 7 (revised 2026-08-02): truncated steps are OMITTED, not
+        # returned as empty dicts and not raised on.
+        #
+        # This previously returned step03/step04 as EMPTY DICTS — requested by the
+        # caller, present in the report, looking evaluated, scoring nothing (the
+        # original C-20 defect). The first fix made it raise, which was wrong:
+        # `legacy_compatibility=True` is itself a request to truncate, so raising blamed
+        # views-pipeline-core for passing the full step config together with this flag,
+        # which it does by design. (That raise was latent — it never fired on the default
+        # path.) Omission fixes C-20 without blaming the caller: an absent key cannot
+        # masquerade as an evaluated one.
         config = _regression_point_config(steps=[1, 2, 3, 4])
-        with pytest.raises(ValueError, match="legacy_compatibility=True truncates"):
-            NativeEvaluator(config).evaluate(ef, legacy_compatibility=True)
+        report = NativeEvaluator(config).evaluate(ef, legacy_compatibility=True)
+        step_results = report.to_dict()['schemas']['step']
+
+        assert set(step_results) == {'step01', 'step02'}, \
+            "steps beyond the shortest sequence must be omitted, not returned"
+        assert all(step_results.values()), \
+            "every emitted step key must carry metrics — no empty placeholders"
 
     def test_legacy_compatibility_true_succeeds_when_only_available_steps_requested(self):
         """Truncation itself is still supported — ask only for steps that exist.

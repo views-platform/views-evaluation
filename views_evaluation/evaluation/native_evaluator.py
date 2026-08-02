@@ -294,13 +294,9 @@ class NativeEvaluator:
         results["time_series"] = ts_results
 
         # 3. Step-wise
-        step_results = {}
-        config_steps = self.config.get("steps", [])
-        if config_steps:
-            # Pre-initialize only the explicitly declared steps (not all steps up to max)
-            step_results = {f"step{str(s).zfill(2)}": {} for s in config_steps}
+        config_steps = set(self.config.get("steps", []))
 
-        # LEGACY PARITY: Truncate steps to the shortest sequence length if in compat mode
+        # LEGACY PARITY: cap step-wise evaluation at the shortest sequence length.
         max_allowed_step = float('inf')
         if legacy_compatibility:
             origin_indices = ef.get_group_indices('origin')
@@ -310,31 +306,35 @@ class NativeEvaluator:
                 seq_lengths.append(len(np.unique(ef.identifiers['step'][idx])))
             max_allowed_step = min(seq_lengths) if seq_lengths else 0
 
-            # ADR-015 ruling 7: config['steps'] is a request list, not a hint. Truncated
-            # steps were left as pre-initialised empty dicts, so a requested step came
-            # back looking evaluated while scoring nothing and emitting no MetricFrame
-            # rows — the same silent-empty pattern as C-02. Silently not fulfilling an
-            # explicit request is a contract violation regardless of which flag was set.
-            dropped = sorted(s for s in config_steps if s > max_allowed_step)
-            if dropped:
-                raise ValueError(
-                    f"legacy_compatibility=True truncates step-wise evaluation at step "
-                    f"{max_allowed_step} (the shortest origin sequence has "
-                    f"{max_allowed_step} step(s)), but config['steps'] explicitly "
-                    f"requested {dropped}, which would be silently omitted. Either "
-                    f"remove {dropped} from 'steps', or set legacy_compatibility=False "
-                    f"to evaluate every step that has data."
-                )
-
+        # ADR-015 ruling 7 (revised): emit a key ONLY for a step that was actually
+        # scored. A step the config requested but that truncation or the data cannot
+        # supply is OMITTED — never returned as an empty dict that looks evaluated while
+        # scoring nothing and emitting no MetricFrame rows (the original C-20 defect).
+        #
+        # Ruling 7 first said this must RAISE, on the reasoning that config['steps'] is a
+        # request list and silently not fulfilling it is a contract violation. That was
+        # wrong: `legacy_compatibility=True` is *itself* an explicit request to truncate
+        # to the shortest sequence, so raising treated one explicit instruction as a
+        # violation of another — blaming the caller for doing what they asked for.
+        # views-pipeline-core passes the full 1..36 step config and this flag together
+        # from its only evaluation call site, by design.
+        #
+        # Scope, derived from the real partition arithmetic rather than assumed:
+        # core_config_sniffer enforces a 48-month test window (time_steps +
+        # MAX_SHIFT_COUNT), giving 13 equal-length sequences, so the default
+        # eval_type=standard never truncates — 0 of 256 (model, run_type) combinations.
+        # Only eval_type=long (37 sequences) produced unequal lengths, and it is used
+        # nowhere outside pipeline-core's own arg-parser tests. The raise was therefore
+        # LATENT, and this revision is a no-op on the default path. See ADR-015 R7.
+        step_results = {}
         step_indices = ef.get_group_indices('step')
         for step, idx in step_indices.items():
-            if step > max_allowed_step:
+            if step not in config_steps or step > max_allowed_step:
                 continue
-
-            key = f"step{str(step).zfill(2)}"
-            if key in step_results:
-                sub_ef = ef.select_indices(idx)
-                step_results[key] = self._calculate_metrics(sub_ef, metrics_list, task, pred_type)
+            sub_ef = ef.select_indices(idx)
+            step_results[f"step{str(step).zfill(2)}"] = self._calculate_metrics(
+                sub_ef, metrics_list, task, pred_type
+            )
         results["step"] = step_results
 
         return EvaluationReport(
