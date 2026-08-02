@@ -1,13 +1,15 @@
 # Technical Risk Register — views-evaluation
 
 **Last updated:** 2026-08-02
-**Total open concerns:** 7
+**Total open concerns:** 8
 **Governing ADR:** ADR-023
 
 > **2026-08-02 — Fail-Loud Doctrine epic (#26) closed 10 concerns.** ADR-015 (Degenerate
 > and Empty Results) was written and applied; ADR-022 (Evolution and Stability) was
 > activated. Clusters A, B and F are closed; C and E are reduced. The
-> register went from 15 open concerns to 7. (C-28 remains open in reduced form: its
+> register went from 15 open concerns to 8 (C-33 was opened during the epic:
+> cross-repo inspection found that config validation cannot be strict while
+> pipeline-core passes its whole combined model config through). (C-28 remains open in reduced form: its
 > inert `low_bin`/`high_bin` params were kept as documented reserved placeholders
 > rather than deleted — a maintainer decision on 2026-08-02.)
 
@@ -102,6 +104,17 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Source:** repo-assimilation (2026-08-02), empirically verified; scope reduced 2026-08-02 after #32 fixed half (a); retained as a placeholder by maintainer decision rather than deleted
 - **Mitigation path:** **Use it or lose it.** Either (1) activate them — which requires supporting integer `bins`, raising on the contradictory `bins`-sequence-plus-range case, validating `low_bin < high_bin`, and making ADR-015 ruling 8's error message cite them rather than the computed edges; or (2) delete them from the genome, every profile, and the kernel signature. The full activation spec is in the kernel docstring's status block.
 - **Note:** Guarded against silent drift in **both** directions by `tests/test_metric_catalog.py::TestIgnoranceReservedPlaceholders` — activating them breaks the inertness test, deleting them breaks the genome test. `CICs/MetricCatalog.md` records the four conditions a reserved placeholder must satisfy to remain one; failing any of them, it is dead configuration and must be deleted.
+
+---
+
+### C-33 — Evaluation config is not separable from the combined model config
+- **Tier:** 3 (Medium) — no correctness impact today, but it caps what this repo can validate and it nearly caused a platform-wide outage
+- **Description:** `views-pipeline-core` calls `NativeEvaluator(context.configs)` (`views_pipeline_core/managers/evaluation/stage.py:122`), where `context.configs` is `_config_manager.get_combined_config()` — the **whole merged model config**: meta, hyperparameters, deployment, partitions, queryset and sweep. A real config (views-models `ravaging_thief`) therefore arrives carrying `name`, `algorithm`, `level`, `creator`, `batch_size`, `n_epochs`, `input_chunk_length`, `regression_point_baselines` and ~10 more keys that this library knows nothing about. The intended design was **separate per-concern configs**, with evaluation owning its own; they were merged into one during earlier development and have not been separated since. The maintainer's position (2026-08-02) is that this will be fixed, but not now.
+- **Trigger:** When someone adds validation to `NativeEvaluator` that assumes the incoming dict is evaluation-specific. On 2026-08-02 a blanket "reject unrecognised keys" check was written on exactly that assumption and would have **broken every model in the platform** — 17 rejected keys on a single real config, raising at construction before any evaluation ran, and through pipeline-core blocking the ~45 repos downstream of its 3.0.0 release. It was caught by reading pipeline-core before merging, not by any test.
+- **Location:** `views_evaluation/evaluation/native_evaluator.py` (`_validate_config`, step 1b and its comment); `views_pipeline_core/managers/evaluation/stage.py:122`; `views_pipeline_core/managers/**/get_combined_config`
+- **Source:** cross-repo inspection during epic #26 (2026-08-02), after the blanket check was found to break pipeline-core
+- **Mitigation path:** Upstream — split the combined config so evaluation receives only its own section, then this repo can validate strictly. Until then `NativeEvaluator` must **tolerate unrecognised keys**, and can only flag keys that closely resemble a real evaluation key (a typo), never reject wholesale.
+- **Note:** ⚠ **Do not "tighten" `_validate_config` to reject unknown keys** without fixing the config split first. `tests/test_native_evaluator.py::TestCombinedConfigTolerance` pins a real combined config as a regression guard; if that test fails, every model in the platform is broken. Related to C-02 (the validation this constrains).
 
 ---
 

@@ -26,7 +26,9 @@ A stateless "Pure Math" engine that executes the three standard Views evaluation
 
 - **Schema Preservation**: Guarantees that month-wise, sequence-wise, and step-wise regrouping logic is consistent with established Views standards (ADR-032).
 - **Stateless Execution**: Operates as a pure function of (Configuration + EvaluationFrame).
-- **Config Validation at Construction**: Guarantees that a structurally invalid config fails at `__init__`, not at `evaluate()`. Rejects unknown/misspelled keys (validated against `EvaluationConfig`), a missing or empty `steps` list, non-positive step positions, absence of any target list, a declared task with no metrics, and metric names that are unknown or invalid for the cell their key declares. Nothing is defaulted or repaired (ADR-015).
+- **Config Validation at Construction**: Guarantees that a structurally invalid config fails at `__init__`, not at `evaluate()`. Rejects legacy keys removed in 0.4.0 (an enumerated set, matched by exact name), keys that closely resemble a real evaluation key (a suspected typo), a missing or empty `steps` list, non-positive step positions, absence of any target list, a declared task with no metrics, and metric names that are unknown or invalid for the cell their key declares. Nothing is defaulted or repaired (ADR-015).
+- **Never Infers Intent**: A suspected typo is **reported and refused, never substituted**. The evaluator does not guess which key the caller meant and proceed — that is the silent repair ADR-015 forbids. This applies equally to legacy keys, which are named and rejected rather than translated.
+- **Tolerates Foreign Config Keys**: Unrecognised keys that do **not** resemble an evaluation key are ignored, not rejected. `views-pipeline-core` passes its whole *combined* model config through (`NativeEvaluator(context.configs)`), so the dict legitimately carries meta, hyperparameter, deployment and sweep keys — `batch_size`, `algorithm`, `regression_point_baselines` and so on. This tolerance is a **deliberate constraint, not laxity**: see register **C-33**, and do not tighten it without first separating the configs upstream.
 - **Legacy Compatibility**: Provides an explicit `legacy_compatibility` flag (**default `False`**) that caps step-wise evaluation to the shortest sequence in the frame, reproducing the historic zip-truncation behaviour required for parity with the legacy system. If truncation would drop a step that `config['steps']` explicitly requested, it **raises** rather than returning an empty placeholder for it (ADR-015 ruling 7).
 - **Exact Step Filtering**: Evaluates only the step positions explicitly declared in `config['steps']`. Sparse configs (e.g. `[1, 3, 6, 12]`) produce exactly four step keys, not one key per step up to the maximum.
 - **Fail-Loud Dispatch**: Guarantees that it fails immediately if a requested metric or configuration is invalid for the provided data.
@@ -59,7 +61,8 @@ At construction (`__init__`) — all `ValueError` (ADR-015 rulings 4/5, risk reg
 
 - Config is not a dict.
 - Unknown evaluation profile name.
-- Unknown or misspelled config key, including any legacy key removed in 0.4.0.
+- A legacy config key removed in 0.4.0 (`targets`, `metrics`, `*_uncertainty_metrics`) — named and rejected, never translated.
+- A key closely resembling a real evaluation key (suspected typo) — named and rejected, never substituted. Keys that do not resemble one are ignored (C-33).
 - `steps` missing or empty; or containing a non-integer or non-positive entry.
 - No target list declared.
 - A declared task with no metrics for it.

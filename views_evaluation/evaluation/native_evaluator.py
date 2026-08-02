@@ -30,6 +30,48 @@ class NativeEvaluator:
     # there is all that is required to support it here.
     _VALID_CONFIG_KEYS = frozenset(EvaluationConfig.__annotations__)
 
+    # Config keys removed in 0.4.0, mapped to what replaces them. An explicit,
+    # enumerated set — presence is detected by exact name, never by inference, and
+    # the value is never translated on the caller's behalf.
+    _LEGACY_CONFIG_KEYS = {
+        "targets": "regression_targets' or 'classification_targets",
+        "metrics": "regression_point_metrics",
+        "regression_uncertainty_metrics": "regression_sample_metrics",
+        "classification_uncertainty_metrics": "classification_sample_metrics",
+    }
+
+    @staticmethod
+    def _differs_by_one_edit(a: str, b: str) -> bool:
+        """True if `a` and `b` differ by exactly one insertion, deletion or substitution."""
+        if a == b or abs(len(a) - len(b)) > 1:
+            return False
+        if len(a) == len(b):
+            return sum(x != y for x, y in zip(a, b)) == 1
+        shorter, longer = (a, b) if len(a) < len(b) else (b, a)
+        return any(longer[:i] + longer[i + 1:] == shorter for i in range(len(longer)))
+
+    @classmethod
+    def _nearest_config_key(cls, key: str):
+        """The evaluation config key `key` appears to be a typo of, or None.
+
+        Used only to *report* a suspected typo. The result is never substituted for
+        the caller's key — see `_validate_config` step 1b.
+
+        Two rules, tuned against the real key set in views-models to flag genuine
+        typos while ignoring the foreign keys that arrive via pipeline-core's combined
+        config. `regression_point_baselines` (a real pipeline-core key) must NOT match
+        `regression_point_metrics`; `regression_sample_metric` and `step` must.
+        """
+        import difflib
+
+        close = difflib.get_close_matches(key, cls._VALID_CONFIG_KEYS, n=1, cutoff=0.9)
+        if close:
+            return close[0]
+        for valid in sorted(cls._VALID_CONFIG_KEYS):
+            if cls._differs_by_one_edit(key, valid):
+                return valid
+        return None
+
     # Each metric-list key declares the (task, pred_type) cell it supplies metrics for.
     _METRIC_LIST_KEYS = {
         "regression_point_metrics":      ("regression", "point"),
@@ -63,17 +105,44 @@ class NativeEvaluator:
                 f"Available: {sorted(PROFILES.keys())}"
             )
 
-        # 1. Unknown / misspelled keys. Also the loud failure for legacy keys
-        #    ('targets', 'metrics', '*_uncertainty_metrics') removed in 0.4.0.
-        unknown = sorted(set(config) - cls._VALID_CONFIG_KEYS)
-        if unknown:
-            raise ValueError(
-                f"Unknown evaluation config key(s): {unknown}. "
-                f"Valid keys: {sorted(cls._VALID_CONFIG_KEYS)}. "
-                f"Note: the legacy keys 'targets', 'metrics', "
-                f"'regression_uncertainty_metrics' and 'classification_uncertainty_metrics' "
-                f"were removed in 0.4.0 — see the README migration table."
+        # 1a. Legacy keys, removed in 0.4.0. An explicit, enumerated set — not inferred.
+        legacy_present = sorted(set(config) & set(cls._LEGACY_CONFIG_KEYS))
+        if legacy_present:
+            replacements = "; ".join(
+                f"'{k}' -> '{cls._LEGACY_CONFIG_KEYS[k]}'" for k in legacy_present
             )
+            raise ValueError(
+                f"Legacy evaluation config key(s) present: {legacy_present}. These were "
+                f"removed in 0.4.0 and are NOT translated automatically. Rename them: "
+                f"{replacements}. See the README migration table."
+            )
+
+        # 1b. Near-miss keys — a key that is one small edit away from a real evaluation
+        #     key is almost certainly a typo of it, and a typo silently produces an
+        #     empty report (register C-02). Fail loud, naming what it resembles.
+        #
+        #     The suspected key is REPORTED, NEVER SUBSTITUTED. This code does not
+        #     guess what the caller meant and proceed — that would be exactly the
+        #     silent repair ADR-015 forbids. The caller fixes their config.
+        #
+        #     Unrecognised keys that are NOT near-misses are ignored on purpose.
+        #     views-pipeline-core passes its *combined* model config straight through
+        #     (`NativeEvaluator(context.configs)`), so this dict legitimately carries
+        #     dozens of foreign keys — `batch_size`, `n_epochs`, `algorithm`,
+        #     `regression_point_baselines` and so on. Rejecting unrecognised keys
+        #     wholesale breaks every model in the platform. Do not "tighten" this back
+        #     up without first fixing the config split upstream (register C-33).
+        for key in sorted(set(config) - cls._VALID_CONFIG_KEYS):
+            suspected = cls._nearest_config_key(key)
+            if suspected is not None:
+                raise ValueError(
+                    f"Evaluation config key '{key}' is not recognised, but closely "
+                    f"resembles '{suspected}' — this looks like a typo. It has NOT been "
+                    f"interpreted as '{suspected}'; nothing is assumed on your behalf. "
+                    f"Either correct the key, or rename it so it does not resemble an "
+                    f"evaluation key. Valid evaluation keys: "
+                    f"{sorted(cls._VALID_CONFIG_KEYS)}."
+                )
 
         # 2. 'steps' is required (CIC NativeEvaluator §4) and drives the step-wise schema.
         #    Absent, it silently produced no step-wise results at all.

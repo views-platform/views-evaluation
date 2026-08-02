@@ -593,16 +593,41 @@ class TestNativeEvaluatorRed:
             'regression_targets': ['target'],
             'regression_sample_metric': ['CRPS'],   # typo — should be ..._metrics
         }
-        with pytest.raises(ValueError, match="Unknown evaluation config key"):
+        with pytest.raises(ValueError, match="closely resembles"):
+            NativeEvaluator(config)
+
+    def test_typo_is_reported_but_never_substituted(self):
+        """A suspected typo must be named, and then NOT acted on.
+
+        Inferring what the caller meant and proceeding would be exactly the silent
+        repair ADR-015 forbids. The error names the resemblance; the caller fixes it.
+        """
+        config = {'steps': [1], 'regression_targets': ['target'],
+                  'regression_sample_metric': ['CRPS']}
+        with pytest.raises(ValueError) as excinfo:
+            NativeEvaluator(config)
+        msg = str(excinfo.value)
+        assert "regression_sample_metrics" in msg, "must name what it resembles"
+        assert "NOT been interpreted" in msg, "must state that nothing was assumed"
+
+    def test_short_key_typo_rejected_at_init(self):
+        """'step' vs 'steps' — one character, and previously silent."""
+        config = {'step': [1], 'steps': [1], 'regression_targets': ['target'],
+                  'regression_sample_metrics': ['CRPS']}
+        with pytest.raises(ValueError, match="closely resembles"):
             NativeEvaluator(config)
 
     def test_legacy_config_keys_rejected_at_init(self):
-        """Legacy keys removed in 0.4.0 now fail loudly instead of silently (C-29)."""
+        """Legacy keys removed in 0.4.0 fail loudly and are NOT translated (C-29).
+
+        Detected by exact name from an enumerated set — not inferred, and never
+        silently mapped to their replacement.
+        """
         for legacy in ('targets', 'metrics',
                        'regression_uncertainty_metrics', 'classification_uncertainty_metrics'):
             config = {'steps': [1], 'regression_targets': ['target'],
                       'regression_point_metrics': ['MSE'], legacy: ['x']}
-            with pytest.raises(ValueError, match="Unknown evaluation config key"):
+            with pytest.raises(ValueError, match="Legacy evaluation config key"):
                 NativeEvaluator(config)
 
     def test_missing_steps_rejected_at_init(self):
@@ -696,3 +721,78 @@ class TestNativeEvaluatorRed:
         }
         with pytest.raises(ValueError, match="not valid"):
             NativeEvaluator(config).evaluate(ef)
+
+
+# ---------------------------------------------------------------------------
+# BEIGE: the combined-config contract with views-pipeline-core
+#
+# pipeline-core calls `NativeEvaluator(context.configs)` where `context.configs` is
+# `_config_manager.get_combined_config()` — the WHOLE merged model config (meta +
+# hyperparameters + deployment + partitions + queryset + sweep). It therefore carries
+# dozens of keys this library knows nothing about, by design.
+#
+# A blanket "reject unrecognised keys" check was written on 2026-08-02 and would have
+# broken every model in the platform: 17 rejected keys on a single real config, at
+# `NativeEvaluator(...)`, before any evaluation ran. It was caught by reading
+# pipeline-core before merging, not by the test suite — hence this file.
+#
+# Register C-33 tracks the underlying config-separation debt.
+# ---------------------------------------------------------------------------
+
+class TestCombinedConfigTolerance:
+
+    def _real_combined_config(self):
+        """A faithful combined config, keys taken verbatim from a real model.
+
+        Source: views-models/models/ravaging_thief/configs/{config_meta,
+        config_hyperparameters}.py — an NHiTS cm-level model.
+        """
+        return {
+            # config_meta.py
+            "name": "ravaging_thief", "algorithm": "NHiTSModel", "level": "cm",
+            "creator": "Dylan", "queryset": "escwa001_cflong",
+            "regression_targets": ["lr_ged_os"],
+            "regression_point_baselines": ["average_cmbaseline", "zero_cmbaseline",
+                                           "locf_cmbaseline"],
+            "regression_point_metrics": ["MSLE", "MSE", "MCR_point", "y_hat_bar"],
+            "regression_sample_metrics": ["CRPS", "y_hat_bar"],
+            "rolling_origin_stride": 1, "prediction_format": "dataframe",
+            # config_hyperparameters.py
+            "steps": list(range(1, 37)), "input_chunk_length": 36,
+            "output_chunk_length": 36, "output_chunk_shift": 0, "random_state": 67,
+            "time_steps": 36, "num_samples": 1, "mc_dropout": False, "n_jobs": -1,
+            "batch_size": 128, "n_epochs": 300,
+        }
+
+    def test_real_combined_model_config_is_accepted(self):
+        """The regression guard. If this fails, every model in the platform is broken."""
+        NativeEvaluator(self._real_combined_config())      # must not raise
+
+    def test_foreign_keys_are_ignored_not_rejected(self):
+        """Keys that plainly belong to another concern are none of this library's business."""
+        config = {'steps': [1], 'regression_targets': ['t'],
+                  'regression_sample_metrics': ['CRPS'],
+                  'batch_size': 128, 'n_epochs': 300, 'algorithm': 'NHiTSModel',
+                  'wandb_project': 'views', 'sweep_id': 'abc123'}
+        NativeEvaluator(config)                             # must not raise
+
+    def test_baseline_key_is_not_mistaken_for_a_metric_key(self):
+        """`regression_point_baselines` is a REAL pipeline-core key.
+
+        It shares a 17-character prefix with `regression_point_metrics`, so a loose
+        fuzzy matcher would flag it as a typo and break every model that declares
+        baselines. It must be ignored.
+        """
+        config = {'steps': [1], 'regression_targets': ['t'],
+                  'regression_point_metrics': ['MSE'],
+                  'regression_point_baselines': ['zero_cmbaseline'],
+                  'regression_sample_baselines': ['red_ranger']}
+        NativeEvaluator(config)                             # must not raise
+
+    def test_typo_still_caught_inside_a_combined_config(self):
+        """Tolerating foreign keys must not cost us the typo protection."""
+        config = self._real_combined_config()
+        del config['regression_sample_metrics']
+        config['regression_sample_metric'] = ['CRPS']       # the typo
+        with pytest.raises(ValueError, match="closely resembles"):
+            NativeEvaluator(config)
