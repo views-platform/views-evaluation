@@ -15,6 +15,37 @@ provided they were announced here.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **`scoring_code_version` now identifies the code that ran.** It appends `+g<sha>` when
+  the package is running from a git worktree (e.g. `1.0.0+g5469690`). A wheel install has
+  no worktree and stamps a bare version exactly as before, so **nothing changes for anyone
+  installing from PyPI** — which is why this does not need a release to take effect where
+  it matters. The population affected is editable/dev installs, and those run from source.
+
+  `importlib.metadata` reports the *installed distribution*, not the executing code. Under
+  an editable install the two drift the moment the source moves ahead of the last
+  `pip install` — measured with the tree at 1.0.0 and the dist-info still at 0.5.0,
+  emitting frames stamped `0.5.0` from 1.0.0 code, in the artifact whose entire purpose is
+  to be the record. A bare version cannot distinguish the two states; a version plus a SHA
+  can. Closes register **C-25**, whose original proposal ("cut the release so the label is
+  meaningful") was falsified — releasing does not help, because the drift is between the
+  install and the source, not between versions.
+
+  The guarding test asserted only that the stamp was a non-empty string, so it was
+  satisfied by precisely the wrong answer. It now asserts the stamp identifies `HEAD`, and
+  a second test pins the wheel case so no SHA is never invented.
+
+### Changed
+
+- **Dev dependency:** `pytest` `^8.3.3` → `^9.0.3`, clearing a Dependabot advisory
+  (`pytest < 9.0.3`, tmpdir handling). Dev-only — not shipped to users. Verified: the full
+  suite passes on pytest 9.1.1.
+
+---
+
 ## [1.0.0] — 2026-08-02
 
 **The API is now stable.** Under `0.x`, ADR-022 §5 allowed breaking changes in a MINOR

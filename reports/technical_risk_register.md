@@ -1,7 +1,7 @@
 # Technical Risk Register — views-evaluation
 
 **Last updated:** 2026-08-02
-**Total open concerns:** 13
+**Total open concerns:** 12
 **Governing ADR:** ADR-023
 **Citation convention:** `Location` fields name files and symbols (functions, classes, sections), not line numbers — line numbers drift as soon as anything is inserted above them.
 
@@ -93,17 +93,6 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Source:** review-rr strategic (2026-06-26), blind-spot analysis
 - **Mitigation path:** Extend the drift-guard test to cover axes / `MEAN_GROUP_ID` / `eval_type` vocabulary / a serialization round-trip; pin the persistence convention jointly with pipeline-core + reporting. (**`schema_version` enforcement at load is owned by C-26(b), not here** — de-duplicated 2026-08-02, as both entries previously claimed the same fix.) See views-reporting C-41 (token drift, consumer side) and C-26 (serialization fidelity).
 - **Note:** Part of causal cluster D (MetricFrame evaluation-of-record). This repo's most consequential cross-repo surface — consumers are actively coding against it. **Governance asymmetry (added 2026-08-02):** this repo *owns* the artifact but its governing decision record is views-frames **ADR-020**, in another repo. Locally, ADR-041 was the nearest thing to an output contract and it asserted the opposite of what the code does (that views-evaluation never persists to disk) until corrected on 2026-08-02, and `MetricFrame` had no Intent Contract until the same date. A contract with no local authoritative statement is easier to drift from — which is the exposure this entry tracks. See also C-34.
-
----
-
-### C-25 — Provenance version-label integrity in the evaluation-of-record
-- **Tier:** 3 (Medium)
-- **Description:** `to_metric_frame()` stamps `scoring_code_version` from the installed package version (`default_scoring_code_version` → `importlib.metadata`), which is currently a stale `"0.4.0"` — PR #20 reverted the version bump (see C-11/C-14). A dev build of views-evaluation and the released 0.4.0 therefore stamp **identical** provenance, so the evaluation-of-record cannot identify which code produced it — undermining the auditability the MetricFrame exists to provide.
-- **Trigger:** When an emitted MetricFrame is used for audit/repro and two different code states both carry `scoring_code_version="0.4.0"`; or when a release moves the label again — 0.5.0 and 1.0.0 both did — and historical dev-build frames remain indistinguishable from it.
-- **Location:** `views_evaluation/evaluation/metric_frame.py` (`default_scoring_code_version`); `pyproject.toml` (`version`)
-- **Source:** review-rr strategic (2026-06-26), blind-spot analysis
-- **Mitigation path — the original proposal is falsified; do not rely on it.** This entry previously said "cut the 0.5.0 release so the label is meaningful". Releasing does not fix it. `default_scoring_code_version()` reads `importlib.metadata.version("views_evaluation")` — the **installed distribution's** metadata, not the code being executed — so in an editable install the two drift freely. **Demonstrated 2026-08-02:** with the source tree at 1.0.0 and the editable dist-info still recording 0.5.0, an emitted MetricFrame carried `scoring_code_version='0.5.0'` while being produced by 1.0.0 code. The platform runs views-evaluation as an editable install, so this is live, not hypothetical: every MetricFrame emitted between a source change and a reinstall is mislabelled, silently. Real options: stamp a git SHA alongside the version when a repository is detectable; or verify the installed metadata against the running package at emit time and fail loud on mismatch (ADR-013), which turns a silent wrong label into a loud one. See also C-11 / C-14.
-- **Note:** Part of causal cluster D.
 
 ---
 
@@ -227,6 +216,7 @@ Moved out of the register (no correctness/reliability dimension) — tracked in 
 
 | ID | Tier | Description | Resolution | Issue |
 |----|------|-------------|------------|-------|
+| C-25 | 3 | Provenance version-label integrity in the evaluation-of-record | `default_scoring_code_version()` now appends `+g<sha>` when the package runs from a git worktree, so the stamp identifies the executing code rather than the last `pip install`. A wheel install has no worktree and stamps a bare version — a property of the install, not a failure (ADR-015). The entry's original proposal, "cut the 0.5.0 release so the label is meaningful", was falsified: releasing does not help, because the drift is between the installed distribution and the source tree, not between versions. Demonstrated with the tree at 1.0.0 and the dist-info at 0.5.0 emitting frames stamped `0.5.0`. The guarding test previously asserted only that the stamp was a non-empty string, so it was satisfied by exactly the wrong answer; it now asserts the stamp identifies HEAD. | #57 |
 | C-02 | **1** | NativeEvaluator does not validate config at init | `_validate_config()` added to `__init__`: rejects unknown/misspelled keys (valid set derived from `EvaluationConfig.__annotations__`), missing/empty/non-positive `steps`, absent target lists, declared tasks with no metrics, and invalid metric names. A resolved `(task, pred_type)` with no metrics now raises at `evaluate()` — the one case that cannot be known at construction. Covered by every `TestNativeEvaluatorRed::test_*_rejected_at_init` case. | #31 |
 | C-13 | 2 | No deprecation protocol for public API symbols | **ADR-022 activated** (was `Proposed (Deferred)`; its own trigger "breaking changes incur high coordination costs" had fired). Defines the public API surface, a one-release-cycle deprecation contract, the `DeprecationWarning`-vs-fail-loud boundary, `0.x` versioning, a retroactive position on the 0.4.0 removals, and a release checklist as the enforcement point. | #28 |
 | C-19 | 3 | `scipy` is an undeclared runtime dependency | Declared `scipy = "^1.11"` in `pyproject.toml`. It was a load-time import satisfied only transitively via scikit-learn. | #29 |
