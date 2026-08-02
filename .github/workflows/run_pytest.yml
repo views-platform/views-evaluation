@@ -36,3 +36,10 @@ jobs:
       run: |
         set -e
         poetry run pytest tests/
+
+    # Structural documentation checks (CIC references, cross-ADR integrity, unfilled
+    # placeholders). Complements tests/test_documentation_contracts.py, which asserts
+    # that documented claims match code. Neither ran in CI before 2026-08-02, which is
+    # how the README shipped a promise the package did not keep (register C-29).
+    - name: Validate documentation consistency
+      run: bash documentation/validate_docs.sh
