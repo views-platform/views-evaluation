@@ -34,6 +34,21 @@ reads the emitted `MetricFrame`. That is the condition, and it is met.
 and nothing else; 0.5.0's surface carries over unaltered. Anyone on 0.5.0 can upgrade
 without touching code, provided they satisfy the `views-frames` floor.
 
+### Consumer uptake — 1.0.0 requires both consumers to act
+
+A MAJOR bump is invisible to a caret or `<1.0.0` pin. Verified by resolving, not assumed:
+
+| Consumer | Declares | Effect of 1.0.0 |
+|---|---|---|
+| `views-pipeline-core` | `views-evaluation = "^0.5.0"` → `>=0.5.0,<0.6.0` | **1.0.0 is invisible.** Keeps resolving 0.5.0 from PyPI. No break; no upgrade either. Widen to `^1.0.0` to adopt. |
+| `views-reporting` | `views-evaluation[frames]>=0.4.0,<1.0.0`, **plus** a `[tool.uv.sources]` git override on branch `development` | **Silently resolves 1.0.0.** `uv` replaces the version constraint entirely when a source override is present — the lock's `requires-dist` carries no specifier — so the declared `<1.0.0` is **inert**. Confirmed by running `uv lock` against this branch: views-evaluation 1.0.0, views-frames 1.10.2, clean. |
+
+Two things follow. `views-pipeline-core` must widen its pin before it sees 1.0.0 at all.
+And `views-reporting`'s `<1.0.0` offers it no protection while the git override stands —
+that override is marked INTERIM in its own comments, pending the `MetricFrame` emit
+reaching PyPI, which 0.5.0 satisfied. Reverting it to a plain version pin is what makes
+its declared bound mean something again. Registered as **C-38**.
+
 ### Changed — breaking for the `frames` extra
 
 - **`views-frames` floor raised from `^1.4` to `>=1.10.2,<2`.** This aligns
