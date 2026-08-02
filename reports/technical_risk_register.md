@@ -1,17 +1,19 @@
 # Technical Risk Register — views-evaluation
 
 **Last updated:** 2026-08-02
-**Total open concerns:** 8
+**Total open concerns:** 9
 **Governing ADR:** ADR-023
+**Citation convention:** `Location` fields name files and symbols (functions, classes, sections), not line numbers — line numbers drift as soon as anything is inserted above them.
 
 > **2026-08-02 — Fail-Loud Doctrine epic (#26) closed 10 concerns.** ADR-015 (Degenerate
 > and Empty Results) was written and applied; ADR-022 (Evolution and Stability) was
-> activated. Clusters A, B and F are closed; C and E are reduced. The
-> register went from 15 open concerns to 8 (C-33 was opened during the epic:
-> cross-repo inspection found that config validation cannot be strict while
-> pipeline-core passes its whole combined model config through). (C-28 remains open in reduced form: its
-> inert `low_bin`/`high_bin` params were kept as documented reserved placeholders
-> rather than deleted — a maintainer decision on 2026-08-02.)
+> activated. Clusters A, B and F are closed; C and E are reduced. The register went from
+> **15 open concerns to 9**. Three were opened during the epic rather than closed:
+> **C-33** (config validation cannot be strict while pipeline-core passes its whole
+> combined model config through — found by cross-repo inspection), **C-34** (nothing
+> verifies ADR claims against code — found by review-base-docs), and **C-28** which
+> remains in reduced form because its inert `low_bin`/`high_bin` params were kept as
+> documented reserved placeholders rather than deleted, a maintainer decision.
 
 ---
 
@@ -34,7 +36,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Tier:** 3 (Medium)
 - **Description:** `native_metric_calculators.py` imports `sklearn.metrics` and `scipy.stats` at module level. Only 4 metric functions use these (AP, EMD, Pearson, MTD). This contradicts the zero-external-dep goal for Level 0 (ADR-011).
 - **Trigger:** When someone packages views-evaluation as a minimal-dep wheel, or adds a CI/import-lint check asserting Level-0 imports only numpy — the module-level `sklearn`/`scipy` imports fail it.
-- **Location:** `views_evaluation/evaluation/native_metric_calculators.py:2-6` (module-level `sklearn.metrics` and `scipy.stats` imports); used by `calculate_ap_native:76`, `calculate_emd_native:83`, `calculate_pearson_native:88`, `calculate_mtd_native:96`
+- **Location:** `views_evaluation/evaluation/native_metric_calculators.py` — the module-level `sklearn.metrics` and `scipy.stats` imports at the top of the file; consumed by `calculate_ap_native`, `calculate_emd_native`, `calculate_pearson_native` and `calculate_mtd_native`
 - **Source:** repo-assimilation (2026-03-31); trigger sharpened 2026-06-26 (strategic review); Location field added 2026-08-02 (strategic review — required field was missing)
 - **Mitigation path:** Replace with pure-numpy implementations or move affected metrics to a Level 1 module.
 - **Note:** The packaging half (C-19 — `scipy` undeclared in `pyproject.toml`) was **closed on 2026-08-02** (#29). What remains here is purely the ADR-011 purity violation: the imports are now honestly declared, but they still sit in the Level-0 core. Part of causal cluster C.
@@ -45,7 +47,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Tier:** 3 (Medium) — reduced from 2 on 2026-08-02; the silent-truncation half was fixed, leaving only the unenforced-convention half
 - **Description:** The step-wise schema groups rows by the caller-supplied `step` identifier under the convention that step = 1-indexed positional lead time (step 1 = the first month of each origin's forecast window). ADR-040 documents the convention and `CICs/EvaluationFrame.md` §8 explains its consequence, but **nothing validates it**. The adapter that used to synthesise `step` positionally (`PandasAdapter`) was deleted in Phase 3, so the assumption now rests entirely on callers. If a caller supplies `step` meaning something else — an absolute month offset, a 0-indexed position — the step groups are mislabelled and cross-model comparison is invalid, with no signal.
 - **Trigger:** When a new consumer (or a rewritten pipeline-core adapter) constructs an `EvaluationFrame` and populates `step` from something other than the 1-indexed position within an origin sequence — e.g. reusing a calendar offset — the step-wise report is silently mislabelled.
-- **Location:** `views_evaluation/evaluation/native_evaluator.py:102-128` (grouping); `documentation/ADRs/040_evaluation_input_schema.md` (the documented convention); `documentation/CICs/EvaluationFrame.md` §8
+- **Location:** `views_evaluation/evaluation/native_evaluator.py` — the step-wise grouping block in `evaluate()`; `documentation/ADRs/040_evaluation_input_schema.md` (the documented convention); `documentation/CICs/EvaluationFrame.md` §8
 - **Source:** repo-assimilation (2026-06-24); scope reduced 2026-08-02 after #37 closed the truncation half
 - **Mitigation path:** This is a **cross-repo contract decision**, not a local fix — the producer of `step` lives in views-pipeline-core. Options: validate at the `EvaluationFrame` boundary that each origin's steps form a contiguous 1..n run; or record the convention as an explicit disagreement entry (D-xx) and accept it. Coordinate with pipeline-core before choosing.
 - **Note:** The **silent-truncation half of this entry was resolved on 2026-08-02** (#37, ADR-015 ruling 7): `legacy_compatibility=True` now raises if truncation would drop a step that `config['steps']` explicitly requested, instead of returning it as an empty placeholder dict. Only the semantics half above remains open. This entry is no longer part of causal cluster A.
@@ -70,7 +72,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Location:** `views_evaluation/evaluation/metric_frame.py`; `views_evaluation/evaluation/evaluation_report.py` (`to_metric_frame`)
 - **Source:** review-rr strategic (2026-06-26), blind-spot analysis
 - **Mitigation path:** Extend the drift-guard test to cover axes / `MEAN_GROUP_ID` / `eval_type` vocabulary / a serialization round-trip; pin the persistence convention jointly with pipeline-core + reporting. (**`schema_version` enforcement at load is owned by C-26(b), not here** — de-duplicated 2026-08-02, as both entries previously claimed the same fix.) See views-reporting C-41 (token drift, consumer side) and C-26 (serialization fidelity).
-- **Note:** Part of causal cluster D (MetricFrame evaluation-of-record). This repo's most consequential cross-repo surface — consumers are actively coding against it.
+- **Note:** Part of causal cluster D (MetricFrame evaluation-of-record). This repo's most consequential cross-repo surface — consumers are actively coding against it. **Governance asymmetry (added 2026-08-02):** this repo *owns* the artifact but its governing decision record is views-frames **ADR-020**, in another repo. Locally, ADR-041 was the nearest thing to an output contract and it asserted the opposite of what the code does (that views-evaluation never persists to disk) until corrected on 2026-08-02, and `MetricFrame` had no Intent Contract until the same date. A contract with no local authoritative statement is easier to drift from — which is the exposure this entry tracks. See also C-34.
 
 ---
 
@@ -111,10 +113,21 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Tier:** 3 (Medium) — no correctness impact today, but it caps what this repo can validate and it nearly caused a platform-wide outage
 - **Description:** `views-pipeline-core` calls `NativeEvaluator(context.configs)` (`views_pipeline_core/managers/evaluation/stage.py:122`), where `context.configs` is `_config_manager.get_combined_config()` — the **whole merged model config**: meta, hyperparameters, deployment, partitions, queryset and sweep. A real config (views-models `ravaging_thief`) therefore arrives carrying `name`, `algorithm`, `level`, `creator`, `batch_size`, `n_epochs`, `input_chunk_length`, `regression_point_baselines` and ~10 more keys that this library knows nothing about. The intended design was **separate per-concern configs**, with evaluation owning its own; they were merged into one during earlier development and have not been separated since. The maintainer's position (2026-08-02) is that this will be fixed, but not now.
 - **Trigger:** When someone adds validation to `NativeEvaluator` that assumes the incoming dict is evaluation-specific. On 2026-08-02 a blanket "reject unrecognised keys" check was written on exactly that assumption and would have **broken every model in the platform** — 17 rejected keys on a single real config, raising at construction before any evaluation ran, and through pipeline-core blocking the ~45 repos downstream of its 3.0.0 release. It was caught by reading pipeline-core before merging, not by any test.
-- **Location:** `views_evaluation/evaluation/native_evaluator.py` (`_validate_config`, step 1b and its comment); `views_pipeline_core/managers/evaluation/stage.py:122`; `views_pipeline_core/managers/**/get_combined_config`
+- **Location:** `views_evaluation/evaluation/native_evaluator.py` (`_validate_config`, step 1b and its comment); `views_pipeline_core/managers/evaluation/stage.py` (the `NativeEvaluator(context.configs)` call site); `views_pipeline_core/managers/configuration/configuration.py` (`get_combined_config`)
 - **Source:** cross-repo inspection during epic #26 (2026-08-02), after the blanket check was found to break pipeline-core
 - **Mitigation path:** Upstream — split the combined config so evaluation receives only its own section, then this repo can validate strictly. Until then `NativeEvaluator` must **tolerate unrecognised keys**, and can only flag keys that closely resemble a real evaluation key (a typo), never reject wholesale.
 - **Note:** ⚠ **Do not "tighten" `_validate_config` to reject unknown keys** without fixing the config split first. `tests/test_native_evaluator.py::TestCombinedConfigTolerance` pins a real combined config as a regression guard; if that test fails, every model in the platform is broken. Related to C-02 (the validation this constrains).
+
+---
+
+### C-34 — Nothing verifies that an ADR's claims still match the code
+- **Tier:** 3 (Medium)
+- **Description:** The repo has two automated documentation guards, and **neither checks whether an ADR's assertions about the system are still true**. `documentation/validate_docs.sh` checks structural integrity only (unfilled placeholders, CIC references resolve, protocol files exist) and its cross-ADR check is scoped to the constitutional band `000-009`. `tests/test_documentation_contracts.py` checks specific, hand-picked code facts (documented defaults, required identifiers, genome consumption, metric-token currency) — a deliberately narrow set, not general claim verification. The consequence, found by review-base-docs on 2026-08-02: the entire **04x "Data & Integration Contracts" band had drifted from reality**, undetected, for four months. **ADR-031** listed Brier Score as unimplemented (three variants shipped 2026-04-09) while omitting `pEMDiv` (genuinely unimplemented) — wrong in both directions. **ADR-041** asserted that "views-evaluation returns a structured dictionary, and views-pipeline-core handles the persistence to disk", which `MetricFrame.save()` had directly falsified. **ADR-040** declared the native path the "sole integration path" and then specified a Pandas `MultiIndex` input format the library can no longer accept. All three were Accepted-or-Proposed governance documents describing an architecture that no longer existed.
+- **Trigger:** When a new consumer repo integrates against views-evaluation and uses the 04x ADRs as the specification — as they are meant to — it will build against an architecture that may no longer exist. Equally: when any ADR's Decision section is contradicted by a later code change, nothing fails, so the divergence is only ever found by a manual audit that happens to look.
+- **Location:** `documentation/validate_docs.sh` (structural checks only; cross-ADR check limited to `00[0-9]`); `tests/test_documentation_contracts.py` (narrow, enumerated checks); the 04x ADR band (`040`, `041`, `031`)
+- **Source:** review-base-docs (2026-08-02) — the audit that found the drift is itself the evidence that only a manual audit finds it
+- **Mitigation path:** The individual drifts found on 2026-08-02 were corrected the same day, so this entry is about the **detection gap, not those instances**. Options: extend `test_documentation_contracts.py` with a check per falsifiable ADR claim (cheap per claim, but only covers claims someone thought to encode); require each ADR to carry a machine-checkable "Validation" assertion; or accept that ADRs need periodic `review-base-docs` passes and schedule them. The 00x–02x constitutional band did **not** drift, which suggests the risk concentrates in ADRs describing integration surfaces that change, not principles that do not.
+- **Note:** Distinct from C-24, which is about the *cross-repo emit contract* drifting between repos. This is about *this repo's own ADRs* drifting from *this repo's own code*. See also C-29 (closed) — the README made a false behavioural promise for four months for the same underlying reason, and the fix there was a targeted test, which is the pattern this entry generalises.
 
 ---
 
@@ -156,7 +169,7 @@ Moved out of the register (no correctness/reliability dimension) — tracked in 
 | C-02 | **1** | NativeEvaluator does not validate config at init | `_validate_config()` added to `__init__`: rejects unknown/misspelled keys (valid set derived from `EvaluationConfig.__annotations__`), missing/empty/non-positive `steps`, absent target lists, declared tasks with no metrics, and invalid metric names. A resolved `(task, pred_type)` with no metrics now raises at `evaluate()` — the one case that cannot be known at construction. 10 Red tests. | #31 |
 | C-13 | 2 | No deprecation protocol for public API symbols | **ADR-022 activated** (was `Proposed (Deferred)`; its own trigger "breaking changes incur high coordination costs" had fired). Defines the public API surface, a one-release-cycle deprecation contract, the `DeprecationWarning`-vs-fail-loud boundary, `0.x` versioning, a retroactive position on the 0.4.0 removals, and a release checklist as the enforcement point. | #28 |
 | C-19 | 3 | `scipy` is an undeclared runtime dependency | Declared `scipy = "^1.11"` in `pyproject.toml`. It was a load-time import satisfied only transitively via scikit-learn. | #29 |
-| C-27 | 2 | `Ignorance` crashes on observations above the top bin edge | Both tails guarded and raise with a message naming the value and the configured range. Previously `IndexError` above (masked when a prediction was also out of range) and a wrong-bin score below. | #32 |
+| C-27 | 2 | `Ignorance` crashes on observations above the top bin edge | Both tails guarded and raise with a message naming the value and the configured range. Previously `IndexError` above (masked when a prediction was also out of range) and a wrong-bin score below. ⚠ **Severity note (corrected 2026-08-02):** the entry claimed this was "on the production path" because `Ignorance` is in views-reporting's canonical metric set. A full audit of all 130 views-models configs found **no model requests `Ignorance` at all**, so the crash was latent, not live. The fix stands; the urgency claim was overstated. Note the converse mismatch: views-reporting's canonical set (`views_reporting/config/_reporting.py:48`) DOES list `Ignorance`, so that slot renders "not calculated" permanently — a cross-repo gap, not tracked here. | #32 |
 | C-29 | 3 | README promises a `DeprecationWarning` no code implements | README corrected: legacy keys were removed in 0.4.0 and now raise at `__init__` as unknown keys. The shim was **not** restored — it had been absent from the published package since 2026-05-18. Guarded against recurrence by `tests/test_documentation_contracts.py`. | #38, #40 |
 | C-30 | 3 | `to_metric_frame()` emits a valid zero-row evaluation-of-record | Emit now raises when no schema has any metric value, naming the target and which schemas were present-but-empty, and logging at `ERROR` first (Level-1 emit path). `MetricFrame` itself still accepts zero rows so `load()` can read back whatever `save()` wrote. | #34 |
 | C-31 | 4 | `EvaluationFrame` does not validate `y_true.ndim` | `y_true.ndim != 1` now raises at construction, placed after the dtype gate so a non-numeric array is still reported as a dtype problem. | #36 |

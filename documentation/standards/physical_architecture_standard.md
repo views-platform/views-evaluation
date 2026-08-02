@@ -69,10 +69,14 @@ This file bundles heterogeneous concerns:
 1. **Shared utility** (`_guard_shapes`) — used by all metrics, should arguably be its own module or remain as a private helper.
 
 2. **Four metric families:**
-   - Regression point: MSE, MSLE, RMSLE, EMD, Pearson, MTD, y_hat_bar, MCR
-   - Regression sample: CRPS, twCRPS, MIS, QIS, QS_sample, Coverage, Ignorance
-   - Classification point: AP, Brier_point, QS_point
-   - Classification sample: Brier_sample
+   - Regression point: MSE, MSLE, RMSLE, EMD, Pearson, MTD, y_hat_bar, MCR_point, QS_point
+   - Regression sample: CRPS, twCRPS, MIS, QIS, QS_sample, Coverage, Ignorance, y_hat_bar, MCR_sample, Brier_rgs_sample
+   - Classification point: AP, Brier_cls_point
+   - Classification sample: CRPS, twCRPS, Brier_cls_sample, Jeffreys
+
+   `METRIC_MEMBERSHIP` in `metric_catalog.py` is the authoritative version of this
+   mapping; the list above is illustrative. (It listed the pre-PR-#18 names
+   `Brier_point`/`Brier_sample` and misplaced `QS_point` until 2026-08-02.)
 
 3. **Placeholder stubs** for unimplemented metrics (SD, pEMDiv, Variogram, Jeffreys).
 

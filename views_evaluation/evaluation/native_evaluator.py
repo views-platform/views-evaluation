@@ -19,11 +19,28 @@ class NativeEvaluator:
     pattern for hyperparameter resolution:
         model overrides → evaluation profile → fail loud
 
-    Config keys:
+    The config is validated at construction, not at evaluate() — an invalid config
+    raises immediately rather than producing an empty-but-successful-looking report
+    (ADR-015, risk register C-02). See `_validate_config` for the full rules and
+    `documentation/CICs/NativeEvaluator.md` for the authoritative contract.
+
+    Required config keys:
+        steps (list[int]): 1-indexed step positions to evaluate. Must be non-empty.
+        regression_targets and/or classification_targets (list[str]): at least one
+            must be non-empty, and each declared task needs at least one metric list.
+        <task>_<pred_type>_metrics (list[str]): e.g. regression_sample_metrics.
+            Names must exist in METRIC_CATALOG and be valid for that cell.
+
+    Optional config keys:
         evaluation_profile (str): Name of the evaluation profile to use.
             Must be a key in PROFILES. Defaults to "base" during transition.
         metric_hyperparameters (dict): Optional per-metric overrides.
             E.g. {"twCRPS": {"threshold": 2.0}, "Coverage": {"alpha": 0.05}}
+
+    Unrecognised keys are tolerated — views-pipeline-core passes its whole combined
+    model config through — EXCEPT keys that closely resemble a real evaluation key
+    (a suspected typo) or legacy keys removed in 0.4.0, both of which raise. A
+    suspected typo is reported, never substituted (register C-33).
     """
     # Config keys this evaluator understands, derived from the EvaluationConfig
     # TypedDict so the schema has exactly one authority (ADR-012). Adding a key

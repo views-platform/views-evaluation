@@ -90,7 +90,7 @@ Each path enumerated in the Context is ruled on individually below. These ruling
 
 ## Rationale
 
-**R1 — `MCR` keeps its sentinel.** `MCR = mean(y_pred) / mean(y_true)`. A zero-truth group is a property of conflict data, not a fault — most units are zero most of the time — so criterion 1 holds. `inf` (predicted conflict where none occurred) and `nan` (nothing predicted, nothing observed) are both interpretable calibration statements for that group. Documented at `native_metric_calculators.py:107-122` and asserted by two tests (`test_metric_catalog.py:329`, `:336`). All four criteria hold. **`Pearson` (R2) is the same case and is ruled the same way.**
+**R1 — `MCR` keeps its sentinel.** `MCR = mean(y_pred) / mean(y_true)`. A zero-truth group is a property of conflict data, not a fault — most units are zero most of the time — so criterion 1 holds. `inf` (predicted conflict where none occurred) and `nan` (nothing predicted, nothing observed) are both interpretable calibration statements for that group. Documented in `calculate_mcr_native`'s docstring (`native_metric_calculators.py`) and asserted by `tests/test_metric_catalog.py::TestMCR::test_zero_true_positive_pred_returns_inf` and `::test_zero_both_returns_nan`. All four criteria hold. **`Pearson` (R2) is the same case and is ruled the same way.**
 
 **R2 — `Pearson` keeps its `nan` sentinel.** ⚠ **This ruling was reversed on 2026-08-02, the same day it was made.** Both the original reasoning and the reversal are recorded here, because the mistake is instructive and should not be repeated.
 
@@ -151,7 +151,8 @@ Rejected on constitutional grounds, not preference. ADR-013 forbids downgrading 
 
 ## Implementation Notes
 
-- **Exception type:** `ValueError` throughout, consistent with existing config and metric failures (`metric_catalog.py:145-215`, `native_evaluator.py:49-76`).
+- **Exception type:** `ValueError` throughout, consistent with existing config and metric failures (`resolve_metric_params` in `metric_catalog.py`; `_validate_config`, `_resolve_task_and_metrics` and `_calculate_metrics` in `native_evaluator.py`).
+- **Cite symbols, not line numbers.** References in this ADR name functions, classes and test node IDs rather than line ranges, because line numbers drift the moment anything is inserted above them — including within the very commit that writes the citation.
 - **Message quality:** every raise must name **what was wrong**, **what was expected**, and **what the caller should change**. A message that only reports a symptom fails this ADR's intent.
 - **Level-0 logging exemption stands.** The Logging & Observability Standard §5.1 exempts Level-0 pure-math components from maintaining loggers; exceptions propagate to the orchestrator. Raises added under this ADR in Level-0 files must **not** introduce loggers. The Level-1 emit path (`MetricFrame`, `to_metric_frame`) does log at `ERROR` before raising.
 - **Detection belongs as early as the information exists.** Config failures raise at `NativeEvaluator.__init__`, not at `evaluate()`. Emit failures raise at `to_metric_frame()`, not inside `MetricFrame._validate` — the emit site holds the context needed for a useful message, and the container must remain able to represent anything `load()` reads back.

@@ -10,8 +10,19 @@
 In the context of the VIEWS pipeline, it is necessary to evaluate the models using a robust set of metrics that account for the characteristics of conflict data, such as right-skewness and zero-inflation in the outcome variable.
 
 ## Decision
-> **Note:** As of Jan 2026, several metrics are defined in the ADR but not yet implemented in the code.
-> - **Not Implemented:** `Sinkhorn Distance (SD)`, `Variogram`, `Brier Score`, `Jeffreys Divergence`.
+> **Implementation status (verified 2026-08-02).** `METRIC_CATALOG` in
+> `views_evaluation/evaluation/metric_catalog.py` is the authoritative source — each
+> `MetricSpec` carries an `implemented` flag, and an unimplemented metric raises if
+> requested.
+> - **Not implemented:** `SD` (Sinkhorn Distance), `Variogram`, `pEMDiv`, `Jeffreys`.
+> - **Brier Score IS implemented** as of 2026-04-09, split into three task-explicit
+>   variants: `Brier_cls_point`, `Brier_cls_sample`, `Brier_rgs_sample`. The `_cls_`/
+>   `_rgs_` infix denotes classification vs. regression context. `Brier_rgs_point` is
+>   deliberately absent — a regression point estimate is not a probability.
+>
+> _(This note previously listed Brier Score as unimplemented and omitted `pEMDiv`
+> entirely — wrong in both directions, and stale for four months. Corrected 2026-08-02;
+> the detection gap that allowed it is register **C-34**.)_
 
 Below are the evaluation metrics used to assess the performance of models in the VIEWS pipeline:
 
