@@ -1,7 +1,7 @@
 # Technical Risk Register — views-evaluation
 
 **Last updated:** 2026-09-16
-**Total open concerns:** 17
+**Total open concerns:** 18
 **Governing ADR:** ADR-023
 **Citation convention:** `Location` fields name files and symbols (functions, classes, sections), not line numbers — line numbers drift as soon as anything is inserted above them.
 
@@ -16,7 +16,11 @@
 > Updated: **C-38** — views-reporting now pins a version, so its branch-tracking trigger is
 > no longer live there. One finding skipped as contained by closed C-15. A review-diff of this
 > change then corrected three false claims in the new entries (C-20, C-41, C-42) before merge,
-> recorded as a third instance under **C-34**.
+> recorded as a third instance under **C-34**. Later the same day a falsification audit of
+> the claim "pandas does not exist in this repo" opened **C-44** (`to_dataframe()` without
+> pandas raises a bare `ModuleNotFoundError`, unlike its guarded sibling `to_metric_frame()`)
+> and gave **C-05** its first live trigger: importing any module of this package loads
+> pandas via `sklearn.metrics`. 17 → 18.
 
 > **2026-08-02 — Fail-Loud Doctrine epic (#26) closed 8 concerns.** ADR-015 (Degenerate
 > and Empty Results) was written and applied; ADR-022 (Evolution and Stability) was
@@ -45,7 +49,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 
 - **Cluster A — No doctrine for degenerate or empty results (Fail-Loud violations)** → **RESOLVED 2026-08-02**, two residues: **C-22** (accepted sentinel) and **C-40** (opened 2026-09-16 — `to_dataframe()` erases the sentinel that ADR-015 contracted; a leak in the doctrine's application, not in the doctrine). **ADR-015** now defines what a computation does when it cannot produce a result and rules on every non-raising path individually, on a **fault-vs-data-property** test. C-02, C-28(a), C-29, C-30, C-32 closed; C-20's truncation half closed. **C-22 remains open as an accepted, documented sentinel rather than a defect** — Pearson's `nan` was ruled a raise and reversed the same day when the raise proved to abort any evaluation of a constant baseline. The cluster's root cause is gone; what is left is a contract, not a silence.
 - **Cluster B — Phase-3 deletion left config validation and its documented contracts unowned** → **CLOSED 2026-08-02.** `NativeEvaluator._validate_config` (#31) restored ownership of config validation, deriving the valid key set from `EvaluationConfig` so the schema has one authority; the README was corrected (#38) and a documentation-contract test now guards it (#40). Former members C-02, C-29 closed (+ previously demoted C-21, C-23).
-- **Cluster C — scipy/sklearn in the Level-0 core** → **C-05** (reduced from C-05 + C-19). The *declaration* half closed on 2026-08-02 (#29 declared `scipy` in `pyproject.toml`, C-19). The **ADR-011 purity violation remains open**: `native_metric_calculators.py` still imports `sklearn.metrics` and `scipy.stats` at module level. Latent — no current trigger, and a scope-3 reimplementation to fix.
+- **Cluster C — scipy/sklearn in the Level-0 core** → **C-05** (reduced from C-05 + C-19). The *declaration* half closed on 2026-08-02 (#29 declared `scipy` in `pyproject.toml`, C-19). The **ADR-011 purity violation remains open**: `native_metric_calculators.py` still imports `sklearn.metrics` and `scipy.stats` at module level. **No longer latent (2026-09-16):** with pandas installed, `sklearn.metrics` imports it eagerly, so a bare `import views_evaluation` loads pandas into every process — the "pandas-free core" is true of this repo's source and false of the running interpreter. A scope-3 reimplementation, or lazy imports inside the four kernels, to fix.
 - **Cluster D — MetricFrame evaluation-of-record integrity** → **C-24, C-26, C-39** (C-25 closed by #57; **C-39 opened 2026-09-16** because #57's fix mis-stamps under a consumer's in-repo venv). The vacuous-emit exposure (C-30) closed on 2026-08-02 (#34). C-24 and C-26 were deliberately deferred until **after** the first stable release ships (0.5.0, then 1.0.0), so the drift guards pin the contract that actually shipped rather than a moving one. Consumers (views-reporting, pipeline-core) are actively building against this surface.
 - **Cluster E — `Ignorance` bin contract is unsound** → **C-28** (reduced). #32 guards both tails of the bin range, raising per ADR-015 ruling 8 — C-27 closed and C-28's silent-mis-scoring half with it. What remains is **C-28(b)**: `low_bin`/`high_bin` are declared, required, and inert. Kept as documented reserved placeholders by maintainer decision rather than deleted (#33 reverted), so the cluster stays open on a use-it-or-lose-it basis.
 - **Cluster F — Input-boundary shape contract incomplete** → **CLOSED 2026-08-02.** #36 added the `y_true.ndim` check at the frame boundary and the missing `_guard_shapes` call in `y_hat_bar`. C-31, C-32 closed. (C-32 was fixed rather than demoted — the demotion recommendation from the 2026-08-02 strategic review is superseded.)
@@ -68,11 +72,12 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 ### C-05 — sklearn/scipy in pure-math core
 - **Tier:** 3 (Medium)
 - **Description:** `native_metric_calculators.py` imports `sklearn.metrics` and `scipy.stats` at module level. Only 4 metric functions use these (AP, EMD, Pearson, MTD). This contradicts the zero-external-dep goal for Level 0 (ADR-011).
-- **Trigger:** When someone packages views-evaluation as a minimal-dep wheel, or adds a CI/import-lint check asserting Level-0 imports only numpy — the module-level `sklearn`/`scipy` imports fail it.
-- **Location:** `views_evaluation/evaluation/native_metric_calculators.py` — the module-level `sklearn.metrics` and `scipy.stats` imports at the top of the file; consumed by `calculate_ap_native`, `calculate_emd_native`, `calculate_pearson_native` and `calculate_mtd_native`
-- **Source:** repo-assimilation (2026-03-31); trigger sharpened 2026-06-26 (strategic review); Location field added 2026-08-02 (strategic review — required field was missing)
+- **Observable consequence (added 2026-09-16, falsification audit, verified per module in fresh subprocesses).** With pandas installed, `sklearn.metrics` imports pandas eagerly. Because `views_evaluation/__init__.py` imports `native_evaluator` → `metric_catalog` → `native_metric_calculators` at package import, **every** module in this package — including `evaluation_frame`, the class whose CIC says it "has zero knowledge of Pandas" — puts `pandas` into `sys.modules` as a side effect of being imported. Measured: `import numpy`, `import scipy.stats`, `import views_frames` → pandas not loaded; `import sklearn.metrics` → loaded; `import views_evaluation.evaluation.evaluation_frame` → loaded. The README's "independent of Pandas" (line 92) and ADR-011's "ZERO knowledge of external data frameworks" are true of this repo's own import statements and false of the interpreter that runs them. The `dataframe` extra is therefore optional in name only wherever scikit-learn finds pandas on the path.
+- **Trigger:** When someone packages views-evaluation as a minimal-dep wheel, or adds a CI/import-lint check asserting Level-0 imports only numpy — the module-level `sklearn`/`scipy` imports fail it. **Also (2026-09-16):** when anyone measures import time or memory of the package, ships it into a process where pandas is present but unwanted, or reads ADR-011 / the README as a process-level guarantee — check `'pandas' in sys.modules` after `import views_evaluation`.
+- **Location:** `views_evaluation/evaluation/native_metric_calculators.py` — the module-level `sklearn.metrics` and `scipy.stats` imports at the top of the file; consumed by `calculate_ap_native`, `calculate_emd_native`, `calculate_pearson_native` and `calculate_mtd_native`; `views_evaluation/__init__.py` (eager import of `native_evaluator`, which is what makes the leak package-wide)
+- **Source:** repo-assimilation (2026-03-31); trigger sharpened 2026-06-26 (strategic review); Location field added 2026-08-02 (strategic review — required field was missing); live consequence added 2026-09-16 (falsification audit, probe P6 — the auditor predicted the opposite)
 - **Mitigation path:** Replace with pure-numpy implementations or move affected metrics to a Level 1 module.
-- **Note:** The packaging half (C-19 — `scipy` undeclared in `pyproject.toml`) was **closed on 2026-08-02** (#29). What remains here is purely the ADR-011 purity violation: the imports are now honestly declared, but they still sit in the Level-0 core. Part of causal cluster C.
+- **Note:** The packaging half (C-19 — `scipy` undeclared in `pyproject.toml`) was **closed on 2026-08-02** (#29). What remains here is purely the ADR-011 purity violation: the imports are now honestly declared, but they still sit in the Level-0 core. Part of causal cluster C. **Tracked as GitHub issue #64** (2026-09-16): numpy reimplementation of AP and MTD; scikit-learn to the dev group. Not blocked. The issue gates retirement of the sklearn path on a comprehensive parity suite that has been observed failing on a broken kernel (C-37).
 
 ---
 
@@ -216,7 +221,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Location:** `views_evaluation/evaluation/metrics.py` (`BaseEvaluationMetrics.evaluation_dict_to_dataframe`, the `df.loc[:, df.notna().any()]` filter); `views_evaluation/evaluation/evaluation_report.py` (`to_dataframe`, the caller)
 - **Source:** repo-assimilation (2026-09-16), empirically verified
 - **Mitigation path:** Remove the column filter so the DataFrame carries the same metric set as the other two paths, with `nan` in place; or, if the filter is wanted, make it opt-in and document that the DataFrame is not the record. Add a test asserting the three export paths agree on the set of metric names for a report containing an all-`nan` metric — no test does today (`tests/test_evaluation_report.py` never constructs a `nan` value).
-- **Note:** Residue of causal cluster A alongside C-22: C-22 tracks that the sentinel *exists* and may be misread by consumers; this tracks that one of this library's own exports *erases* it. ADR-015's contract that `nan` means "not computable for this group" is only honoured on two of three paths.
+- **Note:** Residue of causal cluster A alongside C-22: C-22 tracks that the sentinel *exists* and may be misread by consumers; this tracks that one of this library's own exports *erases* it. ADR-015's contract that `nan` means "not computable for this group" is only honoured on two of three paths. **Tracked as GitHub issue #63** (2026-09-16): dies with `to_dataframe()` in the 2.0.0 removal. Its Phase 2 was blocked by views-pipeline-core#512, which closed the same day via pipeline-core PR #513 (`9644724`): the caller is gone, verified on their `development` branch. #63 is unblocked; the ADR-022 deprecation cycle still applies.
 
 ---
 
@@ -250,6 +255,17 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Source:** repo-assimilation (2026-09-16)
 - **Mitigation path:** Accept and document in `CICs/NativeEvaluator.md` that `pred_type` is a property of the frame, not the model; or let the config declare the expected prediction type per target and raise when the frame's width disagrees. The second is the ADR-012 answer; the first is cheaper and may be sufficient.
 - **Note:** Cross-ref C-20 (the other place a frame property is trusted without being declared).
+
+---
+
+### C-44 — `to_dataframe()` without pandas raises a bare `ModuleNotFoundError`, unlike its guarded sibling
+- **Tier:** 4 (Low) — localized to one optional export path; the failure is loud, just uninformative. No correctness impact.
+- **Description:** `EvaluationReport.to_dataframe()` reaches pandas through a bare lazy `import pandas as pd`. When the `dataframe` extra is not installed the caller gets `ModuleNotFoundError: No module named 'pandas'` — no log line, no mention of the extra, no install command. The sibling export path in the same file, `to_metric_frame()`, was hardened during the ADR-015 epic: it gates on `importlib.util.find_spec("views_frames")`, logs at ERROR, and raises an `ImportError` naming `pip install views-evaluation[frames]`. Two Level-1 export methods, one file, two different failure contracts. **Verified 2026-09-16** by blocking pandas in `sys.modules` and calling `to_dataframe("month")` on a real report: the raised message contained neither "dataframe" nor "pip install". Note that in practice the extra is rarely absent, because `sklearn.metrics` drags pandas in whenever it is on the path (C-05) — which is the reason this went unnoticed, not a reason it is fine.
+- **Trigger:** When a consumer installs `views-evaluation` without the `dataframe` extra (a minimal install, or a wheel into an environment where pandas is genuinely absent) and calls `to_dataframe()` — check whether the error names the extra.
+- **Location:** `views_evaluation/evaluation/evaluation_report.py` (`to_dataframe`, the `import pandas as pd` line; contrast the `find_spec` guard in `to_metric_frame` a few lines below); `views_evaluation/evaluation/metrics.py` (`evaluation_dict_to_dataframe`, second lazy import on the same path)
+- **Source:** falsification-audit (2026-09-16), probe P4 of the claim "pandas does not exist in this repo"
+- **Mitigation path:** Mirror `to_metric_frame`'s guard: `find_spec("pandas")`, log at ERROR, raise `ImportError` naming `pip install views-evaluation[dataframe]`. Add the case to `tests/test_documentation_contracts.py::TestDocumentedErrorMessagesExist` once the CIC documents the message. A RED stub exists in the untracked `tests/test_falsification_pandas_does_not_exist_in_this_repo.py` (`test_falsify_04_to_dataframe_without_pandas_names_the_extra`).
+- **Note:** Same shape as closed C-32 (a sibling that skipped the guard every other sibling got). Cross-refs: C-05 (why the missing guard is never exercised), C-40 (the other defect on this export path — together they say `to_dataframe` never received the ADR-015 pass its sibling did). **Tracked as GitHub issue #63** (2026-09-16): the guard lands in that issue's Phase 1; the method itself goes in Phase 2, unblocked since pipeline-core PR #513 removed the last production caller the same day.
 
 ---
 
