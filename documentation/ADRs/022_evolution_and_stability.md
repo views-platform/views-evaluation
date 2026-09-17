@@ -101,8 +101,11 @@ This policy is checked at two points:
 - **Release checklist** (below) — worked through before any `poetry publish`, and the
   worked-through answers recorded in `CHANGELOG.md`, which is this repository's
   release-notes artifact for every "release notes" obligation named above. It was created
-  for 0.5.0; nothing yet *requires* the next release to repeat the exercise, which is
-  registered as **C-36**.
+  for 0.5.0. Since 2026-09-17 `tests/test_documentation_contracts.py` fails the build when
+  the version in `pyproject.toml` has no dated, non-empty `## [version]` section here, and
+  `publish_package.yml` runs the suite before `poetry publish`; whether the checklist
+  *inside* the section was actually worked through is still a review matter, registered
+  as **C-36**.
 - **CI** — `tests/test_documentation_contracts.py` asserts that documentation makes no support claim the code does not honour, which is the specific failure that produced C-29.
 
 #### Release checklist

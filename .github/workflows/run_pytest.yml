@@ -10,6 +10,9 @@ on:
       - main
       - development
   workflow_dispatch:
+  # Callable by reference from publish_package.yml, so the release gate IS this job —
+  # one recipe, nothing copied that could drift (register C-36, mechanical half).
+  workflow_call:
 
 jobs:
   test:
@@ -31,18 +34,17 @@ jobs:
     - name: Install dependencies
       run: |
         # --all-extras is REQUIRED, not tidiness. `views-frames` and `pandas` are
-        # optional extras, and tests/test_metric_frame.py (44 tests) and
-        # tests/test_evaluation_report.py (22 tests) both guard with a MODULE-LEVEL
+        # optional extras, and tests/test_metric_frame.py and
+        # tests/test_evaluation_report.py both guard with a MODULE-LEVEL
         # pytest.importorskip. Without the extras those files are skipped whole and
-        # CI reports a green "293 passed" that never touched the MetricFrame
-        # cross-repo contract (ADR-022 §1). Guarded by
-        # tests/test_falsification_ci_coverage_gap.py.
+        # CI reports green without ever touching the MetricFrame cross-repo contract
+        # (ADR-022 §1). Guarded by tests/test_falsification_ci_coverage_gap.py.
         poetry install --all-extras
 
     # Proves the extras ARRIVED, not merely that --all-extras was requested.
     # `poetry install` exits 0 even if it resolves without an optional package, and
     # every downstream guard is a module-level pytest.importorskip that turns absence
-    # into silence. Without this step a partial install shrinks the suite by 66 tests
+    # into silence. Without this step a partial install silently shrinks the suite
     # and CI still reports green. Guarded by
     # tests/test_falsification_extras_actually_installed.py.
     - name: Verify optional extras are installed

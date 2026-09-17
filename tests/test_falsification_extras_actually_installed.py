@@ -28,6 +28,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "run_pytest.yml"
+PR_WORKFLOW = WORKFLOW
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 
@@ -67,7 +68,7 @@ def _extras_table(text):
 
 def _extra_provided_imports():
     """Import names supplied by extras, derived from pyproject rather than hardcoded."""
-    table = _extras_table(PYPROJECT.read_text())
+    table = _extras_table(PYPROJECT.read_text(encoding="utf-8"))
     assert table, (
         "no extras table found under either [tool.poetry.extras] or "
         "[project.optional-dependencies]; pyproject layout changed"
@@ -149,7 +150,9 @@ def _workflow_steps(text):
         m_job = re.match(r"^  (\w[\w-]*):\s*$", raw)
         if m_job and m_job.group(1) not in ("steps",):
             job = m_job.group(1)
-        if current is not None and re.match(r"^\s*continue-on-error:\s*true\s*$", raw):
+        if current is not None and re.match(r"^\s*(continue-on-error|if):", raw):
+            # Any value: `${{ true }}`, `True`, a trailing comment, or the value on the
+            # next line all reach GitHub as "this step cannot fail / may be skipped".
             current["continue_on_error"] = True
         m_step = re.match(r"^(\s*)-\s+name:\s*(.*)$", raw)
         if m_step:
@@ -191,7 +194,7 @@ class TestCiProvesExtrasWereInstalled:
         module-level `importorskip` that turns absence into silence.
         """
         required = _extra_provided_imports()
-        steps = _workflow_steps(WORKFLOW.read_text())
+        steps = _workflow_steps(WORKFLOW.read_text(encoding="utf-8"))
         assert steps, "no steps parsed from run_pytest.yml; its layout has changed"
 
         def _index(pred):
@@ -251,14 +254,98 @@ class TestCiProvesExtrasWereInstalled:
             f"run_pytest.yml installs extras but never proves they arrived. No step "
             f"EXECUTES an import of {missing} (an `echo`, a step `name:`, or a command "
             f"neutered with `|| true` does not count), so a `poetry install "
-            f"--all-extras` that resolves without them leaves "
-            f"tests/test_metric_frame.py (44 tests) and "
-            f"tests/test_evaluation_report.py (22 tests) silently skipped via "
-            f"module-level importorskip. Add: `poetry run python -c \"import "
-            f"{', '.join(sorted(required))}\"` between the install and test steps."
+            f"--all-extras` that resolves without them leaves every test module that "
+            f"import-skips on those extras silently skipped whole. Add: `poetry run "
+            f"python -c \"import {', '.join(sorted(required))}\"` between the install "
+            f"and test steps."
         )
         assert install_at < verified_at < tests_at, (
             f"the extras verification runs at step {verified_at}, outside the window it "
             f"has to guard (install={install_at}, tests={tests_at}). Verifying after the "
             f"tests have already run proves nothing about the run that just happened."
+        )
+
+
+PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish_package.yml"
+
+
+def _significant_lines(text):
+    """The workflow with comments and blank lines removed — what GitHub executes."""
+    return [line.rstrip() for line in text.splitlines()
+            if line.strip() and not line.strip().startswith("#")]
+
+
+class TestPublishGateIsReal:
+    """Register C-36, mechanical half (2026-09-17). `publish_package.yml` used to go from
+    the GitHub release event straight to `poetry publish`. It now `needs:` a job that
+    runs `run_pytest.yml` by reference — one recipe, nothing copied that could drift.
+
+    The guard is an allowlist, not a parser: the publish workflow must be, line for
+    line, the text below. Two review passes showed that any denylist over a hand-rolled
+    YAML reader loses to the next feature it does not model (`env:`, `shell:`, folded
+    scalars, `if: always()` on the publish step, a nameless `- run:` step, a re-indented
+    file). Holding the file to a known-good text catches all of those at once, and the
+    cost — updating this copy when the workflow is edited on purpose — is the point.
+
+    This guard runs inside the suite it gates, so it protects the pull-request path. A
+    release cut from a branch no PR ever ran on cannot be caught by a test; that
+    residual is recorded in C-36 with its GitHub-native fix.
+    """
+
+    EXPECTED = """\
+name: Publish Package
+on:
+  release:
+    types:
+        - published
+  workflow_dispatch: # enables manual triggering
+jobs:
+  test:
+    uses: ./.github/workflows/run_pytest.yml
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    - name: Install Poetry
+      run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+    - name: Install Dependencies
+      run: |
+          python -m pip install --upgrade pip
+          python -m pip install packaging
+    - name: Validate Version
+      run: |
+        latest_version=$(curl -s https://pypi.org/pypi/views-evaluation/json | jq -r .info.version)
+        new_version=$(poetry version -s)
+        python -c "from packaging.version import parse; assert parse('$new_version') > parse('$latest_version'), 'Version must be higher than $latest_version'"
+    - name: Publish to PyPI
+      run: poetry publish --build --username __token__ --password ${{ secrets.PYPI_TOKEN }}
+"""
+
+    def test_publish_workflow_is_the_known_good_text(self):
+        import difflib
+
+        actual = _significant_lines(PUBLISH_WORKFLOW.read_text(encoding="utf-8"))
+        expected = _significant_lines(self.EXPECTED)
+        diff = "\n".join(difflib.unified_diff(expected, actual, "expected", "publish_package.yml", lineterm=""))
+        assert actual == expected, (
+            "publish_package.yml differs from the known-good release gate. If the change "
+            "is deliberate, update EXPECTED here in the same PR — that is the review "
+            "point for anything that can let a red suite publish:\n" + diff
+        )
+
+    def test_pr_workflow_is_callable(self):
+        """`uses: ./.github/workflows/run_pytest.yml` only works if that workflow declares
+        `workflow_call`; without it the `test` job fails at parse time — loud, but this
+        says why."""
+        text = "\n".join(_significant_lines(PR_WORKFLOW.read_text(encoding="utf-8")))
+        assert re.search(r"^  workflow_call:\s*$", text, re.M), (
+            "run_pytest.yml must declare `workflow_call:` under `on:` so publish_package.yml "
+            "can run it by reference"
         )

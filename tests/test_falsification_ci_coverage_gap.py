@@ -10,7 +10,7 @@ The defect it caught: **the `MetricFrame` contract was not tested in CI.**
 and exposed as the `frames` extra; the version constraint has since moved and is not
 restated here, because restating it is how this docstring went stale before). CI runs a bare
 `poetry install`, which does not install optional dependencies. `tests/test_metric_frame.py`
-guards with a **module-level** `pytest.importorskip("views_frames")` at line 19, so the
+guards with a **module-level** `pytest.importorskip("views_frames")`, so the
 entire file is skipped rather than failing.
 
 Measured, not inferred:
@@ -44,6 +44,11 @@ failure here by relaxing the assertion — the failure means real coverage has g
 import re
 from pathlib import Path
 
+# The step parser lives in the sibling guard so there is one of it. This module used to
+# strip full-line comments only, so `poetry install  # --all-extras` read the flag out of
+# the trailing comment (found by review, 2026-09-17).
+from tests.test_falsification_extras_actually_installed import _commands, _workflow_steps
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "run_pytest.yml"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
@@ -59,7 +64,7 @@ class TestCiRunsTheContractTests:
         adding a new optional dependency with a new import-skip cannot quietly reopen
         this gap.
         """
-        pyproject = PYPROJECT.read_text()
+        pyproject = PYPROJECT.read_text(encoding="utf-8")
         # Both layouts: poetry warns `[tool.poetry.extras]` is deprecated in favour of
         # PEP 621's `[project.optional-dependencies]`. Reading only the deprecated one
         # would make a routine migration fail this guard as a false alarm.
@@ -125,25 +130,22 @@ class TestCiRunsTheContractTests:
             "check is obsolete, but verify before deleting it"
         )
 
-        # Comments stripped first: a comment mentioning `poetry install` before the real
-        # command matched instead of it, producing a false alarm. The sibling guard was
-        # fixed for this; this one was not.
-        workflow = "\n".join(
-            line for line in WORKFLOW.read_text().splitlines()
-            if not line.strip().startswith("#")
+        # The flag is tested on the `poetry install` COMMAND, not on the step body: an
+        # `echo "--all-extras omitted"` line in the same step must not satisfy this.
+        steps = _workflow_steps(WORKFLOW.read_text(encoding="utf-8"))
+        install_cmd = next(
+            (c for s in steps for c in _commands(s["run"]) if c.startswith("poetry install")),
+            None,
         )
-        install = re.search(r"poetry install[^\n]*", workflow)
-        assert install, "no `poetry install` step found in run_pytest.yml"
-        install_cmd = install.group()
+        assert install_cmd, "no `poetry install` command found in run_pytest.yml"
         installs_all = "--all-extras" in install_cmd
         named = set(re.findall(r"--extras[= ]([\w]+)", install_cmd))
 
         missing = sorted(required - named) if not installs_all else []
         assert not missing, (
             f"CI runs `{install_cmd.strip()}`, which does not install the "
-            f"extra(s) {missing} that the test suite import-skips on. Those tests are "
-            f"silently skipped on every pull request: tests/test_metric_frame.py (44) and "
-            f"tests/test_evaluation_report.py (22) are skipped whole. MetricFrame "
+            f"extra(s) {missing} that the test suite import-skips on. Every test module "
+            f"that import-skips on them is silently skipped whole on every run. MetricFrame "
             f"is designated a cross-repo contract by ADR-022 §1. "
             f"Fix: `poetry install --all-extras`."
         )
