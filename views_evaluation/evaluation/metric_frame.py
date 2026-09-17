@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -75,43 +77,121 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(err_msg)
 
 
-def _source_git_sha() -> Optional[str]:
-    """Short SHA of the worktree this module is running from, or None.
+# PEP 503-normalised name of this distribution; the ownership gate below compares against it.
+_DISTRIBUTION_NAME = "views-evaluation"
 
-    Read from `.git` directly rather than shelling out: `git` is not guaranteed to exist
-    where evaluations run, and a missing binary must not change what gets stamped.
+
+def _normalised_project_name(pyproject: Path) -> Optional[str]:
+    """The distribution name a pyproject.toml declares, PEP 503-normalised, or None.
+
+    Parsed with ``tomllib`` (stdlib at this package's Python floor) rather than matched
+    as text, so ``name = "views_evaluation"`` inside an unrelated table (an import-linter
+    contract, a dependency line, a description) is not mistaken for ownership.
     """
-    path = Path(__file__).resolve().parent
-    for candidate in (path, *path.parents):
-        git = candidate / ".git"
-        if not git.exists():
-            continue
-        try:
-            if git.is_file():  # worktree: `.git` is a file pointing at the real dir
-                git = Path(git.read_text().split("gitdir:", 1)[1].strip())
-            head = (git / "HEAD").read_text().strip()
-            if head.startswith("ref:"):
-                ref = head.split(":", 1)[1].strip()
-                target = git / ref
-                if target.exists():
-                    return target.read_text().strip()[:7]
-                packed = git / "packed-refs"
-                if packed.exists():
-                    for line in packed.read_text().splitlines():
-                        if line.endswith(f" {ref}"):
-                            return line.split()[0][:7]
-                return None
-            return head[:7]
-        except (OSError, IndexError):
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))  # TOML is UTF-8 by spec
+    name = data.get("project", {}).get("name") or data.get("tool", {}).get("poetry", {}).get("name")
+    if not isinstance(name, str):
+        return None
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _read_head_sha(git: Path) -> str:
+    """The commit HEAD points at, as a 7-char prefix. Raises when it cannot be read.
+
+    Handles a ``.git`` directory, a ``.git`` file pointing at a linked worktree's or a
+    submodule's real dir, a symbolic HEAD with a loose or packed ref, and a linked
+    worktree's ``commondir`` (refs and ``packed-refs`` live in the main repository's dir,
+    HEAD in the worktree's own). Every read is UTF-8. A symbolic-ref chain is not
+    followed and an unborn branch has no commit: both raise rather than return a
+    non-hash, so the caller can log them.
+    """
+    if git.is_file():  # linked worktree or submodule: `.git` is a file pointing at the real dir
+        gitdir = git.read_text(encoding="utf-8").split("gitdir:", 1)[1].strip()
+        git = (git.parent / gitdir).resolve()  # relative to the file, never to the cwd
+    commondir = git / "commondir"
+    refs_root = (git / commondir.read_text(encoding="utf-8").strip()).resolve() if commondir.exists() else git
+    head = (git / "HEAD").read_text(encoding="utf-8").strip()
+    if head.startswith("ref:"):
+        ref = head.split(":", 1)[1].strip()
+        target = refs_root / ref
+        value = None
+        if target.exists():
+            value = target.read_text(encoding="utf-8").strip()
+        else:
+            packed = refs_root / "packed-refs"
+            if packed.exists():
+                for line in packed.read_text(encoding="utf-8").splitlines():
+                    if line.endswith(f" {ref}"):
+                        value = line.split()[0]
+                        break
+        if value is None:
+            raise ValueError(f"{ref} has no commit (unborn branch, or ref not found)")
+    else:
+        value = head
+    if not re.fullmatch(r"[0-9a-f]{7,64}", value):
+        raise ValueError(f"HEAD resolved to {value[:24]!r}, which is not a commit hash")
+    return value[:7]
+
+
+def _source_git_sha() -> Optional[str]:
+    """Short SHA of THIS repository's checkout when the module runs from it, else None.
+
+    The check is bounded to one directory: the one containing the ``views_evaluation/``
+    package directory (``parents[2]`` of this file under the repository's flat layout —
+    a ``src/`` layout would need ``parents[3]``; the tests anchor their fixtures to the
+    real module path so a move turns them red). A ``.git`` directory or ``.git`` file
+    there counts only if a ``pyproject.toml`` beside it declares this distribution. No
+    parent of that directory is consulted for ``.git``; a ``.git`` *file* is followed to
+    wherever it points, which is how git lays out worktrees and submodules.
+
+    Why bounded: the first version walked every parent to the nearest ``.git``. A wheel
+    installed into a virtualenv nested inside a consumer's checkout (uv's default
+    ``.venv``) sits below the *consumer's* ``.git``, and the walk stamped the consumer's
+    commit as this library's version, in the artifact whose purpose is to be the record
+    (register C-39). A wheel install must stamp a bare version wherever it lives.
+
+    Two ``None`` outcomes are contracted data properties and log nothing: no ``.git`` or
+    no ``pyproject.toml`` at that directory (a wheel), or a ``pyproject.toml`` naming
+    another distribution (a vendored copy). A third is a fault and logs at WARNING: a
+    ``.git`` is present for this distribution but no commit could be read from it
+    (unreadable file, corrupt pointer, symbolic-ref chain, unborn branch, undecodable
+    bytes). The stamp is still the bare version — the caller may pass
+    ``scoring_code_version`` explicitly — but the trace is left (logging standard §5.1).
+
+    Read from ``.git`` directly rather than shelling out: ``git`` is not guaranteed to
+    exist where evaluations run, and a missing binary must not change what gets stamped.
+    """
+    try:
+        root = Path(__file__).resolve().parents[2]
+    except IndexError:
+        return None
+    git = root / ".git"
+    pyproject = root / "pyproject.toml"
+    if not git.exists() or not pyproject.exists():
+        return None
+    try:
+        if _normalised_project_name(pyproject) != _DISTRIBUTION_NAME:
             return None
-    return None
+        return _read_head_sha(git)
+    except (OSError, ValueError, IndexError, RuntimeError) as exc:
+        # ValueError covers tomllib.TOMLDecodeError and UnicodeDecodeError; IndexError a
+        # `.git` file without `gitdir:`; RuntimeError is pathlib's symlink-loop signal on
+        # Python 3.11/3.12 (3.13+ raises OSError for the same tree).
+        logger.warning(
+            "scoring_code_version: %s exists but no commit could be read from it "
+            "(%s: %s); stamping the bare version", git, type(exc).__name__, exc,
+        )
+        return None
 
 
 def default_scoring_code_version() -> Optional[str]:
     """The version stamped into an emitted MetricFrame's provenance.
 
     The installed distribution's version, plus `+g<sha>` when this module is running
-    from a git worktree.
+    from this repository's own checkout — a `.git` beside the `views_evaluation/`
+    package directory, with a `pyproject.toml` there naming this distribution (see
+    `_source_git_sha`). A wheel built from an untagged commit carries no SHA and stamps
+    the version it was built as, indistinguishable from the tagged release.
 
     **Why the SHA.** The version alone comes from `importlib.metadata`, which reports the
     *installed distribution*, not the code being executed. Under an editable install —
@@ -122,9 +202,10 @@ def default_scoring_code_version() -> Optional[str]:
     record. A bare version number cannot distinguish the two states; a version plus a SHA
     can.
 
-    A wheel install has no worktree and correctly stamps a bare version — that is a
-    property of how the package was installed, not a failure, so no SHA is not an error
-    (ADR-015's fault-versus-data-property test).
+    A wheel install stamps a bare version wherever it lives, including inside another
+    repository's checkout (register C-39). That is a property of how the package was
+    installed, not a failure, so no SHA is not an error (ADR-015's fault-versus-data-
+    property test).
 
     Returns None if the distribution metadata cannot be resolved at all, e.g. running
     from an uninstalled source tree.

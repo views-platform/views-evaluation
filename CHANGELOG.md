@@ -20,10 +20,20 @@ provided they were announced here.
 ### Fixed
 
 - **`scoring_code_version` now identifies the code that ran.** It appends `+g<sha>` when
-  the package is running from a git worktree (e.g. `1.0.0+g5469690`). A wheel install has
-  no worktree and stamps a bare version exactly as before, so **nothing changes for anyone
-  installing from PyPI** — which is why this does not need a release to take effect where
-  it matters. The population affected is editable/dev installs, and those run from source.
+  the package is running from **this repository's own checkout** (e.g. `1.0.0+g5469690`).
+  A wheel install stamps a bare version exactly as before — including a wheel installed
+  into a virtualenv nested inside another repository's checkout, which is how uv lays out
+  `.venv`. The first version of this change (unreleased) walked up to the *nearest* `.git`
+  and, in that layout, stamped the **consumer's** commit as this library's version;
+  register **C-39**, found by simulation before any release carried it. The SHA is now
+  read only from the package's own root, and only when a `pyproject.toml` there names
+  `views_evaluation`. Precisely: a SHA is stamped when a `.git` (directory, or file
+  pointing at a worktree's or submodule's real dir) sits directly beside the
+  `views_evaluation/` package directory and a `pyproject.toml` there declares this
+  distribution — which is an editable install of this repository's flat layout, and
+  nothing else. If that `.git` is present but no commit can be read from it, the stamp is
+  bare and a WARNING is logged. A wheel built from an untagged commit stamps the version
+  it was built as, indistinguishable from the tagged release.
 
   `importlib.metadata` reports the *installed distribution*, not the executing code. Under
   an editable install the two drift the moment the source moves ahead of the last
