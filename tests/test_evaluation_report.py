@@ -185,12 +185,23 @@ class TestEvaluationReportBeige:
             df = report.to_dataframe('month')
             assert len(w) == 1, [str(x.message) for x in w]
             assert issubclass(w[0].category, DeprecationWarning)
-            assert "to_dict()" in str(w[0].message) and "2.0.0" in str(w[0].message)
+            assert "to_dict()['schemas'][schema]" in str(w[0].message) and "2.0.0" in str(w[0].message)
             # stacklevel=2: the warning is attributed to the CALLER's file, which is what
             # makes it visible under CPython's default `default::DeprecationWarning:__main__`
             # filter for a script consumer. stacklevel=1 would attribute it to the library
             # and every default-filtered consumer would see nothing.
             assert w[0].filename == __file__
+        assert "MSE" in df.columns
+
+    def test_evaluation_dict_to_dataframe_warns_when_called_directly(self):
+        """The helper is reachable on a dataclass from get_schema_results(); a direct
+        caller must get the deprecation too (it goes in 2.0.0 with to_dataframe)."""
+        report = EvaluationReport('t', 'regression', 'point', {
+            'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
+        mapped = report.get_schema_results('month')
+        cls = type(mapped['month100'])
+        with pytest.warns(DeprecationWarning, match="2.0.0"):
+            df = cls.evaluation_dict_to_dataframe(mapped)
         assert "MSE" in df.columns
 
     def test_to_dataframe_raw_returns_internal_results_dict_with_deprecation(self):
@@ -203,9 +214,12 @@ class TestEvaluationReportBeige:
             raw = report.to_dataframe('raw')
             assert len(w) == 1
             assert issubclass(w[0].category, DeprecationWarning)
-            assert "to_dict()" in str(w[0].message)
+            # The raw path's replacement is the whole schemas dict, not one schema.
+            assert "to_dict()['schemas'] in" in str(w[0].message)
         assert 'month' in raw
         assert raw['month']['month100']['MSE'] == 42.0
+        # Identity, as documented: the same object as to_dict()['schemas'], not a copy.
+        assert raw is report.to_dict()['schemas']
 
     def test_all_four_task_pred_type_combinations_resolve_correctly(self):
         """get_schema_results must not raise for any valid (task, pred_type) pair."""
