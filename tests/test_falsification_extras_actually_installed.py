@@ -26,8 +26,11 @@ dark, or the proof that it has not is no longer a proof.
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "run_pytest.yml"
+PR_WORKFLOW = WORKFLOW
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 
@@ -67,7 +70,7 @@ def _extras_table(text):
 
 def _extra_provided_imports():
     """Import names supplied by extras, derived from pyproject rather than hardcoded."""
-    table = _extras_table(PYPROJECT.read_text())
+    table = _extras_table(PYPROJECT.read_text(encoding="utf-8"))
     assert table, (
         "no extras table found under either [tool.poetry.extras] or "
         "[project.optional-dependencies]; pyproject layout changed"
@@ -149,7 +152,9 @@ def _workflow_steps(text):
         m_job = re.match(r"^  (\w[\w-]*):\s*$", raw)
         if m_job and m_job.group(1) not in ("steps",):
             job = m_job.group(1)
-        if current is not None and re.match(r"^\s*continue-on-error:\s*true\s*$", raw):
+        if current is not None and re.match(r"^\s*(continue-on-error|if):", raw):
+            # Any value: `${{ true }}`, `True`, a trailing comment, or the value on the
+            # next line all reach GitHub as "this step cannot fail / may be skipped".
             current["continue_on_error"] = True
         m_step = re.match(r"^(\s*)-\s+name:\s*(.*)$", raw)
         if m_step:
@@ -191,7 +196,7 @@ class TestCiProvesExtrasWereInstalled:
         module-level `importorskip` that turns absence into silence.
         """
         required = _extra_provided_imports()
-        steps = _workflow_steps(WORKFLOW.read_text())
+        steps = _workflow_steps(WORKFLOW.read_text(encoding="utf-8"))
         assert steps, "no steps parsed from run_pytest.yml; its layout has changed"
 
         def _index(pred):
@@ -218,7 +223,11 @@ class TestCiProvesExtrasWereInstalled:
             r"^\s*if\s|;\s*then\b",  # wrapped in a conditional that swallows status
             r"&\s*$",                 # backgrounded
             r";\s*exit\s+0",          # status discarded
+            r";\s*(true|:)\s*$",       # status replaced
+            r"&\s*wait\s*$",          # backgrounded, then waited on — `wait` exits 0
         )
+        # This list is defence-in-depth: TestPublishGateIsReal holds every workflow file
+        # to a known-good text, which is what catches an evasion this list does not name.
 
         def _verified_by(step):
             run = step["run"]
@@ -251,14 +260,236 @@ class TestCiProvesExtrasWereInstalled:
             f"run_pytest.yml installs extras but never proves they arrived. No step "
             f"EXECUTES an import of {missing} (an `echo`, a step `name:`, or a command "
             f"neutered with `|| true` does not count), so a `poetry install "
-            f"--all-extras` that resolves without them leaves "
-            f"tests/test_metric_frame.py (44 tests) and "
-            f"tests/test_evaluation_report.py (22 tests) silently skipped via "
-            f"module-level importorskip. Add: `poetry run python -c \"import "
-            f"{', '.join(sorted(required))}\"` between the install and test steps."
+            f"--all-extras` that resolves without them leaves every test module that "
+            f"import-skips on those extras silently skipped whole. Add: `poetry run "
+            f"python -c \"import {', '.join(sorted(required))}\"` between the install "
+            f"and test steps."
         )
         assert install_at < verified_at < tests_at, (
             f"the extras verification runs at step {verified_at}, outside the window it "
             f"has to guard (install={install_at}, tests={tests_at}). Verifying after the "
             f"tests have already run proves nothing about the run that just happened."
+        )
+
+
+PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish_package.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+
+
+def _significant_lines(text):
+    """The workflow with comments and blank lines removed — what GitHub executes."""
+    return [line.rstrip() for line in text.splitlines()
+            if line.strip() and not line.strip().startswith("#")]
+
+
+class TestPublishGateIsReal:
+    """Register C-36, mechanical half (2026-09-17). `publish_package.yml` used to go from
+    the GitHub release event straight to `poetry publish`. It now `needs:` a job that
+    runs `run_pytest.yml` by reference — one recipe, nothing copied that could drift.
+
+    The guard is an allowlist, not a parser: **every** file under `.github/workflows/`
+    must be, line for line, the text below, and the set of files must be exactly this
+    set. Two review passes and two guard audits showed that anything narrower loses:
+    a denylist over a hand-rolled YAML reader loses to the next feature it does not
+    model (`env:`, `shell:`, folded scalars, `if: always()` on the publish step,
+    `continue-on-error` on the pytest step or the job, a nameless `- run:` step, a
+    re-indented file, `workflow_call` moved under `jobs:`), and a grep for publish
+    commands loses to `uv publish`, `hatch publish`, a folded `poetry` / `publish`, a
+    composite action, or a Makefile target. Holding the whole directory to a known-good
+    text catches all of those at once; the cost — updating the copy here when a
+    workflow is edited on purpose — is the point: that edit is the review moment for
+    anything that can let a red suite publish. Whitespace, blank lines and comments are
+    not significant, so a cosmetic edit is not a false alarm.
+
+    These guards run inside the suite they gate, so they protect the pull-request path.
+    A release cut from a branch no PR ever ran on cannot be caught by a test; that
+    residual is recorded in C-36 with its GitHub-native fix.
+    """
+
+    EXPECTED = {
+        'codeql.yml': r"""
+name: "CodeQL Advanced"
+on:
+  push:
+    branches: [ "main", "development" ]
+  pull_request:
+    branches: [ "main", "development" ]
+  workflow_dispatch:
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - language: python
+          build-mode: none
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+    - if: matrix.build-mode == 'manual'
+      shell: bash
+      run: |
+        echo 'If you are using a "manual" build mode for one or more of the' \
+          'languages you are analyzing, replace this with the commands to build' \
+          'your code, for example:'
+        echo '  make bootstrap'
+        echo '  make release'
+        exit 1
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+""",
+        'prevent_merge_when_branch_behind.yml': r"""
+name: Require Branch to Be Up-to-Date with Main
+on:
+  pull_request:
+    branches:
+      - main
+      - development
+  workflow_dispatch: # enables manual triggering
+jobs:
+  check-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Fetch main branch
+        run: |
+          git fetch --unshallow
+          git fetch origin main
+      - name: Compare branch with main
+        run: |
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "::notice ::Branch is up-to-date with main."
+          else
+            echo "::error ::Merge Blocked: Your branch is behind the latest commits on main. Please update your branch with the latest changes from main before attempting to merge."
+            echo "Merge base: $(git merge-base HEAD origin/main)"
+            exit 1
+          fi
+""",
+        'publish_package.yml': r"""
+name: Publish Package
+on:
+  release:
+    types:
+        - published
+  workflow_dispatch: # enables manual triggering
+jobs:
+  test:
+    uses: ./.github/workflows/run_pytest.yml
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    - name: Install Poetry
+      run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+    - name: Install Dependencies
+      run: |
+          python -m pip install --upgrade pip
+          python -m pip install packaging
+    - name: Validate Version
+      run: |
+        latest_version=$(curl -s https://pypi.org/pypi/views-evaluation/json | jq -r .info.version)
+        new_version=$(poetry version -s)
+        python -c "from packaging.version import parse; assert parse('$new_version') > parse('$latest_version'), 'Version must be higher than $latest_version'"
+    - name: Publish to PyPI
+      run: poetry publish --build --username __token__ --password ${{ secrets.PYPI_TOKEN }}
+""",
+        'run_pytest.yml': r"""
+name: Run Pytest
+on:
+  push:
+    branches:
+      - main
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
+  workflow_dispatch:
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    - name: Install Poetry
+      run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+    - name: Install dependencies
+      run: |
+        poetry install --all-extras
+    - name: Verify optional extras are installed
+      run: poetry run python -c "import views_frames, pandas"
+    - name: Run tests
+      run: |
+        set -e
+        poetry run pytest tests/
+    - name: Validate documentation consistency
+      run: bash documentation/validate_docs.sh
+""",
+    }
+
+    def test_workflow_directory_holds_exactly_the_known_files(self):
+        """A new file here is a new CI path — a second publisher, a scheduled job that
+        skips the extras — and must be reviewed into EXPECTED before it exists."""
+        actual = sorted(p.name for p in WORKFLOWS_DIR.iterdir())
+        assert actual == sorted(self.EXPECTED), (
+            f".github/workflows/ contains {actual}; expected exactly {sorted(self.EXPECTED)}. "
+            f"Add the new file's known-good text to TestPublishGateIsReal.EXPECTED."
+        )
+        assert not (REPO_ROOT / ".github" / "actions").exists(), (
+            ".github/actions/ exists; a composite action is a CI path this guard does not "
+            "hold to text — reference it from a workflow held here, or remove it"
+        )
+
+    def test_build_system_is_the_known_good_one(self):
+        """`poetry install` and `poetry publish --build` run the build backend, the latter
+        with the PyPI token in scope. A backend is arbitrary code; it is held to text."""
+        import tomllib
+
+        data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert data.get("build-system") == {
+            "requires": ["poetry-core"],
+            "build-backend": "poetry.core.masonry.api",
+        }, f"[build-system] changed: {data.get('build-system')!r}; that is code run at publish time"
+
+    @pytest.mark.parametrize("name", sorted(EXPECTED))
+    def test_workflow_is_the_known_good_text(self, name):
+        import difflib
+
+        actual = _significant_lines((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
+        expected = _significant_lines(self.EXPECTED[name])
+        diff = "\n".join(difflib.unified_diff(expected, actual, "expected", name, lineterm=""))
+        assert actual == expected, (
+            f"{name} differs from its known-good text. If the change is deliberate, update "
+            f"EXPECTED[{name!r}] in TestPublishGateIsReal in the same PR — that is the "
+            f"review point for anything that can let a red suite publish:\n" + diff
         )

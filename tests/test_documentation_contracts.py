@@ -25,8 +25,10 @@ nobody trusts gets deleted again.
 Per ADR-020 the checks are Red: they assert that a specific documented claim matches
 a specific code fact, and fail loudly when it stops doing so.
 """
+import datetime
 import inspect
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -361,6 +363,76 @@ class TestAdrRegistry:
         assert re.search(r"^\*\*Status:\*\*\s*Accepted", text, re.MULTILINE), (
             f"{adr} is not in Accepted status, but code depends on its rulings"
         )
+
+
+class TestChangelogCoversTheDeclaredVersion:
+    """Register C-36, mechanical half: the version in `pyproject.toml` must have a
+    released section in `CHANGELOG.md` — ADR-022 §7 makes the CHANGELOG the artifact
+    where the release checklist is worked through, and until 2026-09-17 nothing turned
+    a forgotten section into a red build. Bumping the version is therefore the trigger:
+    the section has to exist in the same change. What is verified is the heading and
+    that the section has content; whether the checklist inside it was worked through
+    remains a review matter."""
+
+    # Prefix match: trailing text such as `[YANKED]` or `(hotfix)` is allowed; a hyphen or
+    # en dash instead of the em dash is a different heading and must fail.
+    _HEADING = re.compile(r"^## \[(?P<version>[^\]]+)\] — (?P<date>\d{4}-\d{2}-\d{2})\b", re.M)
+    # Same fence shape `TestDocumentedErrorMessagesExist` uses (indented and blockquoted
+    # fences included), plus `~~~` fences and HTML comments: a heading in any of those is
+    # an example, not a release.
+    _QUOTED = re.compile(
+        r"^\s*(?:> )?(```|~~~).*?^\s*(?:> )?\1|<!--.*?-->", re.M | re.S
+    )
+
+    @classmethod
+    def _released_sections(cls, text):
+        """{version: (date, body)} for every release heading outside a fence or comment.
+        A version with two headings is rejected: the second would be read as the section."""
+        assert len(re.findall(r"^\s*(?:> )?(?:```|~~~)", text, re.M)) % 2 == 0, (
+            "CHANGELOG.md has an unclosed code fence; everything after it renders as code"
+        )
+        assert text.count("<!--") == text.count("-->"), (
+            "CHANGELOG.md has an unclosed HTML comment; everything after it is invisible"
+        )
+        prose = cls._QUOTED.sub("", text)
+        matches = list(cls._HEADING.finditer(prose))
+        sections = {}
+        for i, m in enumerate(matches):
+            version = m.group("version")
+            assert version not in sections, f"CHANGELOG.md has two `## [{version}]` headings"
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(prose)
+            body = re.split(r"^## ", prose[m.end():end], maxsplit=1, flags=re.M)[0]
+            sections[version] = (m.group("date"), body)
+        return sections
+
+    def test_changelog_has_a_section_for_the_pyproject_version(self):
+        # Both pyproject layouts, as the sibling extras guards read both: a PEP 621
+        # migration must not turn this guard into a false alarm.
+        data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        version = (
+            data.get("project", {}).get("version")
+            or data.get("tool", {}).get("poetry", {}).get("version")
+        )
+        assert version, "no version declared in pyproject.toml"
+        sections = self._released_sections(CHANGELOG.read_text(encoding="utf-8"))
+        assert version in sections, (
+            f"pyproject.toml declares version {version} but CHANGELOG.md has no "
+            f"`## [{version}] — YYYY-MM-DD` section outside a code fence (the em dash, "
+            f"U+2014, is the house form; a hyphen or en dash is a different heading). "
+            f"ADR-022 §7: work the release checklist through in CHANGELOG.md before "
+            "bumping the version."
+        )
+        date_text, body = sections[version]
+        released = datetime.date.fromisoformat(date_text)  # raises on an impossible date
+        assert released <= datetime.date.today(), (
+            f"CHANGELOG.md dates `## [{version}]` in the future ({date_text})"
+        )
+        assert any(
+            re.search(r"[A-Za-z]", line)
+            and not line.lstrip().startswith("#")
+            and not re.match(r"^\[[^\]]+\]:\s*\S", line)  # a link-reference definition
+            for line in body.splitlines()
+        ), f"CHANGELOG.md's `## [{version}]` section has no notes, only headings, rules or links"
 
 
 class TestLoggingScopeContract:
