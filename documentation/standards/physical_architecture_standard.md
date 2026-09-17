@@ -113,7 +113,7 @@ This is a **future evolution path**, not a current mandate. The current bundling
 
 - **Explicit imports:** Avoid `from module import *`.
 - **Circular dependency guard:** Follow ADR-011 layering. Level 0 modules must not import from Level 1 or Level 2.
-- **Lazy imports for Pandas:** Pandas is imported inside methods (e.g. `to_dataframe()`) rather than at module level in Level 0/1 code.
+- **Lazy imports for Pandas:** Pandas is imported inside methods (e.g. the deprecated `to_dataframe()`, gone in 2.0.0) rather than at module level in Level 0/1 code.
 
 ---
 

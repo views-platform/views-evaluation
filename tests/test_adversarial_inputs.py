@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
+from views_evaluation.evaluation.evaluation_report import EvaluationReport
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 
 
@@ -124,3 +125,27 @@ class TestAdversarialNativeInputs:
                 identifiers=self._simple_ids(2),
                 metadata={'target': 'cls_target'},
             )
+
+
+class TestOptionalExtraAbsentRed:
+    """Register C-44. A missing optional extra must name itself; this module has no
+    pandas import-skip, so the case runs wherever the suite runs."""
+
+    def test_to_dataframe_without_pandas_names_the_extra(self, monkeypatch):
+        """Contract, not mechanism: pandas genuinely unimportable (a `None` entry in
+        sys.modules makes both `import pandas` and `find_spec("pandas")` report absence
+        on CPython) → the raise names `views-evaluation[dataframe]`, keeps the type the
+        bare import raised (`ModuleNotFoundError`, `.name == "pandas"`), and nothing is
+        logged (Level 0 does not log). Seen red on the bare import first: that raised
+        `ModuleNotFoundError: import of pandas halted` with no extra named."""
+        import sys
+        import warnings
+
+        monkeypatch.setitem(sys.modules, "pandas", None)
+        report = EvaluationReport('t', 'regression', 'point', {
+            'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            with pytest.raises(ModuleNotFoundError, match=r"views-evaluation\[dataframe\]") as exc:
+                report.to_dataframe('month')
+        assert exc.value.name == "pandas"

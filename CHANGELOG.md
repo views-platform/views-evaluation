@@ -17,7 +17,28 @@ provided they were announced here.
 
 ## [Unreleased]
 
+### Deprecated
+
+- **`EvaluationReport.to_dataframe()`** — every call now emits a `DeprecationWarning`
+  naming the replacement, and the method is **removed in 2.0.0** together with the
+  `dataframe` extra (ADR-022 §2; epic #66). Build the table in the caller:
+  `pd.DataFrame.from_dict(report.to_dict()['schemas'][schema], orient='index')`. Same
+  values, not byte-identical: `to_dataframe()` orders columns by dataclass field, drops
+  any column that is `nan` in every group (register C-40) and keeps a group with no
+  metrics as a `nan` row; the recipe orders columns as configured, keeps every column
+  and omits an empty group. `BaseEvaluationMetrics.evaluation_dict_to_dataframe()`, the
+  helper behind it, is deprecated with it. The `schema='raw'` passthrough's own warning
+  is folded into this one (its replacement is `to_dict()['schemas']`), so a call emits
+  exactly one. `to_dict()`, `get_schema_results()` and `to_metric_frame()` are unchanged.
+  views-pipeline-core removed its call on its `development` branch (their #513, observed
+  2026-09-16 — not yet in a release of theirs; their `^1.0.0` pin admits this release).
+
 ### Fixed
+
+- **`to_dataframe()` without pandas now names the extra.** With the `dataframe` extra
+  absent it used to surface as a bare `ModuleNotFoundError: No module named 'pandas'`;
+  it now raises a `ModuleNotFoundError` (same type, so no `except` changes behaviour)
+  naming `pip install views-evaluation[dataframe]`. Closes register **C-44**.
 
 - **`scoring_code_version` now identifies the code that ran.** It appends `+g<sha>` when
   the package is running from **this repository's own checkout** (e.g. `1.0.0+g5469690`).
