@@ -283,27 +283,102 @@ class TestPublishGateIsReal:
     the GitHub release event straight to `poetry publish`. It now `needs:` a job that
     runs `run_pytest.yml` by reference — one recipe, nothing copied that could drift.
 
-    The guard is an allowlist, not a parser: each of the two workflow files that together
-    form the release gate must be, line for line, the text below. Two review passes and a
-    guard audit showed that any denylist over a hand-rolled YAML reader loses to the next
-    feature it does not model (`env:`, `shell:`, folded scalars, `if: always()` on the
-    publish step, `continue-on-error` on the pytest step or the job, a nameless `- run:`
-    step, a re-indented file, `workflow_call` moved under `jobs:`). Holding both files to
-    a known-good text catches all of those at once; the cost — updating the copy here when
-    a workflow is edited on purpose — is the point: that edit is the review moment for
+    The guard is an allowlist, not a parser: **every** file under `.github/workflows/`
+    must be, line for line, the text below, and the set of files must be exactly this
+    set. Two review passes and two guard audits showed that anything narrower loses:
+    a denylist over a hand-rolled YAML reader loses to the next feature it does not
+    model (`env:`, `shell:`, folded scalars, `if: always()` on the publish step,
+    `continue-on-error` on the pytest step or the job, a nameless `- run:` step, a
+    re-indented file, `workflow_call` moved under `jobs:`), and a grep for publish
+    commands loses to `uv publish`, `hatch publish`, a folded `poetry` / `publish`, a
+    composite action, or a Makefile target. Holding the whole directory to a known-good
+    text catches all of those at once; the cost — updating the copy here when a
+    workflow is edited on purpose — is the point: that edit is the review moment for
     anything that can let a red suite publish. Whitespace, blank lines and comments are
-    not significant.
+    not significant, so a cosmetic edit is not a false alarm.
 
-    A third guard closes the other way round the gate: no workflow file other than the
-    gated one may publish at all.
-
-    These guards run inside the suite they gate, so they protect the pull-request path. A
-    release cut from a branch no PR ever ran on cannot be caught by a test; that residual
-    is recorded in C-36 with its GitHub-native fix.
+    These guards run inside the suite they gate, so they protect the pull-request path.
+    A release cut from a branch no PR ever ran on cannot be caught by a test; that
+    residual is recorded in C-36 with its GitHub-native fix.
     """
 
     EXPECTED = {
-        "publish_package.yml": """\
+        'codeql.yml': r"""
+name: "CodeQL Advanced"
+on:
+  push:
+    branches: [ "main", "development" ]
+  pull_request:
+    branches: [ "main", "development" ]
+  workflow_dispatch:
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - language: python
+          build-mode: none
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+    - if: matrix.build-mode == 'manual'
+      shell: bash
+      run: |
+        echo 'If you are using a "manual" build mode for one or more of the' \
+          'languages you are analyzing, replace this with the commands to build' \
+          'your code, for example:'
+        echo '  make bootstrap'
+        echo '  make release'
+        exit 1
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+""",
+        'prevent_merge_when_branch_behind.yml': r"""
+name: Require Branch to Be Up-to-Date with Main
+on:
+  pull_request:
+    branches:
+      - main
+      - development
+  workflow_dispatch: # enables manual triggering
+jobs:
+  check-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Fetch main branch
+        run: |
+          git fetch --unshallow
+          git fetch origin main
+      - name: Compare branch with main
+        run: |
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "::notice ::Branch is up-to-date with main."
+          else
+            echo "::error ::Merge Blocked: Your branch is behind the latest commits on main. Please update your branch with the latest changes from main before attempting to merge."
+            echo "Merge base: $(git merge-base HEAD origin/main)"
+            exit 1
+          fi
+""",
+        'publish_package.yml': r"""
 name: Publish Package
 on:
   release:
@@ -338,7 +413,7 @@ jobs:
     - name: Publish to PyPI
       run: poetry publish --build --username __token__ --password ${{ secrets.PYPI_TOKEN }}
 """,
-        "run_pytest.yml": """\
+        'run_pytest.yml': r"""
 name: Run Pytest
 on:
   push:
@@ -378,28 +453,28 @@ jobs:
 """,
     }
 
+    def test_workflow_directory_holds_exactly_the_known_files(self):
+        """A new file here is a new CI path — a second publisher, a scheduled job that
+        skips the extras — and must be reviewed into EXPECTED before it exists."""
+        actual = sorted(p.name for p in WORKFLOWS_DIR.iterdir())
+        assert actual == sorted(self.EXPECTED), (
+            f".github/workflows/ contains {actual}; expected exactly {sorted(self.EXPECTED)}. "
+            f"Add the new file's known-good text to TestPublishGateIsReal.EXPECTED."
+        )
+        assert not (REPO_ROOT / ".github" / "actions").exists(), (
+            ".github/actions/ exists; a composite action is a CI path this guard does not "
+            "hold to text — reference it from a workflow held here, or remove it"
+        )
+
     @pytest.mark.parametrize("name", sorted(EXPECTED))
-    def test_release_gate_workflow_is_the_known_good_text(self, name):
+    def test_workflow_is_the_known_good_text(self, name):
         import difflib
 
         actual = _significant_lines((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
         expected = _significant_lines(self.EXPECTED[name])
         diff = "\n".join(difflib.unified_diff(expected, actual, "expected", name, lineterm=""))
         assert actual == expected, (
-            f"{name} differs from the known-good release gate. If the change is deliberate, "
-            f"update EXPECTED[{name!r}] in TestPublishGateIsReal in the same PR — that is "
-            f"the review point for anything that can let a red suite publish:\n" + diff
-        )
-
-    def test_no_other_workflow_publishes(self):
-        """A second workflow that uploads to PyPI without `needs:` would bypass the gate
-        while the known-good text of the gated one stays intact."""
-        publishers = sorted(
-            p.name for p in WORKFLOWS_DIR.glob("*.y*ml")
-            if re.search(r"poetry publish|pypi-publish|twine upload",
-                         "\n".join(_significant_lines(p.read_text(encoding="utf-8"))))
-        )
-        assert publishers == ["publish_package.yml"], (
-            f"workflows that publish: {publishers}; only publish_package.yml may, and it is "
-            f"gated on the suite by `needs: test`"
+            f"{name} differs from its known-good text. If the change is deliberate, update "
+            f"EXPECTED[{name!r}] in TestPublishGateIsReal in the same PR — that is the "
+            f"review point for anything that can let a red suite publish:\n" + diff
         )

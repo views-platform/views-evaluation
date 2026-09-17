@@ -391,6 +391,9 @@ class TestChangelogCoversTheDeclaredVersion:
         assert len(re.findall(r"^\s*(?:> )?(?:```|~~~)", text, re.M)) % 2 == 0, (
             "CHANGELOG.md has an unclosed code fence; everything after it renders as code"
         )
+        assert text.count("<!--") == text.count("-->"), (
+            "CHANGELOG.md has an unclosed HTML comment; everything after it is invisible"
+        )
         prose = cls._QUOTED.sub("", text)
         matches = list(cls._HEADING.finditer(prose))
         sections = {}
@@ -424,9 +427,10 @@ class TestChangelogCoversTheDeclaredVersion:
         assert released <= datetime.date.today(), (
             f"CHANGELOG.md dates `## [{version}]` in the future ({date_text})"
         )
-        assert any(line.strip() and not line.lstrip().startswith("#") for line in body.splitlines()), (
-            f"CHANGELOG.md's `## [{version}]` section has headings but no notes"
-        )
+        assert any(
+            re.search(r"[A-Za-z]", line) and not line.lstrip().startswith("#")
+            for line in body.splitlines()
+        ), f"CHANGELOG.md's `## [{version}]` section has no notes, only headings or rules"
 
 
 class TestLoggingScopeContract:
