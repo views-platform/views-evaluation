@@ -388,6 +388,9 @@ class TestChangelogCoversTheDeclaredVersion:
     def _released_sections(cls, text):
         """{version: (date, body)} for every release heading outside a fence or comment.
         A version with two headings is rejected: the second would be read as the section."""
+        assert len(re.findall(r"^\s*(?:> )?(?:```|~~~)", text, re.M)) % 2 == 0, (
+            "CHANGELOG.md has an unclosed code fence; everything after it renders as code"
+        )
         prose = cls._QUOTED.sub("", text)
         matches = list(cls._HEADING.finditer(prose))
         sections = {}
@@ -417,8 +420,13 @@ class TestChangelogCoversTheDeclaredVersion:
             "bumping the version."
         )
         date_text, body = sections[version]
-        datetime.date.fromisoformat(date_text)  # raises on an impossible date
-        assert body.strip(), f"CHANGELOG.md's `## [{version}]` section is empty"
+        released = datetime.date.fromisoformat(date_text)  # raises on an impossible date
+        assert released <= datetime.date.today(), (
+            f"CHANGELOG.md dates `## [{version}]` in the future ({date_text})"
+        )
+        assert any(line.strip() and not line.lstrip().startswith("#") for line in body.splitlines()), (
+            f"CHANGELOG.md's `## [{version}]` section has headings but no notes"
+        )
 
 
 class TestLoggingScopeContract:

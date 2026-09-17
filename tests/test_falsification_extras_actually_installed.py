@@ -26,6 +26,8 @@ dark, or the proof that it has not is no longer a proof.
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "run_pytest.yml"
 PR_WORKFLOW = WORKFLOW
@@ -267,6 +269,7 @@ class TestCiProvesExtrasWereInstalled:
 
 
 PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish_package.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
 
 def _significant_lines(text):
@@ -280,19 +283,27 @@ class TestPublishGateIsReal:
     the GitHub release event straight to `poetry publish`. It now `needs:` a job that
     runs `run_pytest.yml` by reference — one recipe, nothing copied that could drift.
 
-    The guard is an allowlist, not a parser: the publish workflow must be, line for
-    line, the text below. Two review passes showed that any denylist over a hand-rolled
-    YAML reader loses to the next feature it does not model (`env:`, `shell:`, folded
-    scalars, `if: always()` on the publish step, a nameless `- run:` step, a re-indented
-    file). Holding the file to a known-good text catches all of those at once, and the
-    cost — updating this copy when the workflow is edited on purpose — is the point.
+    The guard is an allowlist, not a parser: each of the two workflow files that together
+    form the release gate must be, line for line, the text below. Two review passes and a
+    guard audit showed that any denylist over a hand-rolled YAML reader loses to the next
+    feature it does not model (`env:`, `shell:`, folded scalars, `if: always()` on the
+    publish step, `continue-on-error` on the pytest step or the job, a nameless `- run:`
+    step, a re-indented file, `workflow_call` moved under `jobs:`). Holding both files to
+    a known-good text catches all of those at once; the cost — updating the copy here when
+    a workflow is edited on purpose — is the point: that edit is the review moment for
+    anything that can let a red suite publish. Whitespace, blank lines and comments are
+    not significant.
 
-    This guard runs inside the suite it gates, so it protects the pull-request path. A
-    release cut from a branch no PR ever ran on cannot be caught by a test; that
-    residual is recorded in C-36 with its GitHub-native fix.
+    A third guard closes the other way round the gate: no workflow file other than the
+    gated one may publish at all.
+
+    These guards run inside the suite they gate, so they protect the pull-request path. A
+    release cut from a branch no PR ever ran on cannot be caught by a test; that residual
+    is recorded in C-36 with its GitHub-native fix.
     """
 
-    EXPECTED = """\
+    EXPECTED = {
+        "publish_package.yml": """\
 name: Publish Package
 on:
   release:
@@ -326,26 +337,69 @@ jobs:
         python -c "from packaging.version import parse; assert parse('$new_version') > parse('$latest_version'), 'Version must be higher than $latest_version'"
     - name: Publish to PyPI
       run: poetry publish --build --username __token__ --password ${{ secrets.PYPI_TOKEN }}
-"""
+""",
+        "run_pytest.yml": """\
+name: Run Pytest
+on:
+  push:
+    branches:
+      - main
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
+  workflow_dispatch:
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    - name: Install Poetry
+      run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+    - name: Install dependencies
+      run: |
+        poetry install --all-extras
+    - name: Verify optional extras are installed
+      run: poetry run python -c "import views_frames, pandas"
+    - name: Run tests
+      run: |
+        set -e
+        poetry run pytest tests/
+    - name: Validate documentation consistency
+      run: bash documentation/validate_docs.sh
+""",
+    }
 
-    def test_publish_workflow_is_the_known_good_text(self):
+    @pytest.mark.parametrize("name", sorted(EXPECTED))
+    def test_release_gate_workflow_is_the_known_good_text(self, name):
         import difflib
 
-        actual = _significant_lines(PUBLISH_WORKFLOW.read_text(encoding="utf-8"))
-        expected = _significant_lines(self.EXPECTED)
-        diff = "\n".join(difflib.unified_diff(expected, actual, "expected", "publish_package.yml", lineterm=""))
+        actual = _significant_lines((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
+        expected = _significant_lines(self.EXPECTED[name])
+        diff = "\n".join(difflib.unified_diff(expected, actual, "expected", name, lineterm=""))
         assert actual == expected, (
-            "publish_package.yml differs from the known-good release gate. If the change "
-            "is deliberate, update EXPECTED here in the same PR — that is the review "
-            "point for anything that can let a red suite publish:\n" + diff
+            f"{name} differs from the known-good release gate. If the change is deliberate, "
+            f"update EXPECTED[{name!r}] in TestPublishGateIsReal in the same PR — that is "
+            f"the review point for anything that can let a red suite publish:\n" + diff
         )
 
-    def test_pr_workflow_is_callable(self):
-        """`uses: ./.github/workflows/run_pytest.yml` only works if that workflow declares
-        `workflow_call`; without it the `test` job fails at parse time — loud, but this
-        says why."""
-        text = "\n".join(_significant_lines(PR_WORKFLOW.read_text(encoding="utf-8")))
-        assert re.search(r"^  workflow_call:\s*$", text, re.M), (
-            "run_pytest.yml must declare `workflow_call:` under `on:` so publish_package.yml "
-            "can run it by reference"
+    def test_no_other_workflow_publishes(self):
+        """A second workflow that uploads to PyPI without `needs:` would bypass the gate
+        while the known-good text of the gated one stays intact."""
+        publishers = sorted(
+            p.name for p in WORKFLOWS_DIR.glob("*.y*ml")
+            if re.search(r"poetry publish|pypi-publish|twine upload",
+                         "\n".join(_significant_lines(p.read_text(encoding="utf-8"))))
+        )
+        assert publishers == ["publish_package.yml"], (
+            f"workflows that publish: {publishers}; only publish_package.yml may, and it is "
+            f"gated on the suite by `needs: test`"
         )
