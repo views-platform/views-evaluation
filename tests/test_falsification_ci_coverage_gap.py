@@ -138,7 +138,7 @@ class TestCiRunsTheContractTests:
             None,
         )
         assert install_cmd, "no `poetry install` command found in run_pytest.yml"
-        installs_all = "--all-extras" in install_cmd
+        installs_all = "--all-extras" in install_cmd and "--only" not in install_cmd
         named = set(re.findall(r"--extras[= ]([\w]+)", install_cmd))
 
         missing = sorted(required - named) if not installs_all else []

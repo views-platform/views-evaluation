@@ -428,9 +428,11 @@ class TestChangelogCoversTheDeclaredVersion:
             f"CHANGELOG.md dates `## [{version}]` in the future ({date_text})"
         )
         assert any(
-            re.search(r"[A-Za-z]", line) and not line.lstrip().startswith("#")
+            re.search(r"[A-Za-z]", line)
+            and not line.lstrip().startswith("#")
+            and not re.match(r"^\[[^\]]+\]:\s*\S", line)  # a link-reference definition
             for line in body.splitlines()
-        ), f"CHANGELOG.md's `## [{version}]` section has no notes, only headings or rules"
+        ), f"CHANGELOG.md's `## [{version}]` section has no notes, only headings, rules or links"
 
 
 class TestLoggingScopeContract:

@@ -223,7 +223,11 @@ class TestCiProvesExtrasWereInstalled:
             r"^\s*if\s|;\s*then\b",  # wrapped in a conditional that swallows status
             r"&\s*$",                 # backgrounded
             r";\s*exit\s+0",          # status discarded
+            r";\s*(true|:)\s*$",       # status replaced
+            r"&\s*wait\s*$",          # backgrounded, then waited on — `wait` exits 0
         )
+        # This list is defence-in-depth: TestPublishGateIsReal holds every workflow file
+        # to a known-good text, which is what catches an evasion this list does not name.
 
         def _verified_by(step):
             run = step["run"]
@@ -465,6 +469,17 @@ jobs:
             ".github/actions/ exists; a composite action is a CI path this guard does not "
             "hold to text — reference it from a workflow held here, or remove it"
         )
+
+    def test_build_system_is_the_known_good_one(self):
+        """`poetry install` and `poetry publish --build` run the build backend, the latter
+        with the PyPI token in scope. A backend is arbitrary code; it is held to text."""
+        import tomllib
+
+        data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert data.get("build-system") == {
+            "requires": ["poetry-core"],
+            "build-backend": "poetry.core.masonry.api",
+        }, f"[build-system] changed: {data.get('build-system')!r}; that is code run at publish time"
 
     @pytest.mark.parametrize("name", sorted(EXPECTED))
     def test_workflow_is_the_known_good_text(self, name):
