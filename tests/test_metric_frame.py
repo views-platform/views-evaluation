@@ -287,6 +287,10 @@ class TestToMetricFrameBeige:
         repo_root = Path(__file__).resolve().parents[1]
         stamp = mf_mod.default_scoring_code_version()
         if module_root != repo_root:
+            assert hasattr(mf_mod, "_read_head_sha"), (
+                f"the imported module at {module_root} predates the C-39 fix — a stale "
+                f"installed copy is being tested instead of this checkout"
+            )
             assert stamp and "+g" not in stamp, (
                 f"the imported module is an installed copy at {module_root}, which must "
                 f"stamp a bare version (C-39), got {stamp!r}"
@@ -646,10 +650,98 @@ class TestSourceGitShaBoundaryRed:
 
         with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
             assert mf_mod._source_git_sha() is None
-        assert any(r.levelno == logging.WARNING for r in caplog.records)
+        assert any(
+            r.levelno == logging.WARNING and "no commit could be read" in r.message
+            for r in caplog.records
+        ), "a missing HEAD in our own .git is a fault and must be logged, not classified as a wheel"
+
+
+    def test_wheel_inside_own_checkout_venv_stamps_no_sha(self, tmp_path, monkeypatch):
+        """A wheel copy under THIS repository's own `.venv` is still a wheel. A parent
+        walk that keeps the name gate would climb to the checkout, find a pyproject
+        that declares us, and stamp the checkout's SHA onto an installed copy."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main", refs={"refs/heads/main": "cafebabe000000000000000000000000000000000"})
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        site = repo / ".venv" / "lib" / "python3.11" / "site-packages"
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(site)))
+
+        assert mf_mod._source_git_sha() is None
+
+    def test_git_without_pyproject_is_silent(self, tmp_path, monkeypatch, caplog):
+        """`.git` present but no `pyproject.toml` beside it is not our checkout: None,
+        and — being a contracted data property, not a fault — no log record."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main", refs={"refs/heads/main": "cafebabe000000000000000000000000000000000"})
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        with caplog.at_level(logging.DEBUG, logger="views_evaluation.evaluation.metric_frame"):
+            assert mf_mod._source_git_sha() is None
+        assert not caplog.records
 
 
 class TestSourceGitShaBoundaryGreen:
+
+    def test_loose_ref_wins_over_a_stale_packed_ref(self, tmp_path, monkeypatch):
+        """git semantics: after `git pack-refs` and a later commit, the loose file is
+        current and the packed line is stale. Loose must be consulted first."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main",
+                 refs={"refs/heads/main": "bbbbbbb0000000000000000000000000000000000"},
+                 packed="# pack-refs with: peeled fully-peeled sorted\n"
+                        "aaaaaaa0000000000000000000000000000000000 refs/heads/main\n")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "bbbbbbb"
+
+    def test_packed_ref_is_matched_by_name_not_position(self, tmp_path, monkeypatch):
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/zeta",
+                 packed="# pack-refs with: peeled fully-peeled sorted\n"
+                        "1111111000000000000000000000000000000000 refs/heads/main\n"
+                        "2222222000000000000000000000000000000000 refs/heads/zeta\n")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "2222222"
+
+    def test_mixed_case_name_is_this_distribution(self, tmp_path, monkeypatch):
+        """PEP 503 normalisation is case-insensitive, not only separator-insensitive."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "0123456abcdef0123456abcdef0123456abcdef01")
+        (repo / "pyproject.toml").write_text('[project]\nname = "Views-Evaluation"\n')
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "0123456"
+
+    def test_every_read_is_utf8(self):
+        """TOML is UTF-8 by spec and git writes refs as bytes; a locale-dependent
+        `read_text()` would lose the SHA under a C or East-Asian code page. Asserted on
+        the source, since the process locale cannot be switched safely mid-suite."""
+        import inspect
+        import re as _re
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        for fn in (mf_mod._normalised_project_name, mf_mod._read_head_sha):
+            src = inspect.getsource(fn)
+            calls = _re.findall(r"\.read_text\(([^)]*)\)", src)
+            assert calls, f"{fn.__name__} has no read_text call to check"
+            for args in calls:
+                assert 'encoding="utf-8"' in args, (
+                    f"{fn.__name__}: read_text({args}) is locale-dependent; pass encoding=\"utf-8\""
+                )
+
 
     def test_own_checkout_loose_ref_stamps_head(self, tmp_path, monkeypatch):
         from views_evaluation.evaluation import metric_frame as mf_mod
