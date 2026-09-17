@@ -1,7 +1,7 @@
 # Technical Risk Register — views-evaluation
 
 **Last updated:** 2026-09-17
-**Total open concerns:** 17
+**Total open concerns:** 16
 **Governing ADR:** ADR-023
 **Citation convention:** `Location` fields name files and symbols (functions, classes, sections), not line numbers — line numbers drift as soon as anything is inserted above them.
 
@@ -13,6 +13,11 @@
 > red on the old walker before the fix (own-checkout already passed). The PR's max code
 > review then found four gaps in the rewrite (linked-worktree `commondir`, locale-dependent
 > reads, unchecked ref contents, an unpinned name gate) — all fixed and tested before merge. 18 → 17.
+
+> **2026-09-17 — story S3 (#69) closed C-44** and added the `to_dataframe()` `DeprecationWarning`
+> (one per call; pandas import guarded, `ModuleNotFoundError` naming the extra); docs mark it
+> deprecated, removed in 2.0.0. ADR-022's clock starts when the deprecating release is
+> published (S6), not here. 17 → 16.
 
 > **2026-09-17 — story S2 (#68) closed C-36's mechanical half.** `publish_package.yml` now
 > `needs:` the pull-request suite by reference (`workflow_call`), a guard holds the publish
@@ -227,7 +232,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Location:** `views_evaluation/evaluation/metrics.py` (`BaseEvaluationMetrics.evaluation_dict_to_dataframe`, the `df.loc[:, df.notna().any()]` filter); `views_evaluation/evaluation/evaluation_report.py` (`to_dataframe`, the caller)
 - **Source:** repo-assimilation (2026-09-16), empirically verified
 - **Mitigation path:** Remove the column filter so the DataFrame carries the same metric set as the other two paths, with `nan` in place; or, if the filter is wanted, make it opt-in and document that the DataFrame is not the record. Add a test asserting the three export paths agree on the set of metric names for a report containing an all-`nan` metric — no test does today (`tests/test_evaluation_report.py` never constructs a `nan` value).
-- **Note:** Residue of causal cluster A alongside C-22: C-22 tracks that the sentinel *exists* and may be misread by consumers; this tracks that one of this library's own exports *erases* it. ADR-015's contract that `nan` means "not computable for this group" is only honoured on two of three paths. **Tracked as GitHub issue #63** (2026-09-16): dies with `to_dataframe()` in the 2.0.0 removal. Its Phase 2 was blocked by views-pipeline-core#512, which closed the same day via pipeline-core PR #513 (`9644724`): the caller is gone, verified on their `development` branch. #63 is unblocked; the ADR-022 deprecation cycle still applies.
+- **Note:** Residue of causal cluster A alongside C-22: C-22 tracks that the sentinel *exists* and may be misread by consumers; this tracks that one of this library's own exports *erases* it. ADR-015's contract that `nan` means "not computable for this group" is only honoured on two of three paths. **Tracked as GitHub issue #63** (2026-09-16): dies with `to_dataframe()` in the 2.0.0 removal. Its blocker, views-pipeline-core#512, closed the same day via their PR #513 (`9644724`): the caller is gone, verified on their `development` branch. The `DeprecationWarning` was added by S3 (#69); ADR-022's clock starts when the deprecating release is published (S6).
 
 ---
 
@@ -261,17 +266,6 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Source:** repo-assimilation (2026-09-16)
 - **Mitigation path:** Accept and document in `CICs/NativeEvaluator.md` that `pred_type` is a property of the frame, not the model; or let the config declare the expected prediction type per target and raise when the frame's width disagrees. The second is the ADR-012 answer; the first is cheaper and may be sufficient.
 - **Note:** Cross-ref C-20 (the other place a frame property is trusted without being declared).
-
----
-
-### C-44 — `to_dataframe()` without pandas raises a bare `ModuleNotFoundError`, unlike its guarded sibling
-- **Tier:** 4 (Low) — localized to one optional export path; the failure is loud, just uninformative. No correctness impact.
-- **Description:** `EvaluationReport.to_dataframe()` reaches pandas through a bare lazy `import pandas as pd`. When the `dataframe` extra is not installed the caller gets `ModuleNotFoundError: No module named 'pandas'` — no log line, no mention of the extra, no install command. The sibling export path in the same file, `to_metric_frame()`, was hardened during the ADR-015 epic: it gates on `importlib.util.find_spec("views_frames")`, logs at ERROR, and raises an `ImportError` naming `pip install views-evaluation[frames]`. Two Level-1 export methods, one file, two different failure contracts. **Verified 2026-09-16** by blocking pandas in `sys.modules` and calling `to_dataframe("month")` on a real report: the raised message contained neither "dataframe" nor "pip install". Note that in practice the extra is rarely absent, because `sklearn.metrics` drags pandas in whenever it is on the path (C-05) — which is the reason this went unnoticed, not a reason it is fine.
-- **Trigger:** When a consumer installs `views-evaluation` without the `dataframe` extra (a minimal install, or a wheel into an environment where pandas is genuinely absent) and calls `to_dataframe()` — check whether the error names the extra.
-- **Location:** `views_evaluation/evaluation/evaluation_report.py` (`to_dataframe`, the `import pandas as pd` line; contrast the `find_spec` guard in `to_metric_frame` a few lines below); `views_evaluation/evaluation/metrics.py` (`evaluation_dict_to_dataframe`, second lazy import on the same path)
-- **Source:** falsification-audit (2026-09-16), probe P4 of the claim "pandas does not exist in this repo"
-- **Mitigation path:** Mirror `to_metric_frame`'s guard: `find_spec("pandas")`, log at ERROR, raise `ImportError` naming `pip install views-evaluation[dataframe]`. Add the case to `tests/test_documentation_contracts.py::TestDocumentedErrorMessagesExist` once the CIC documents the message. A RED stub exists in the untracked `tests/test_falsification_pandas_does_not_exist_in_this_repo.py` (`test_falsify_04_to_dataframe_without_pandas_names_the_extra`).
-- **Note:** Same shape as closed C-32 (a sibling that skipped the guard every other sibling got). Cross-refs: C-05 (why the missing guard is never exercised), C-40 (the other defect on this export path — together they say `to_dataframe` never received the ADR-015 pass its sibling did). **Tracked as GitHub issue #63** (2026-09-16): the guard lands in that issue's Phase 1; the method itself goes in Phase 2, unblocked since pipeline-core PR #513 removed the last production caller the same day.
 
 ---
 
@@ -310,6 +304,7 @@ Moved out of the register (no correctness/reliability dimension) — tracked in 
 
 | ID | Tier | Description | Resolution | Issue |
 |----|------|-------------|------------|-------|
+| C-44 | 4 | `to_dataframe()` without pandas raises a bare `ModuleNotFoundError`, unlike its guarded sibling | `find_spec("pandas")` gate raising `ModuleNotFoundError(name="pandas")` that names `pip install views-evaluation[dataframe]` — same type as the bare import, so no caller's `except` changes; no log, since Level 0 does not log (standard §5.1). Test `tests/test_adversarial_inputs.py::TestOptionalExtraAbsentRed` (outside the pandas-gated module so it runs where the case applies; observed red on the bare import first). The entry's second cited site, `metrics.py`'s `evaluation_dict_to_dataframe`, is deprecated with the method and deleted in S7 rather than guarded. Same change deprecates the method (S3, #69). | #69 |
 | C-39 | 2 | `scoring_code_version` stamps the consumer's git SHA when the wheel is installed inside the consumer's checkout | `_source_git_sha` bounded to the directory containing `views_evaluation/` (`parents[2]`, flat layout), accepted only when a `pyproject.toml` there declares this distribution (parsed with `tomllib`, PEP 503-normalised); reads UTF-8; follows a `.git` file's `gitdir:` relative to the file and a linked worktree's `commondir`; rejects non-hash ref contents; logs at WARNING when `.git` is ours but unreadable. Tests `TestSourceGitShaBoundary{Red,Green,Beige}` in `tests/test_metric_frame.py` (consumer venv, vendored copy, unreadable state, loose/packed refs, hyphenated name, linked worktree, submodule); the consumer-venv and relative-`gitdir:` cases were observed failing on the old walker first. CHANGELOG, CIC MetricFrame.md and CIC EvaluationReport.md corrected. Epic #66, story #67; the `/code-review max` of that PR found the `commondir`, locale, hex-check and name-gate gaps and they were fixed before merge. | #67 |
 
 ### Closed by the Fail-Loud Doctrine epic (#26), 2026-08-02

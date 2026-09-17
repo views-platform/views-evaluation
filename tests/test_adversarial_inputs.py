@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
+from views_evaluation.evaluation.evaluation_report import EvaluationReport
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 
 
@@ -124,3 +125,41 @@ class TestAdversarialNativeInputs:
                 identifiers=self._simple_ids(2),
                 metadata={'target': 'cls_target'},
             )
+
+
+class TestOptionalExtraAbsentRed:
+    """Register C-44. A missing optional extra must name itself; this module has no
+    pandas import-skip, so the case runs wherever the suite runs."""
+
+    def test_to_dataframe_without_pandas_names_the_extra(self, monkeypatch, caplog):
+        """Contract, not mechanism: pandas genuinely unimportable (a `None` entry in
+        sys.modules makes both `import pandas` and `find_spec("pandas")` report absence
+        on CPython) → the deprecation warning is still emitted first, the raise names
+        `views-evaluation[dataframe]`, keeps the type the bare import raised
+        (`ModuleNotFoundError`, `.name == "pandas"`), the extra it names is one
+        pyproject.toml declares, and nothing is logged (Level 0 does not log). Seen red
+        on the bare import first: that raised `ModuleNotFoundError: import of pandas
+        halted` with no extra named."""
+        import logging
+        import re
+        import sys
+        import tomllib
+        import warnings
+        from pathlib import Path
+
+        monkeypatch.setitem(sys.modules, "pandas", None)
+        report = EvaluationReport('t', 'regression', 'point', {
+            'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
+        with caplog.at_level(logging.DEBUG):
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                with pytest.raises(ModuleNotFoundError, match=r"views-evaluation\[dataframe\]") as exc:
+                    report.to_dataframe('month')
+        assert [x.category for x in w] == [DeprecationWarning], "warn first, then raise"
+        assert exc.value.name == "pandas"
+        assert not caplog.records, "Level 0 does not log (logging standard §5.1)"
+        # The extra named in the message must exist, or the advice is unfollowable.
+        extra = re.search(r"views-evaluation\[(\w+)\]", str(exc.value)).group(1)
+        pyproject = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+        declared = pyproject.get("project", {}).get("optional-dependencies") or pyproject["tool"]["poetry"]["extras"]
+        assert extra in declared, f"message names extra {extra!r}; declared: {sorted(declared)}"

@@ -95,8 +95,8 @@ evaluator = NativeEvaluator(config)          # raises now if config is structura
 report = evaluator.evaluate(ef)              # legacy_compatibility defaults to False
 
 # Access results
-month_df = report.to_dataframe('month')        # pd.DataFrame indexed by group keys
 step_dict = report.to_dict()['schemas']['step']  # raw nested dict
+# to_dataframe('month') still works but is deprecated (removed in 2.0.0)
 schema = report.get_schema_results('time_series')  # dict → typed metrics dataclass
 ```
 
