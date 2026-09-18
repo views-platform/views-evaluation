@@ -14,6 +14,32 @@
 > review then found four gaps in the rewrite (linked-worktree `commondir`, locale-dependent
 > reads, unchecked ref contents, an unpinned name gate) — all fixed and tested before merge. 18 → 17.
 
+> **2026-09-18 — release 2.0.0 (S8, #72).** The MAJOR that ends the pandas-free epic: `to_dataframe()`
+> and the `dataframe` extra gone one release cycle after 1.1.0's `DeprecationWarning` (ADR-022 §2).
+> §3.2 notifications posted before the tag and cited by comment ID in the checklist (views-pipeline-core
+> #515, views-reporting #289), the second release to do so. Consumer state at the cut, measured:
+> views-pipeline-core's released 3.2.0 still calls the removed method and pins `^1.0.0`, so 2.0.0
+> reaches them only when S10 raises the pin; views-reporting's `main` span admits it (their released
+> v0.3.3 still pins `<2.0.0`) and calls nothing removed. The release review found fifteen more guard
+> defects, all fixed on the release branch and each re-verified red: the S7 import guard keyed its
+> allowlist by file stem (so `profiles/__init__.py` inherited the root package's allowance) and read
+> a string literal under ANY call (a `nan` package on sys.path would have turned `float("nan")` into a
+> red build); both guards are now one walker with one path-keyed allowlist set to the measured census,
+> reading literals only under import machinery and its aliases, with `exec`/`eval` forbidden everywhere
+> and the runtime probe also exercising `save`/`load`. The doc guard now scans the CHANGELOG section of
+> the release being cut (it froze it as history), uses word-anchored removal framings, and lost the
+> five block-wide 2.0-era markers that had widened the older guards' exemption. `to_dict()`'s live-dict
+> identity, `get_schema_results()` on all three schemas, the report's public surface as an allowlist,
+> FM1's silence and the CI probe's `timestamp` type (an ISO string had been passed into the contract's
+> `int` field) are now pinned. The independent guard audit then ran 64 mutations and found five weak
+> guards; all closed and re-verified red: the runtime probe now evaluates EVERY implemented kernel in
+> all four cells (a spec-loaded or `getattr`-imported pandas in an uncalled kernel was invisible), the
+> Level-0 crossing check sees `from views_evaluation.evaluation import metric_frame`, the public-surface
+> guard probes the removed names behaviourally and bans `__getattr__` (a shim with a split token beat
+> the `dir()` listing), the logging guard checks for Logger objects rather than a text pattern, the
+> dependency guard handles both pyproject layouts, and the doc guard scans fenced code in the section
+> being cut with real line numbers. Residuals stated in the docstrings. Count unchanged.
+
 > **2026-09-18 — story S7 (#63) closed C-40 and Cluster A's second residue.** `to_dataframe()`, its
 > DataFrame helper and the three dead factories are gone; the `dataframe` extra is deleted and
 > pandas is a dev-only dependency (the purity guard needs it present). C-15's closed-row rationale
@@ -362,7 +388,7 @@ Moved out of the register (no correctness/reliability dimension) — tracked in 
 | C-05 | 3 | sklearn/scipy in pure-math core | `AP` and `MTD` reimplemented in numpy as transcriptions of scikit-learn 1.7.2 (S4, #70: kernels alongside + parity suite, seen red on 26 injected defects; S5, #64: the switch). scikit-learn moved to the dev group as the parity oracle. `TestLevelZeroImportPurity` asserts a fresh `import views_evaluation` loads neither scikit-learn nor pandas and fails (not skips) if either is uninstalled; a CI step proves the runtime-only install. scipy stays (ADR-011 permits it). The empty-group AP case was ruled on the way (D-01, ADR-015 R9). | #70, #64 |
 | C-44 | 4 | `to_dataframe()` without pandas raises a bare `ModuleNotFoundError`, unlike its guarded sibling | `find_spec("pandas")` gate raising `ModuleNotFoundError(name="pandas")` that names `pip install views-evaluation[dataframe]` — same type as the bare import, so no caller's `except` changes; no log, since Level 0 does not log (standard §5.1). Test `tests/test_adversarial_inputs.py::TestOptionalExtraAbsentRed` (outside the pandas-gated module so it runs where the case applies; observed red on the bare import first). The entry's second cited site, `metrics.py`'s `evaluation_dict_to_dataframe`, is deprecated with the method and deleted in S7 rather than guarded. Same change deprecates the method (S3, #69). | #69 |
 | C-39 | 2 | `scoring_code_version` stamps the consumer's git SHA when the wheel is installed inside the consumer's checkout | `_source_git_sha` bounded to the directory containing `views_evaluation/` (`parents[2]`, flat layout), accepted only when a `pyproject.toml` there declares this distribution (parsed with `tomllib`, PEP 503-normalised); reads UTF-8; follows a `.git` file's `gitdir:` relative to the file and a linked worktree's `commondir`; rejects non-hash ref contents; logs at WARNING when `.git` is ours but unreadable. Tests `TestSourceGitShaBoundary{Red,Green,Beige}` in `tests/test_metric_frame.py` (consumer venv, vendored copy, unreadable state, loose/packed refs, hyphenated name, linked worktree, submodule); the consumer-venv and relative-`gitdir:` cases were observed failing on the old walker first. CHANGELOG, CIC MetricFrame.md and CIC EvaluationReport.md corrected. Epic #66, story #67; the `/code-review max` of that PR found the `commondir`, locale, hex-check and name-gate gaps and they were fixed before merge. | #67 |
-| C-40 | 3 | `to_dataframe()` silently erases any metric that is `nan` in every group | `to_dataframe()`, `BaseEvaluationMetrics.evaluation_dict_to_dataframe()` (the `df.loc[:, df.notna().any()]` filter) and the three unused `make_*_evaluation_dict` factories deleted; pandas moved from the `dataframe` extra (deleted) to the dev group so the import-purity guard keeps something to prove; `test_removed_dataframe_surface_stays_removed` fails on a same-name reintroduction (class or `__getattr__` shim); the package-wide forbidden-import guard fails on a pandas import under any name. Ships in 2.0.0 after 1.1.0's `DeprecationWarning`; closed 2026-09-18. The remaining two export paths, `to_dict()` and `to_metric_frame()`, agree on the metric set by construction. | #63 |
+| C-40 | 3 | `to_dataframe()` silently erases any metric that is `nan` in every group | `to_dataframe()`, `BaseEvaluationMetrics.evaluation_dict_to_dataframe()` (the `df.loc[:, df.notna().any()]` filter) and the three unused `make_*_evaluation_dict` factories deleted; pandas moved from the `dataframe` extra (deleted) to the dev group so the import-purity guard keeps something to prove; `test_removed_dataframe_surface_stays_removed` fails on a same-name reintroduction (class or `__getattr__` shim); the package-wide import guard (one allowlist per file, over import statements and string literals handed to import machinery under any alias) fails on a pandas import however it is spelled short of string concatenation. Ships in 2.0.0 after 1.1.0's `DeprecationWarning`; closed 2026-09-18. The remaining two export paths, `to_dict()` and `to_metric_frame()`, agree on the metric set by construction. | #63 |
 
 ### Closed by the Fail-Loud Doctrine epic (#26), 2026-08-02
 

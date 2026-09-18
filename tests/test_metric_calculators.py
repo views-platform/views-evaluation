@@ -1814,183 +1814,244 @@ class TestLevelZeroImportPurity:
     pandas in `sys.modules` — the "zero knowledge of external data frameworks" claim was
     true of the source and false of the interpreter (C-05).
 
-    Three guards, because an audit showed two half-guards leave a seam. The static one
-    walks every import statement — top-level or lazy — in each Level-0 module, requires
-    its root to be allowed, forbids importing the Level-1 module (`metric_frame`) from
-    the pure modules, and forbids dynamic-import machinery (`__import__`,
-    `importlib.import_module`, `exec`) outright, since a call-time import spelled as a
-    call is invisible to an AST walk over import statements. The dynamic one imports the
-    package in a fresh interpreter AND exercises a kernel of each kind and one full
-    evaluation, then asserts that neither pandas nor scikit-learn was loaded; it is
+    Three kinds of guard, because an audit showed two half-guards leave a seam. The
+    static one walks every file in the package and every import in it — statement or
+    string literal handed to import machinery, top-level or lazy — and requires each
+    root to be on that file's allowlist; Level 0 files may name only numpy and scipy
+    and may not import the Level-1 module; `exec`/`eval` and non-literal machinery
+    calls are forbidden everywhere. The dynamic one imports the package in a fresh
+    interpreter AND exercises a kernel of each kind, one full evaluation, one emit and
+    one save/load, then asserts that neither pandas nor scikit-learn was loaded; it is
     meaningful only if both are installed and not loaded, so it fails, not skips, when
-    they are missing. The third pins the declaration: scikit-learn is in the dev group
-    only.
+    they are missing. The third pins the declarations: the runtime dependency set and
+    the extras, exactly, under either pyproject layout.
     """
 
-    _PURE_LEVEL_0 = ["evaluation_frame", "native_evaluator", "metric_catalog", "native_metric_calculators",
-                     "metrics", "config_schema"]
-    # Package-wide allowlist, by module stem: what each file may import from outside the
-    # standard library and this package, statically OR dynamically. Level 0 gets numpy and
-    # scipy (ADR-011); the two Level-1 bridge modules add views_frames. Every other file
-    # (`__init__`, `profiles/*`, `adapters/*`, `config_schema`, `metrics`) gets nothing.
-    # An allowlist, not a denylist: `import xarray` in metric_frame.py is as wrong as
-    # `import pandas`, and a denylist can only name the frameworks it has met.
-    _PACKAGE_WIDE_ALLOWED = {
-        "evaluation_frame": {"numpy", "scipy"}, "native_evaluator": {"numpy", "scipy"},
-        "metric_catalog": {"numpy", "scipy"}, "native_metric_calculators": {"numpy", "scipy"},
-        "evaluation_report": {"numpy", "views_frames"}, "metric_frame": {"numpy", "views_frames"},
-        "__init__": {"views_frames"},  # the find_spec gate that exposes MetricFrame
+    # ONE declaration, keyed by path relative to the package: what each file may import
+    # from outside the standard library and this package, statically or through import
+    # machinery. Set to the measured census (2026-09-18) — no dead allowances, so a
+    # module that stops importing scipy must drop it here too. Level 0 modules may name
+    # only numpy and scipy (ADR-011; pinned by `test_the_allowlist_is_adr_011s`); the
+    # two Level-1 bridge modules add views_frames (the root `__init__` only PROBES for it
+    # with `find_spec`, which imports nothing). Every other file gets nothing. An allowlist, not a
+    # denylist: `import xarray` in metric_frame.py is as wrong as `import pandas`, and a
+    # denylist can only name the frameworks it has met. Keyed by path, not stem: a stem
+    # key `__init__` gave `profiles/__init__.py` the root package's allowance (release
+    # review, 2026-09-18).
+    _ALLOWED_BY_PATH = {
+        "evaluation/evaluation_frame.py": {"numpy"},
+        "evaluation/native_evaluator.py": {"numpy"},
+        "evaluation/native_metric_calculators.py": {"numpy", "scipy"},
+        "evaluation/evaluation_report.py": {"numpy", "views_frames"},
+        "evaluation/metric_frame.py": {"numpy", "views_frames"},
     }
-    # ADR-011 §Layering: "No external imports except numpy and scipy". The package's own
-    # modules are allowed by name below, not by root, so intra-package topology is checked.
+    # ADR-011 §Layering: "No external imports except numpy and scipy" for Level 0.
     _ALLOWED_EXTERNAL = {"numpy", "scipy"}
+    _LEVEL_0 = ["evaluation/evaluation_frame.py", "evaluation/native_evaluator.py",
+                "evaluation/metric_catalog.py", "evaluation/native_metric_calculators.py",
+                "evaluation/metrics.py", "evaluation/config_schema.py"]
     _LEVEL_1_MODULES = {"metric_frame"}
-    # evaluation_report.py is Level 0 by the logging standard but carries one lazy
-    # Level-1 bridge by design (`to_metric_frame` → views_frames and metric_frame). Held
-    # to the same rule plus that. (`to_dataframe` → pandas was the second bridge until
-    # 2.0.0 removed it; pandas is no longer allowed anywhere in the package.)
-    _BRIDGE_EXTERNAL = {"views_frames"}
+    # The import machinery, by the names it is bound to. A string literal handed to one
+    # of these (positionally or as `name=`) is an import. Only these callees are read —
+    # matching a literal under ANY call made `float("nan")` an import of a `nan` package
+    # whenever one was installed or a `nan/` directory sat on sys.path (release review,
+    # 2026-09-18). Aliases (`from importlib import import_module as _load`) are resolved
+    # per file. `exec`/`eval` are forbidden everywhere: an import spelled inside a string
+    # is invisible to any AST walk.
+    _IMPORT_MACHINERY = {"__import__", "import_module"}
+    _FORBIDDEN_CALLS = {"exec", "eval"}
 
     @staticmethod
-    def _imports_of(module_name):
-        """(external roots, internal module names, dynamic-import call names) for a module."""
-        import ast
-        import importlib
-        import inspect
+    def _package_root():
+        from pathlib import Path
+        import views_evaluation
+        return Path(views_evaluation.__file__).parent
 
-        module = importlib.import_module(f"views_evaluation.evaluation.{module_name}")
-        tree = ast.parse(inspect.getsource(module))
+    @classmethod
+    def _imports_of(cls, rel_path):
+        """(external roots, internal module names, dynamic-import call names) for the
+        package file at `rel_path`."""
+        return cls._imports_in((cls._package_root() / rel_path).read_text(encoding="utf-8"))
+
+    @classmethod
+    def _imports_in(cls, source):
+        """The same, from source text: import statements at any depth, plus string
+        literals passed to import machinery (by any local alias), plus the names of
+        forbidden calls."""
+        import ast
+        tree = ast.parse(source)
+        machinery = set(cls._IMPORT_MACHINERY)
+        for node in ast.walk(tree):  # local aliases of the machinery
+            if isinstance(node, ast.ImportFrom) and node.module == "importlib":
+                machinery |= {a.asname or a.name for a in node.names if a.name in cls._IMPORT_MACHINERY}
         external, internal, dynamic = set(), set(), set()
+
+        def root_of(dotted):
+            head = dotted.split(".")[0]
+            (internal if head == "views_evaluation" else external).add(
+                dotted.split(".")[-1] if head == "views_evaluation" else head)
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    root = alias.name.split(".")[0]
-                    (internal if root == "views_evaluation" else external).add(alias.name.split(".")[-1] if root == "views_evaluation" else root)
+                    root_of(alias.name)
             elif isinstance(node, ast.ImportFrom):
                 if node.level > 0 or (node.module or "").split(".")[0] == "views_evaluation":
                     internal.add((node.module or "").split(".")[-1] or "<relative>")
-                    internal |= {alias.name for alias in node.names} if node.level > 0 else set()
+                    # The imported NAMES too, for absolute imports as well as relative:
+                    # `from views_evaluation.evaluation import metric_frame` recorded
+                    # only `evaluation` and the Level-1 crossing check never saw
+                    # `metric_frame` (guard audit, 2026-09-18).
+                    internal |= {alias.name for alias in node.names}
                 elif node.module:
                     external.add(node.module.split(".")[0])
             elif isinstance(node, ast.Call):
                 fn = node.func
                 name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else None)
-                if name in {"__import__", "import_module", "exec", "eval"}:
+                if name in cls._FORBIDDEN_CALLS:
                     dynamic.add(name)
+                elif name in machinery:
+                    literal = next((a for a in node.args[:1]), None) or next(
+                        (kw.value for kw in node.keywords if kw.arg == "name"), None)
+                    if isinstance(literal, ast.Constant) and isinstance(literal.value, str):
+                        root_of(literal.value)
+                        dynamic.add(name)
+                    else:
+                        dynamic.add(f"{name}(<non-literal>)")
         return external, internal, dynamic
 
-    @pytest.mark.parametrize("module_name", _PURE_LEVEL_0 + ["evaluation_report"])
-    def test_every_import_in_a_level_zero_module_is_allowed(self, module_name):
+    @pytest.mark.parametrize("rel_path", sorted(str(p) for p in []) or [
+        "__init__.py", "adapters/__init__.py", "evaluation/__init__.py",
+        "evaluation/config_schema.py", "evaluation/evaluation_frame.py",
+        "evaluation/evaluation_report.py", "evaluation/metric_catalog.py",
+        "evaluation/metric_frame.py", "evaluation/metrics.py", "evaluation/native_evaluator.py",
+        "evaluation/native_metric_calculators.py", "profiles/__init__.py", "profiles/base.py",
+        "profiles/hydranet_ucdp.py",
+    ])
+    def test_every_import_in_the_package_is_on_its_files_allowlist(self, rel_path):
+        """Every file, static and machinery imports alike. Seen red (2026-09-18) on:
+        `import pandas` in metrics.py and profiles/base.py; `from importlib import
+        import_module as _load; _load("pandas")`; `importlib.import_module("pandas")`
+        and `import xarray` in metric_frame.py; `__import__("pandas")` in
+        profiles/base.py; `import_module(name="pandas")`; a hard `import views_frames`
+        in profiles/__init__.py; and `exec("import pandas")` anywhere. A statically
+        allowed root spelled through machinery is still red: the package imports by
+        statement only."""
         import sys
         stdlib = sys.stdlib_module_names
-        external, internal, dynamic = self._imports_of(module_name)
-        allowed = self._ALLOWED_EXTERNAL | (self._BRIDGE_EXTERNAL if module_name == "evaluation_report" else set())
+        external, internal, dynamic = self._imports_of(rel_path)
+        allowed = self._ALLOWED_BY_PATH.get(rel_path, set())
         offending = sorted(r for r in external if r not in stdlib and r not in allowed)
         assert not offending, (
-            f"{module_name} imports {offending}; Level 0 may import only the standard "
-            f"library, numpy and scipy (ADR-011; C-05)"
+            f"{rel_path} imports {offending}, which its allowlist does not name "
+            f"(ADR-011; C-05, C-40). Level 0 may import only the standard library, numpy and scipy."
         )
-        if module_name != "evaluation_report":
+        if rel_path in self._LEVEL_0:
+            assert allowed <= self._ALLOWED_EXTERNAL, f"{rel_path} is Level 0 (ADR-011: numpy and scipy only)"
             crossing = sorted(internal & self._LEVEL_1_MODULES)
             assert not crossing, (
-                f"{module_name} imports Level-1 {crossing}; Level 0 must not depend on the "
+                f"{rel_path} imports Level-1 {crossing}; Level 0 must not depend on the "
                 f"emit layer (ADR-011 layering) — that would also make the core unimportable "
                 f"without the `frames` extra"
             )
+        forbidden = sorted(d for d in dynamic if d in self._FORBIDDEN_CALLS or d.endswith("(<non-literal>)"))
+        assert not forbidden, (
+            f"{rel_path} uses {forbidden}; an import spelled as a string or built at run time "
+            f"is invisible to this guard and forbidden anywhere in the package"
+        )
         assert not dynamic, (
-            f"{module_name} uses {sorted(dynamic)}; dynamic imports are invisible to this "
-            f"guard and forbidden in Level 0"
+            f"{rel_path} uses import machinery {sorted(dynamic)}; the package imports by statement "
+            f"only (`find_spec` is a probe, not machinery, and is allowed)"
         )
 
-    def test_the_static_guard_is_not_vacuous(self):
-        """It must see numpy (an `import`) AND scipy (an `import from`) in the kernels,
-        or one of its two branches is scanning nothing."""
-        external, internal, _ = self._imports_of("native_metric_calculators")
-        assert {"numpy", "scipy"} <= external
-        external, internal, _ = self._imports_of("native_evaluator")
+    def test_the_parametrisation_lists_every_package_file(self):
+        """Vacuity: a new module must appear above or it is guarded by nothing."""
+        actual = sorted(p.relative_to(self._package_root()).as_posix() for p in self._package_root().rglob("*.py"))
+        listed = sorted(self.test_every_import_in_the_package_is_on_its_files_allowlist.pytestmark[0].args[1])
+        assert actual == listed, f"package files {actual} vs parametrised {listed}"
+
+    def test_the_allowlist_matches_the_census_exactly(self):
+        """Positive control and dead-allowance check in one: the set of files that import
+        anything external, as the walker sees them, must equal the allowlist's keys, and
+        each file's measured roots must equal its allowance — so the walker is proven to
+        see numpy (an `import`) and scipy and views_frames (`import from`), and an
+        allowance nothing uses cannot linger."""
+        import sys
+        stdlib = sys.stdlib_module_names
+        measured = {}
+        for path in self._package_root().rglob("*.py"):
+            rel = path.relative_to(self._package_root()).as_posix()
+            external, _, _ = self._imports_of(rel)
+            ext = {r for r in external if r not in stdlib}
+            if ext:
+                measured[rel] = ext
+        assert measured == self._ALLOWED_BY_PATH, (measured, self._ALLOWED_BY_PATH)
+        assert measured["evaluation/native_metric_calculators.py"] == {"numpy", "scipy"}
+        _, internal, _ = self._imports_of("evaluation/native_evaluator.py")
         assert "evaluation_frame" in internal, "the internal-import branch sees nothing"
 
-    def test_no_module_in_the_package_imports_outside_its_allowlist(self):
-        """Package-wide rglob, AST-parsed, static AND dynamic: `import pandas` in
-        `metrics.py` (the file 2.0.0 purged of it) passed the per-module guard because
-        that guard listed five of the package's modules; then the first version of THIS
-        guard, a three-name denylist over `Import` nodes only, let through
-        `from importlib import import_module as _load; _load("pandas")` in any file,
-        `importlib.import_module("pandas")` in `metric_frame.py`, `__import__("pandas")`
-        in `profiles/base.py`, and `import xarray` in `metric_frame.py` (guard audit,
-        2026-09-18). So: every non-stdlib, non-package root imported anywhere must be on
-        the module's allowlist, and every string literal that names such a root as the
-        argument of any call — whatever the callee is called — counts as an import."""
-        import ast
-        import sys
-        from pathlib import Path
-        import views_evaluation
-        pkg = Path(views_evaluation.__file__).parent
-        stdlib = sys.stdlib_module_names
-        hits = {}
-        for path in sorted(pkg.rglob("*.py")):
-            allowed = self._PACKAGE_WIDE_ALLOWED.get(path.stem, set())
-            roots = set()
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if isinstance(node, ast.Import):
-                    roots |= {a.name.split(".")[0] for a in node.names}
-                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                    roots.add(node.module.split(".")[0])
-                elif isinstance(node, ast.Call):
-                    # Any call whose first argument is a dotted-name string literal that
-                    # resolves to a real, importable, non-stdlib distribution.
-                    for arg in node.args[:1]:
-                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                            root = arg.value.split(".")[0]
-                            if root.isidentifier() and root not in stdlib and root != "views_evaluation":
-                                import importlib.util
-                                if importlib.util.find_spec(root) is not None:
-                                    roots.add(root)
-            offending = sorted(r for r in roots if r not in stdlib and r != "views_evaluation" and r not in allowed)
-            if offending:
-                hits[str(path.relative_to(pkg))] = offending
-        assert not hits, f"imports outside the module allowlist: {hits}"
-
-    def test_the_package_wide_allowlist_covers_every_module_that_imports_anything(self):
-        """Vacuity check: the allowlist must name the modules that DO import numpy, or a
-        renamed module would silently get the empty allowance and fail — good — while a
-        module renamed INTO the dict would inherit an allowance it should not have."""
-        import views_evaluation
-        from pathlib import Path
-        stems = {p.stem for p in Path(views_evaluation.__file__).parent.rglob("*.py")}
-        assert set(self._PACKAGE_WIDE_ALLOWED) <= stems, set(self._PACKAGE_WIDE_ALLOWED) - stems
+    def test_the_machinery_branch_sees_every_spelling_it_claims_to(self):
+        """Positive control for the branch no package file exercises today: an aliased
+        `import_module`, a keyword `name=`, a dotted `importlib.import_module`, a bare
+        `__import__`, a non-literal argument, and `exec`."""
+        external, _, dynamic = self._imports_in(
+            "import importlib\n"
+            "from importlib import import_module as _load\n"
+            "def f(n):\n"
+            "    _load('pandas'); __import__(name='polars'); importlib.import_module('sklearn.metrics')\n"
+            "    import_module(n); exec('import modin')\n"
+        )
+        assert external - {"importlib"} == {"pandas", "polars", "sklearn"}, external
+        assert {"exec", "import_module(<non-literal>)"} <= dynamic, dynamic
 
     def test_the_allowlist_is_adr_011s(self):
-        """The declaration is the guard; an edit here must be a visible two-place change."""
+        """The declaration is the guard; an edit here must be a visible change."""
         assert self._ALLOWED_EXTERNAL == {"numpy", "scipy"}, "ADR-011: numpy and scipy only"
 
     def test_runtime_dependencies_are_exactly_the_declared_set(self):
-        """The declaration is the guard: the runtime set is python, numpy, scipy and the
-        optional views-frames — nothing else, by name. scikit-learn (C-05) and pandas
-        (C-40) live in the dev group, where the parity suite and the purity guard need
-        them present. Re-adding either to runtime, as a hard dependency or as an extra,
-        is a red build here rather than a post-push CI probe."""
+        """The declaration is the guard: the hard runtime set is numpy and scipy, the
+        declared set adds the optional views-frames — nothing else, by name, under either
+        pyproject layout (a hard views-frames in a PEP 621 `[project] dependencies` list
+        survived a check that only looked at the poetry table; guard audit, 2026-09-18). scikit-learn
+        (C-05) and pandas (C-40) live in the dev group, where the parity suite and the
+        purity guard need them present. Re-adding either to runtime, as a hard dependency
+        or inside an extra, is a red build here rather than a post-push CI probe."""
+        import re
         import tomllib
         from pathlib import Path
-        data = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
-        runtime = data["tool"]["poetry"]["dependencies"]
-        dev = data["tool"]["poetry"]["group"]["dev"]["dependencies"]
-        assert set(runtime) == {"python", "numpy", "scipy", "views-frames"}, sorted(runtime)
-        # Contents, not just names, and both TOML layouts: `frames = ["views-frames",
-        # "pandas"]` and a `[project.optional-dependencies]` table both passed a
-        # names-only check under one layout (guard audit, 2026-09-18).
-        assert data["tool"]["poetry"].get("extras") == {"frames": ["views-frames"]}
-        assert "optional-dependencies" not in data.get("project", {}), (
-            "extras are declared under [tool.poetry.extras] in this repo; a PEP 621 table "
-            "would be read first by poetry >= 2 and bypass this guard"
-        )
+        from tests.test_falsification_extras_actually_installed import _extras_table
+        text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+        data = tomllib.loads(text)
+        poetry = data["tool"]["poetry"]
+
+        def dist_name(spec):  # "views-frames[frames]>=1.10,<2 ; python>='3.11'" -> "views-frames"
+            return re.split(r"[\s\[<>=!~;@]", spec.strip(), 1)[0].lower()
+
+        # Hard runtime dependencies, under either layout. Poetry-table entries are hard
+        # unless `optional = true`; a PEP 621 `[project] dependencies` entry is always
+        # hard (an optional one belongs under optional-dependencies). views-frames must
+        # be optional wherever it is declared.
+        poetry_deps = {k: v for k, v in poetry.get("dependencies", {}).items() if k != "python"}
+        hard = {k for k, v in poetry_deps.items() if not (isinstance(v, dict) and v.get("optional") is True)}
+        hard |= {dist_name(d) for d in data.get("project", {}).get("dependencies", [])}
+        assert hard == {"numpy", "scipy"}, f"hard runtime dependencies must be numpy and scipy only; got {sorted(hard)}"
+        declared = set(poetry_deps) | {dist_name(d) for d in data.get("project", {}).get("dependencies", [])}
+        assert declared == {"numpy", "scipy", "views-frames"}, sorted(declared)
+        # Extras: names AND members, version specifiers stripped, from whichever table
+        # is authoritative (the shared parser reads PEP 621 first, as poetry does).
+        extras = {m.group(1): sorted(dist_name(d) for d in re.findall(r"""["']([^"']+)["']""", m.group(2)))
+                  for m in re.finditer(r'^(\w[\w-]*)\s*=\s*\[([^\]]*)\]', _extras_table(text), re.M)}
+        assert extras == {"frames": ["views-frames"]}, extras
+        dev = poetry["group"]["dev"]["dependencies"]
         for dist, why in (("scikit-learn", "the dev-only parity oracle (C-05)"),
                           ("pandas", "what the purity guard proves is not loaded (C-40)")):
             assert dist in dev, f"{dist} must stay in the dev group as {why}"
 
     def test_importing_and_exercising_the_package_loads_neither_pandas_nor_sklearn(self):
         """Import-time AND call-time: a kernel that imported pandas only when called would
-        pass an import-only probe."""
+        pass an import-only probe, and so would a `MetricFrame.save()` that did — so
+        every implemented kernel in the catalog, one emit per cell, and one save/load
+        are exercised, and the script asserts nothing in the catalog was skipped."""
         import importlib.util
         import os
         import subprocess
@@ -2009,12 +2070,28 @@ class TestLevelZeroImportPurity:
 import sys, numpy as np
 import views_evaluation, views_evaluation.evaluation.metric_frame
 from views_evaluation import EvaluationFrame, NativeEvaluator
-from views_evaluation.evaluation.native_metric_calculators import calculate_ap_native, calculate_mtd_native
-calculate_ap_native(np.array([1., 0., 1.]), np.array([[.9], [.1], [.8]]))
-calculate_mtd_native(np.array([1., 2., 3.]), np.array([[1.5], [2.5], [2.5]]), power=1.5)
-ids = {'time': np.array([1, 1]), 'unit': np.array([1, 2]), 'origin': np.array([0, 0]), 'step': np.array([1, 1])}
-ef = EvaluationFrame(np.array([0., 1.]), np.array([[.1], [.9]]), ids, metadata={'target': 't'})
-NativeEvaluator({'steps': [1], 'regression_targets': ['t'], 'regression_point_metrics': ['MSE', 'MTD']}).evaluate(ef).to_metric_frame()
+from views_evaluation.evaluation.metric_catalog import METRIC_CATALOG, METRIC_MEMBERSHIP
+# EVERY implemented kernel, through the evaluator, in all four cells: a lazy import the
+# static walker cannot see (a getattr'd import_module, a module loaded by spec) is
+# caught only on a path this probe walks, so it walks them all (guard audit, 2026-09-18).
+rs = np.random.RandomState(0)
+n, S = 8, 5
+ids = {'time': np.repeat([1, 2], 4), 'unit': np.tile([1, 2, 3, 4], 2), 'origin': np.zeros(n, int), 'step': np.repeat([1, 2], 4)}
+ran = set()
+for (task, ptype), names in METRIC_MEMBERSHIP.items():
+    names = sorted(m for m in names if METRIC_CATALOG[m].implemented)
+    y = rs.randint(0, 2, n).astype(float) if task == 'classification' else rs.gamma(2.0, 1.0, n) + 0.1
+    cols = S if ptype == 'sample' else 1
+    pred = rs.uniform(0.05, 0.95, (n, cols)) if task == 'classification' else rs.gamma(2.0, 1.0, (n, cols)) + 0.1
+    cfg = {'steps': [1, 2], f'{task}_targets': ['t'], f'{task}_{ptype}_metrics': names}
+    mf = NativeEvaluator(cfg).evaluate(EvaluationFrame(y, pred, ids, metadata={'target': 't'})).to_metric_frame()
+    ran |= set(names)
+missing = sorted({m for m, spec in METRIC_CATALOG.items() if spec.implemented} - ran)
+assert not missing, f'kernels the sweep never ran: {missing}'
+import tempfile, pathlib
+from views_evaluation.evaluation.metric_frame import MetricFrame
+with tempfile.TemporaryDirectory() as d:
+    mf.save(pathlib.Path(d) / 'mf'); MetricFrame.load(pathlib.Path(d) / 'mf')
 print(sorted(m for m in ('pandas', 'sklearn') if m in sys.modules))
 """
         out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, cwd=repo, env=env)

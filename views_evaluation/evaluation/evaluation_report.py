@@ -229,7 +229,14 @@ class EvaluationReport:
         return MetricFrame(values=values_arr, identifiers=identifiers, metadata=metadata)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts the entire report into a nested dictionary."""
+        """The report as a nested dictionary.
+
+        ``schemas`` is the report's LIVE internal structure — the same object every call
+        returns, the object ``to_metric_frame()`` reads, and (as constructed) the caller's
+        own ``results`` argument — not a copy. Mutating it changes what is subsequently
+        emitted. That has been the behaviour since 1.0.0 and is pinned by a test; a copy
+        would be a behaviour change and is not made here. Treat the result as read-only.
+        """
         return {
             "target": self.target,
             "task": self.task,

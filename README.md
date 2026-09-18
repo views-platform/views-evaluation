@@ -89,7 +89,7 @@ The evaluation ontology has been updated to be more explicit and task-specific. 
 
 The **VIEWS Evaluation** repository provides a standardized framework for **assessing time-series forecasting models** used in the **VIEWS conflict prediction pipeline**. It ensures consistent, robust, and interpretable evaluations through **metrics tailored to conflict-related data**, which often exhibit **right-skewness and zero-inflation**.
 
-The library is built as a pure NumPy + SciPy core (ADR-011's Level 0) plus a thin emit layer — `EvaluationReport` and `MetricFrame`, the "emit path" of the logging standard §5.1 — with orchestration left to the caller (ADR-011's Level 2, external). All mathematical evaluation logic is independent of Pandas or any other data-frame library — nothing in the package imports one.  
+The library is built as a pure NumPy + SciPy core (ADR-011's Level 0, which includes `EvaluationReport`) plus a thin emit layer — `MetricFrame` and `EvaluationReport.to_metric_frame()`, the emit path of the logging standard §5.1 — with orchestration left to the caller (ADR-011's Level 2, external). All mathematical evaluation logic is independent of Pandas or any other data-frame library — nothing in the package imports one.  
 
 ---
 
