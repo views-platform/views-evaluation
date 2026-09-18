@@ -2,14 +2,14 @@
 
 **Status:** Active  
 **Owner:** Evaluation Core  
-**Last reviewed:** 2026-08-02  
+**Last reviewed:** 2026-09-18 (2.0.0: DataFrame surface removed)  
 **Related ADRs:** ADR-010 (Ontology), ADR-041 (Output Schema), views-frames ADR-020 (MetricFrame contract home)
 
 ---
 
 ## 1. Purpose
 
-A structured, framework-agnostic container for evaluation results. It decouples the mathematical outcomes from their final presentation format (DataFrames, JSON, etc.).
+A structured, framework-agnostic container for evaluation results. It decouples the mathematical outcomes from their final presentation format (nested dictionaries for JSON, typed dataclasses, and the `MetricFrame` evaluation-of-record; no DataFrame since 2.0.0).
 
 ---
 
@@ -26,7 +26,7 @@ A structured, framework-agnostic container for evaluation results. It decouples 
 - **Multi-Schema Storage**: Guarantees storage of results across Month, Sequence, and Step schemas.
 - **Traceability**: Maintains metadata about the target, task type, and prediction type.
 - **Representation Agnosticism**: Provides a standard internal representation that can be converted to external formats (dictionary or `MetricFrame`).
-- **Field Validation**: Guarantees that computed metric names match dataclass fields. Raises `ValueError` with an actionable message if a metric is computed but has no corresponding field in the typed container (FM1 guard).
+- **Field Validation** (`get_schema_results()` only): guarantees that computed metric names match dataclass fields on the typed path. Raises `ValueError` with an actionable message if a metric is computed but has no corresponding field in the typed container (FM1 guard). `to_dict()` and `to_metric_frame()` carry every metric the results hold unvalidated; for catalog metrics the membership check in `NativeEvaluator` and `test_metric_membership_matches_dataclass_fields` close the gap.
 
 ---
 
@@ -53,7 +53,7 @@ A structured, framework-agnostic container for evaluation results. It decouples 
 ## 6. Failure Modes and Loudness
 
 - Raises `KeyError` if a requested schema is not found in the report.
-- Raises `ValueError` if a computed metric name has no corresponding field in the typed metrics dataclass (FM1 guard against silent metric loss).
+- `get_schema_results()` raises `ValueError` if a computed metric name has no corresponding field in the typed metrics dataclass (FM1 guard against silent metric loss); nothing is logged.
 - Fails loud if the input result structure is inconsistent.
 - `to_metric_frame()` raises `ImportError` (loud, actionable) if the optional `views-frames` dependency is not installed.
 - `to_metric_frame()` raises `ValueError` if the report contains **no metric values for any schema** (ADR-015 ruling 6, risk register C-30). Such an emit previously produced a structurally valid **zero-row** MetricFrame that satisfied `assert_frame_envelope` and persisted to disk as a legitimate-looking audit artifact recording nothing. The message names the target and which schemas were present-but-empty. A **partial** report — at least one metric value in any schema — still emits normally.
@@ -91,7 +91,7 @@ schema = report.get_schema_results("month")     # dict → typed metrics datacla
 
 - **Green:** `tests/test_evaluation_report.py` — construction, schema access, to_dict. `tests/test_metric_frame.py` — `to_metric_frame()` for all 4 cells, envelope conformance, save/load round-trip, provenance split.
 - **Beige:** `tests/test_evaluation_report.py` — empty schemas, single-entry schemas. `tests/test_metric_frame.py` — empty/fully-empty schema, NaN values, run_id None at emit.
-- **Red:** `tests/test_evaluation_report.py` — missing schema keys, field mismatch (FM1 guard), the removed DataFrame surface staying removed. `tests/test_metric_frame.py` — fail-loud MetricFrame construction.
+- **Red:** `tests/test_evaluation_report.py` — missing schema keys, field mismatch (FM1 guard, asserted silent), the public surface pinned as an allowlist (nothing removed in 2.0.0 comes back under any name). `tests/test_adversarial_inputs.py::TestOptionalExtraAbsentRed` — `to_metric_frame()` with views-frames absent raises `ImportError` naming the `frames` extra and logs it on the emit-path logger. `tests/test_metric_frame.py` — fail-loud MetricFrame construction.
 
 ---
 
