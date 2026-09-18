@@ -424,7 +424,10 @@ class TestChangelogCoversTheDeclaredVersion:
         )
         date_text, body = sections[version]
         released = datetime.date.fromisoformat(date_text)  # raises on an impossible date
-        assert released <= datetime.date.today(), (
+        # UTC plus one day: a release dated in the maintainer's local "today" must not be
+        # "the future" to a CI runner (UTC) or to a machine anywhere west of it.
+        latest = datetime.datetime.now(datetime.timezone.utc).date() + datetime.timedelta(days=1)
+        assert released <= latest, (
             f"CHANGELOG.md dates `## [{version}]` in the future ({date_text})"
         )
         assert any(

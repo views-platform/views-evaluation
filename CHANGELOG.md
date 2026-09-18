@@ -17,6 +17,17 @@ provided they were announced here.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [1.1.0] — 2026-09-18
+
+The first release cut through the gated publish path (S2, #68): `publish_package.yml` now
+`needs:` the pull-request suite, so this release could not have been uploaded on a red build.
+It is also the release that starts ADR-022 §2's deprecation clock for `to_dataframe()`.
+Epic #66 (pandas-free), stories S1–S5; tracking #73.
+
 ### Deprecated
 
 - **`EvaluationReport.to_dataframe()`** — every call now emits a `DeprecationWarning`
@@ -42,9 +53,15 @@ provided they were announced here.
   of this package did too (register **C-05**, closed). Any consumer that imports
   scikit-learn itself must declare it — it no longer arrives through this package. Two documented
   deviations from scikit-learn: `MTD` always computes in float64 (scikit-learn computes
-  float32 input in float32; up to ~2e-3 relative apart near p = 1 and p = 2, the numpy
-  answer being the more accurate), and rejections carry this library's messages, with
-  the offending value and index appended to scikit-learn's domain sentences.
+  float32 input in float32; measured 2026-09-18 over 200 seeds, the two agree to ~1e-7
+  relative on ordinary data but diverge by 4–13% relative when predictions sit within
+  0.1% of the truth and the deviance is itself near zero — the numpy answer being the
+  more accurate), and rejections carry this library's messages, with the offending
+  value and index appended to scikit-learn's domain sentences. Kernel-level input
+  validation (1-D, non-empty, real, finite, binary truth, admissible power) exists for
+  `AP` and `MTD` only, because these two kernels now own what scikit-learn used to check
+  for them; the other kernels validate at the `EvaluationFrame` boundary as before
+  (ADR-014).
 - **`AP` on a group with no positive truth is now `nan`, not `0.0`** (ADR-015 ruling 9,
   register D-01, decided 2026-09-18). scikit-learn's `0.0`-plus-`UserWarning` convention
   marked a model that correctly predicted "nothing here" as the worst possible and pulled
@@ -62,16 +79,22 @@ provided they were announced here.
     this release.
   - `to_dataframe()` (deprecated) drops a column that is `nan` in every group (register
     C-40), which now applies to `AP` too.
-  An evaluation whose truth is entirely zero now emits an all-`nan` frame with a WARNING
-  logged at the emit site (ADR-015 R6, amended), where before it emitted zeros plus one
-  scikit-learn warning per group.
+  An evaluation whose truth is entirely zero, scored on `AP` as its only metric, now
+  emits an all-`nan` frame with a WARNING logged at the emit site (ADR-015 R6, amended),
+  where before it emitted zeros plus one scikit-learn warning per group. With any other
+  metric alongside, the `AP` cells are `nan` and nothing warns.
 - **Inputs that fail from this release** (ADR-022 §3.1), all previously accepted by the
   scikit-learn kernels through `NativeEvaluator`: an `AP` truth column that is a single
   label outside `{-1, 0, 1}` (a uniform `2` computed `0.0`; under the ruling above it
-  would have been a silent `nan`, so it raises); string, timedelta and other non-real
-  array dtypes for `AP`/`MTD` (scikit-learn cast strings to numbers); and `power=True` for
-  `MTD` (scikit-learn accepted a bool as a Real and computed Poisson). A `Fraction` power
-  is newly accepted. Every rejection is a `ValueError` naming the offending value.
+  would have been a silent `nan`, so it raises); for `MTD`, string array dtypes
+  (scikit-learn cast numeric strings to numbers) and `power=True` (scikit-learn accepted
+  a bool as a Real and computed Poisson); and for both, timedelta and other non-real
+  array dtypes. A `Fraction` power is newly accepted. Every rejection is a `ValueError`
+  naming the offending value.
+
+- **Dev dependency:** `pytest` `^8.3.3` → `^9.0.3`, clearing a Dependabot advisory
+  (`pytest < 9.0.3`, tmpdir handling). Dev-only — not shipped to users. Verified: the full
+  suite passes on pytest 9.1.1.
 
 ### Fixed
 
@@ -109,11 +132,54 @@ provided they were announced here.
   satisfied by precisely the wrong answer. It now asserts the stamp identifies `HEAD`, and
   a second test pins the wheel case so no SHA is never invented.
 
-### Changed
+### Release checklist (ADR-022 §7)
 
-- **Dev dependency:** `pytest` `^8.3.3` → `^9.0.3`, clearing a Dependabot advisory
-  (`pytest < 9.0.3`, tmpdir handling). Dev-only — not shipped to users. Verified: the full
-  suite passes on pytest 9.1.1.
+- [x] **Does this release do anything rule 2 governs — remove an `__all__` symbol, remove
+  a supported config key, narrow an accepted input, or change a raised exception type?
+  If so, did a `DeprecationWarning` ship at least one release ago?**
+  It removes nothing. It *ships* the `DeprecationWarning` that the 2.0.0 removal of
+  `to_dataframe()` will cite — this is the release the clock starts from, so the "one
+  release ago" question is 2.0.0's to answer, against this section. It narrows accepted
+  input in the ways the *Changed* entry enumerates (a single truth label outside
+  `{-1, 0, 1}`, non-real array dtypes, `power=True`, numeric strings for `MTD`): each
+  was accepted only by scikit-learn's own leniency behind the kernels, none was
+  documented behaviour of this library, and each now fails loud with a `ValueError`
+  naming the value. Under the §3 clarification dated 2026-09-18 (written for this
+  release) that is not a narrowing of *accepted* input in rule 2's sense, so no
+  `DeprecationWarning` was owed on it. Raised exception types are unchanged for every
+  documented path; the no-pandas path of `to_dataframe()` raises the same
+  `ModuleNotFoundError` it did, now with a message.
+- [x] **Does this release make previously-accepted input fail? If so, are the release
+  notes explicit, and have known consumers been notified?** Input that *computed* before
+  now fails: the inputs listed under *Changed*, explicitly, with what each now raises,
+  and the `AP` value change is listed by consumer path. Known consumers
+  (views-pipeline-core's WandB averaging, views-reporting's classification cell,
+  `views-models/ensembles/rusty_bucket`) were notified **before the tag**, on
+  2026-09-18: views-platform/views-pipeline-core#512 (comment 5731744664) and
+  views-platform/views-reporting#289 (comment 5731745042) — the comments are the
+  committed artifact, on the standard the 0.5.0 checklist set. That is the §3.2 order; 0.5.0 and 1.0.0 both left
+  this box unticked with the notification scheduled after the tag (register C-36).
+- [x] **Does the version bump match the change class (rule 5)?** `1.0.0` → `1.1.0`,
+  MINOR. Two things could be read as breaking and are argued not to be, each against
+  §1's definition of the public surface as `__all__` symbols plus their *documented*
+  behaviour. First, the value-level change in the evaluation-of-record — `AP` on a group
+  with no positive truth, `0.0` → `nan` — is argued MINOR-eligible in ADR-015 R9: the
+  `0.0` was documented nowhere (it was scikit-learn's convention, inherited unexamined);
+  no signature, exception type or on-disk format changes; the maintainer accepted it on
+  2026-09-18 (register D-01). Second, the inputs that now fail were accepted only by
+  the third-party kernel, never by this library's contract — the §3 clarification above.
+  A consumer who reads either as breaking has the argument in R9 and in §3 to weigh.
+  The deprecation is additive; the dependency change (scikit-learn to dev-only) removes
+  nothing any consumer imported through this package.
+- [x] **Do the release notes list every breaking change with its migration?** There is
+  no breaking change under §5, on the two arguments above. Every behaviour change is
+  listed with its consequence and, for `to_dataframe()`, its migration; for an input
+  that now fails, the migration is the `ValueError` text, which names the value.
+- [x] **Does `MetricFrame`'s format or axis vocabulary change? If so, has it been agreed
+  with views-reporting and views-pipeline-core?** No. Axes, `MEAN_GROUP_ID`,
+  `SCHEMA_TO_EVAL_TYPE`, dtype and the `save`/`load` layout are unchanged. What can now
+  *appear* in a cell — a `nan` for `AP` — is a value the envelope already permits
+  (ADR-015 R3) and views-reporting already handles for `Pearson` and `MCR`.
 
 ---
 

@@ -57,6 +57,18 @@ Such changes are governed instead by:
 2. Downstream consumers known to be affected must be **notified before** the release is cut, not after.
 3. The release notes must state the migration: what the caller changes to keep working.
 
+**Clarification (2026-09-18, for 1.1.0).** "Previously-accepted input" is read against
+§1: input this library *documented* as accepted, or that a documented path returned a
+value for. Input that computed only because a third-party kernel behind the documented
+path happened to be lenient — a `power=True` that scikit-learn treated as `1`, a numeric
+string it cast, a uniform truth label of `2` it scored `0.0` — was never accepted by this
+library's contract, and rejecting it once the kernel is ours is not a breaking change
+under §5. It is still a change in what fails, so items 1 and 2 above apply in full: the
+release notes list each such input and what it now raises, and known consumers are
+notified before the cut. Only the version class is decided by §1; the communication is
+decided here. The 1.1.0 checklist is the first to cite this paragraph; if a consumer
+turns out to have relied on such an input, that is the trigger to revisit it.
+
 ### 4. `DeprecationWarning` versus fail-loud — the boundary
 
 These two rules can appear to conflict. They do not, and the distinction is this:
