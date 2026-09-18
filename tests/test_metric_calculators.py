@@ -715,7 +715,8 @@ class TestMTDParityWithSklearn:
         np.array([1.5 + 1j, 2.5, 2.5, 3.5]),
         np.array(["1.5", "2.5", "2.5", "3.5"]),
         np.array([1, 2, 2, 3], dtype="m8[D]"),
-    ], ids=["complex", "string", "timedelta"])
+        np.array([1.5, 2.5, None, 3.5], dtype=object),
+    ], ids=["complex", "string", "timedelta", "object"])
     def test_non_real_dtype_raises(self, arr):
         """timedelta64 subclasses np.signedinteger; it scored days as numbers before the
         dtype check moved to `kind in "iuf"`."""
@@ -1759,57 +1760,109 @@ class TestMeanPredictionShapeGuardRed:
 
 class TestLevelZeroImportPurity:
     """ADR-011 is an allowlist: Level 0 imports numpy, scipy and the standard library,
-    nothing else. Until 2026-09-18 the kernels imported `sklearn.metrics`, which imports
-    pandas eagerly, so every module of this package put pandas in `sys.modules` — the
-    "zero knowledge of external data frameworks" claim was true of the source and false
-    of the interpreter (C-05).
+    nothing else, and never the Level-1 module. Until 2026-09-18 the kernels imported
+    `sklearn.metrics`, which imports pandas eagerly, so every module of this package put
+    pandas in `sys.modules` — the "zero knowledge of external data frameworks" claim was
+    true of the source and false of the interpreter (C-05).
 
-    Two guards. The static one walks every import statement — top-level or lazy inside a
-    function — in each Level-0 module and requires its root to be allowed; a lazy
-    `import pandas` inside a kernel is exactly what a denylist on module-level imports
-    missed. The dynamic one imports the package in a fresh interpreter and asserts that
-    neither pandas nor scikit-learn was loaded; it is meaningful only if both are
-    INSTALLED and not loaded, so it fails, not skips, when they are missing.
+    Three guards, because an audit showed two half-guards leave a seam. The static one
+    walks every import statement — top-level or lazy — in each Level-0 module, requires
+    its root to be allowed, forbids importing the Level-1 module (`metric_frame`) from
+    the pure modules, and forbids dynamic-import machinery (`__import__`,
+    `importlib.import_module`, `exec`) outright, since a call-time import spelled as a
+    call is invisible to an AST walk over import statements. The dynamic one imports the
+    package in a fresh interpreter AND exercises a kernel of each kind and one full
+    evaluation, then asserts that neither pandas nor scikit-learn was loaded; it is
+    meaningful only if both are installed and not loaded, so it fails, not skips, when
+    they are missing. The third pins the declaration: scikit-learn is in the dev group
+    only.
     """
 
     _PURE_LEVEL_0 = ["evaluation_frame", "native_evaluator", "metric_catalog", "native_metric_calculators"]
-    _ALLOWED_ROOTS = {"numpy", "scipy", "views_evaluation"}
+    # ADR-011 §Layering: "No external imports except numpy and scipy". The package's own
+    # modules are allowed by name below, not by root, so intra-package topology is checked.
+    _ALLOWED_EXTERNAL = {"numpy", "scipy"}
+    _LEVEL_1_MODULES = {"metric_frame"}
     # evaluation_report.py is Level 0 by the logging standard but carries two lazy
     # Level-1 bridges by design (`to_dataframe` → pandas, deprecated and gone in 2.0.0;
-    # `to_metric_frame` → views_frames). It is held to the same rule plus those two.
-    _BRIDGE_ALLOWED = {"pandas", "views_frames"}
+    # `to_metric_frame` → views_frames and metric_frame). Held to the same rule plus those.
+    _BRIDGE_EXTERNAL = {"pandas", "views_frames"}
 
     @staticmethod
-    def _import_roots(module_name):
+    def _imports_of(module_name):
+        """(external roots, internal module names, dynamic-import call names) for a module."""
         import ast
         import importlib
         import inspect
 
         module = importlib.import_module(f"views_evaluation.evaluation.{module_name}")
-        roots = set()
-        for node in ast.walk(ast.parse(inspect.getsource(module))):
+        tree = ast.parse(inspect.getsource(module))
+        external, internal, dynamic = set(), set(), set()
+        for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                roots |= {alias.name.split(".")[0] for alias in node.names}
-            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-                roots.add(node.module.split(".")[0])
-        return roots
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    (internal if root == "views_evaluation" else external).add(alias.name.split(".")[-1] if root == "views_evaluation" else root)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level > 0 or (node.module or "").split(".")[0] == "views_evaluation":
+                    internal.add((node.module or "").split(".")[-1] or "<relative>")
+                    internal |= {alias.name for alias in node.names} if node.level > 0 else set()
+                elif node.module:
+                    external.add(node.module.split(".")[0])
+            elif isinstance(node, ast.Call):
+                fn = node.func
+                name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else None)
+                if name in {"__import__", "import_module", "exec", "eval"}:
+                    dynamic.add(name)
+        return external, internal, dynamic
 
     @pytest.mark.parametrize("module_name", _PURE_LEVEL_0 + ["evaluation_report"])
     def test_every_import_in_a_level_zero_module_is_allowed(self, module_name):
         import sys
         stdlib = sys.stdlib_module_names
-        allowed = self._ALLOWED_ROOTS | (self._BRIDGE_ALLOWED if module_name == "evaluation_report" else set())
-        offending = sorted(r for r in self._import_roots(module_name) if r not in stdlib and r not in allowed)
+        external, internal, dynamic = self._imports_of(module_name)
+        allowed = self._ALLOWED_EXTERNAL | (self._BRIDGE_EXTERNAL if module_name == "evaluation_report" else set())
+        offending = sorted(r for r in external if r not in stdlib and r not in allowed)
         assert not offending, (
             f"{module_name} imports {offending}; Level 0 may import only the standard "
             f"library, numpy and scipy (ADR-011; C-05)"
         )
+        if module_name != "evaluation_report":
+            crossing = sorted(internal & self._LEVEL_1_MODULES)
+            assert not crossing, (
+                f"{module_name} imports Level-1 {crossing}; Level 0 must not depend on the "
+                f"emit layer (ADR-011 layering) — that would also make the core unimportable "
+                f"without the `frames` extra"
+            )
+        assert not dynamic, (
+            f"{module_name} uses {sorted(dynamic)}; dynamic imports are invisible to this "
+            f"guard and forbidden in Level 0"
+        )
 
     def test_the_static_guard_is_not_vacuous(self):
-        """It must see at least numpy in the kernels, or it is scanning nothing."""
-        assert "numpy" in self._import_roots("native_metric_calculators")
+        """It must see numpy (an `import`) AND scipy (an `import from`) in the kernels,
+        or one of its two branches is scanning nothing."""
+        external, internal, _ = self._imports_of("native_metric_calculators")
+        assert {"numpy", "scipy"} <= external
+        external, internal, _ = self._imports_of("native_evaluator")
+        assert "evaluation_frame" in internal, "the internal-import branch sees nothing"
 
-    def test_importing_the_package_loads_neither_pandas_nor_sklearn(self):
+    def test_the_allowlist_is_adr_011s(self):
+        """The declaration is the guard; an edit here must be a visible two-place change."""
+        assert self._ALLOWED_EXTERNAL == {"numpy", "scipy"}, "ADR-011: numpy and scipy only"
+
+    def test_scikit_learn_is_declared_dev_only(self):
+        import tomllib
+        from pathlib import Path
+        data = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+        runtime = data["tool"]["poetry"]["dependencies"]
+        dev = data["tool"]["poetry"]["group"]["dev"]["dependencies"]
+        assert "scikit-learn" not in runtime, "scikit-learn is back in the runtime dependencies (C-05)"
+        assert "scikit-learn" in dev, "scikit-learn must stay as the dev-only parity oracle"
+
+    def test_importing_and_exercising_the_package_loads_neither_pandas_nor_sklearn(self):
+        """Import-time AND call-time: a kernel that imported pandas only when called would
+        pass an import-only probe."""
         import importlib.util
         import os
         import subprocess
@@ -1824,13 +1877,20 @@ class TestLevelZeroImportPurity:
             )
         repo = Path(__file__).resolve().parents[1]
         env = {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in (str(repo), os.environ.get("PYTHONPATH", "")) if p)}
-        out = subprocess.run(
-            [sys.executable, "-c",
-             "import sys, views_evaluation, views_evaluation.evaluation.metric_frame; "
-             "print(sorted(m for m in ('pandas', 'sklearn') if m in sys.modules))"],
-            capture_output=True, text=True, cwd=repo, env=env,
-        )
+        script = """
+import sys, numpy as np
+import views_evaluation, views_evaluation.evaluation.metric_frame
+from views_evaluation import EvaluationFrame, NativeEvaluator
+from views_evaluation.evaluation.native_metric_calculators import calculate_ap_native, calculate_mtd_native
+calculate_ap_native(np.array([1., 0., 1.]), np.array([[.9], [.1], [.8]]))
+calculate_mtd_native(np.array([1., 2., 3.]), np.array([[1.5], [2.5], [2.5]]), power=1.5)
+ids = {'time': np.array([1, 1]), 'unit': np.array([1, 2]), 'origin': np.array([0, 0]), 'step': np.array([1, 1])}
+ef = EvaluationFrame(np.array([0., 1.]), np.array([[.1], [.9]]), ids, metadata={'target': 't'})
+NativeEvaluator({'steps': [1], 'regression_targets': ['t'], 'regression_point_metrics': ['MSE', 'MTD']}).evaluate(ef).to_metric_frame()
+print(sorted(m for m in ('pandas', 'sklearn') if m in sys.modules))
+"""
+        out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, cwd=repo, env=env)
         assert out.returncode == 0, out.stderr
         assert out.stdout.strip() == "[]", (
-            f"import views_evaluation loaded {out.stdout.strip()} (ADR-011; C-05)"
+            f"importing and exercising views_evaluation loaded {out.stdout.strip()} (ADR-011; C-05)"
         )
