@@ -29,7 +29,11 @@
 > Gaussian — both closed and re-verified red (C-37). First release whose §3.2
 > notification was posted **before** the tag and cited by comment ID in the checklist (C-36
 > trigger (a) exercised as written); ADR-022 §3 gained a dated clarification on what
-> "previously-accepted input" means (D-02). Count unchanged.
+> "previously-accepted input" means (D-02). Published 15:30 UTC: publish run 35362812153 ran
+> the suite (982 passed, 1 skipped) before the upload — the gate worked on its first release.
+> The skip is `test_falsification_session_shutdown.py`'s sibling-checkout guard, which CI has
+> never been able to run (no views-pipeline-core checkout beside this repo); pre-existing, a C-37
+> shape, noted here rather than registered. Count unchanged.
 
 > **2026-09-18 — story S5 (#64) closed C-05 and Cluster C.** `AP` and `MTD` dispatch to the numpy
 > kernels; scikit-learn is a dev-only oracle; a guard asserts `import views_evaluation` loads
@@ -293,7 +297,7 @@ Maintainer decisions taken on a register concern, recorded here so the reasoning
 - **Concern:** C-05 — the switch from the scikit-learn AP kernel to the numpy one (epic #66, story #64) is where scikit-learn's inherited `0.0`-plus-`UserWarning` convention would otherwise have become a first-party non-raising return with no ADR-015 ruling; found by `/code-review max` of story #70.
 - **Options weighed:** (A) `nan`, warning suppressed — chosen; (B) raise — rejected on the R2 evidence (aborts every metric and schema for a routine data condition; tried on Pearson and reversed the same day); (C) keep `0.0`, warning suppressed — rejected because it codifies a wrong number into the evaluation-of-record and silently pulls the `mean` row toward zero by an amount set by the data, not the model (the C-02 shape).
 - **Consequence (ADR-022 §3):** a behaviour change for any evaluation whose data contains an empty classification group — `nan` for the group, `mean` row over the rest, where before it was `0.0` and a lower mean. Affected at the time of decision: `views-models/ensembles/rusty_bucket` (the one live config requesting `AP`) and views-reporting's canonical classification cell. Both to be named in the release notes of the release that carries the switch (S6, 1.1.0).
-- **Ships with:** #64. Closes when 1.1.0 is published with the change in its notes.
+- **Ships with:** #64. **Shipped:** 1.1.0 published to PyPI 2026-09-18 with the change in its notes; this decision's consequence is live.
 - **Residual, now live (found by the code review of #64, 2026-09-18):** C-22's — and the direct `to_dict()` reader it warned about exists: views-pipeline-core averages group values for its WandB scalars with a mean that skips `None` but not `nan` (`views_pipeline_core/modules/wandb/utils.py`, observed on their `development` branch). One empty group makes their `AP_mean` scalar `nan`. The fix is theirs (`nanmean`), named in the release notes, and C-22's trigger is widened to cover it. Also: `to_dataframe()` drops an all-`nan` column (C-40), which now applies to `AP`; the method is deprecated and goes in 2.0.0.
 - **Versioning:** filed MINOR on the ADR-022 §1 argument that the `0.0` was never documented behaviour of this library; recorded in ADR-015 R9 so the S6 checklist can answer rule 5 against it.
 
