@@ -439,13 +439,37 @@ class TestAPParityWithSklearn:
         np.array([0., 2., 0., 2.]),      # two labels, neither is 1
         np.array([0.5, 1., 0.5, 1.]),    # two labels, one non-integral: sklearn "continuous"
         np.array([0.2, 0.7, 0.4, 0.9]),  # continuous
-    ], ids=["three-labels", "no-positive-label", "non-integral", "continuous"])
+        # integral floats outside int64: sklearn's `y == y.astype(int)` test fails the
+        # cast and reads them as continuous. An integrality test by `np.floor` alone
+        # would accept them — a newly accepted input nobody listed.
+        np.array([1., 2.**63, 1., 2.**63]),
+        np.array([1., -(2.**63) * (1 + 2**-52), 1., 1.]),
+    ], ids=["three-labels", "no-positive-label", "non-integral", "continuous",
+            "float-at-2^63", "float-below--2^63"])
     def test_non_binary_truth_raises_on_both_paths(self, y_true):
         yt, ys = _as_kernel_input(y_true, np.array([[.1], [.4], [.35], [.8]]))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # sklearn's "invalid value in cast"
             average_precision_score(yt, ys)
         with pytest.raises(ValueError, match="binary y_true"):
             _average_precision_numpy(yt, ys)
+
+    @pytest.mark.parametrize("other", [2**63 - 1, -(2**63)], ids=["int64-max", "int64-min"])
+    def test_large_integer_labels_stay_accepted_as_in_sklearn(self, other):
+        """The int64 bound applies to FLOAT labels only: an int64 array at either end of
+        the range round-trips through `int` and scikit-learn computes it (with 1 the
+        positive). So must this kernel, and to the same value."""
+        yt = np.array([1, other, 1, other], dtype=np.int64)
+        ys = np.array([.1, .4, .35, .8])
+        assert _average_precision_numpy(yt, ys) == average_precision_score(yt, ys)
+
+    def test_float_label_at_minus_2_pow_63_is_the_edge_sklearn_accepts(self):
+        """-2**63 is exactly representable as int64, so the cast round-trips and
+        scikit-learn accepts it; one ulp further out it does not. The bound is
+        `< -2**63`, not `<=`."""
+        yt = np.array([1., -(2.**63), 1., 1.])
+        ys = np.array([.1, .4, .35, .8])
+        assert _average_precision_numpy(yt, ys) == average_precision_score(yt, ys)
 
     @pytest.mark.parametrize("label", [2., 5., -3.])
     def test_uniform_mislabelled_truth_raises(self, label):
@@ -666,6 +690,31 @@ class TestMTDParityWithSklearn:
     def test_python_lists_are_accepted(self):
         yt, ys = [1., 2., 3.], [1.5, 2.5, 2.5]
         assert _tweedie_deviance_numpy(yt, ys, 1.5) == pytest.approx(mean_tweedie_deviance(yt, ys, power=1.5), rel=1e-10)
+
+    @pytest.mark.parametrize("power", [10**400, -(10**400)], ids=["huge-int", "huge-negative-int"])
+    def test_power_beyond_float_range_raises_value_error_not_overflow(self, power):
+        """`float(10**400)` raises OverflowError. A finite-check that calls it unguarded
+        lets that escape as the wrong exception class through `calculate_mtd_native`."""
+        from fractions import Fraction
+        y, mu = self._positive_data(61)
+        yt, ys = _as_kernel_input(y, mu)
+        for p in (power, Fraction(power, 1)):
+            with pytest.raises(ValueError, match="finite real power"):
+                _tweedie_deviance_numpy(yt, ys, p)
+
+    @pytest.mark.parametrize("sign", [1, -1], ids=["positive", "negative"])
+    def test_power_that_underflows_to_zero_is_rejected_for_either_sign(self, sign):
+        """`float(Fraction(1, 10**400))` is 0.0 and its negation is -0.0. Dispatching on
+        the float would take the Gaussian branch for a power that is not 0 — positive
+        and below 1 (undefined), or negative (a different branch). The check is against
+        the original number, and a `power > 0` test would let the negative one compute."""
+        from fractions import Fraction
+        y, mu = self._positive_data(67)
+        yt, ys = _as_kernel_input(y, mu)
+        with pytest.raises(ValueError, match=r"representable as a float; .* rounds to -?0\.0"):
+            _tweedie_deviance_numpy(yt, ys, sign * Fraction(1, 10**400))
+        # And an exact zero, however spelled, is still the Gaussian branch.
+        assert _tweedie_deviance_numpy(yt, ys, Fraction(0, 1)) == _tweedie_deviance_numpy(yt, ys, 0.0)
 
     @pytest.mark.parametrize("power", [0.5, 0.0001, 0.9999])
     def test_power_in_open_unit_interval_raises_on_both_paths(self, power):

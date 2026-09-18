@@ -14,6 +14,23 @@
 > review then found four gaps in the rewrite (linked-worktree `commondir`, locale-dependent
 > reads, unchecked ref contents, an unpinned name gate) — all fixed and tested before merge. 18 → 17.
 
+> **2026-09-18 — release 1.1.0 (S6, #71).** The first release through the gated publish path
+> (C-36 mechanical half) and the one that starts ADR-022's clock for `to_dataframe()`. Carries
+> S1–S5: C-39, C-44, C-05 closed; D-01 (AP `nan`) ships. The release review found and the
+> release branch fixed five defects the story reviews had passed: the all-sentinel WARNING gate
+> ran `np.isnan` on raw values and crashed on a `None` that 1.0.0 coerced to `nan` (the one
+> genuine regression); the pyproject name gate raised `AttributeError` on a scalar `project`
+> key; git's reftable ref storage was logged as "unborn branch"; integral floats beyond int64
+> were accepted as `AP` labels where scikit-learn rejected them; and an `int` or `Fraction`
+> power beyond float range escaped as `OverflowError`, or underflowed to the Gaussian branch.
+> Each fix has a test observed red on the pre-fix source; the guard audit (39 mutations) found
+> two real survivors — the reftable check could move after the HEAD read or look in only one
+> of the worktree/common dirs, and a *negative* power that underflows to -0.0 computed as
+> Gaussian — both closed and re-verified red (C-37). First release whose §3.2
+> notification was posted **before** the tag and cited by comment ID in the checklist (C-36
+> trigger (a) exercised as written); ADR-022 §3 gained a dated clarification on what
+> "previously-accepted input" means (D-02). Count unchanged.
+
 > **2026-09-18 — story S5 (#64) closed C-05 and Cluster C.** `AP` and `MTD` dispatch to the numpy
 > kernels; scikit-learn is a dev-only oracle; a guard asserts `import views_evaluation` loads
 > neither scikit-learn nor pandas, and a CI step proves the runtime-only install works.
@@ -191,6 +208,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Resolved in part (2026-09-17, epic #66, story #68):** the **mechanical half** is closed. `publish_package.yml` now `needs:` a job that runs `run_pytest.yml` by reference (`workflow_call`), so the release gate *is* the pull-request suite — install with all extras, extras verified, pytest, `validate_docs.sh` — and a red suite means no upload. `TestPublishGateIsReal` holds **every** file under `.github/workflows/` to a known-good text and the set of files to a known list (an allowlist; two review passes and two guard audits showed anything narrower loses — a parser-based denylist to every YAML feature it does not model, including `continue-on-error` on the pytest step or job, and a grep for publish commands to `uv publish`, `hatch publish`, a folded scalar, a composite action or a Makefile target). `TestChangelogCoversTheDeclaredVersion` fails when the declared version has no `## [x.y.z] — YYYY-MM-DD` section outside a fence or comment, with a real date and non-empty content. Observed red on injected defects: either workflow edited in any significant way (`if:`, `continue-on-error` on the pytest step or the job, `|| true`, `needs:` removed, `ref:` on checkout, `workflow_call` removed or moved under `jobs:`), a second workflow that publishes by any tool or extension, a composite action, a Makefile target reached from an existing workflow, version `9.9.9`, heading only inside a fence or comment, unclosed fence or comment, empty, heading-only or rule-only section, duplicate heading, impossible or future date.
 - **Mitigation path:** Three open halves. *Notification* (§3.2): maintain a consumers list in-repo and require a linked notification issue per breaking release, or narrow §3.2 to something checkable and stop asserting a gate that cannot be verified — **asserting an unverifiable gate is worse than asserting none**, because it reads as satisfied. *Branch bypass*: GitHub-native — a protected `environment:` with required reviewers on the publish job, or restricting the release event to protected tags — so the guards' blind spot is closed outside the suite. *Checklist content*: the two shipped sections already share a shape (five `- [x] **Does …**` items); asserting that shape in the CHANGELOG guard is cheap if wanted. *Unheld call-outs* (third guard audit, 2026-09-17): the held workflow text calls `poetry run pytest tests/` and `bash documentation/validate_docs.sh`, and neither `tests/conftest.py` (does not exist today) nor `validate_docs.sh` is held to text — a change to either alters what CI runs without a red build. `[build-system]` in `pyproject.toml` *is* held, because it runs with the publish token in scope. The other two are reviewable diffs on any PR and are left to review.
 - **Note:** Distinct from C-34, which is about documentation *claims* drifting from *code*. This is about a documented *process* having no enforcement — the claim is not false, it is simply not binding on anyone. Cross-refs: C-13 (closed; this entry is the gap in its fix), C-24 (the cross-repo emit contract, which §7's fifth checklist item governs and which has the same no-enforcement problem).
+- **Notification half, first exercised as written (2026-09-18, release 1.1.0):** the §3.2 comments were posted on views-pipeline-core#512 and views-reporting#289 before the tag and are cited by comment ID in the 1.1.0 checklist — the first release to do so (0.5.0 and 1.0.0 both ticked the box with the notification scheduled after the tag, which the 1.1.0 release review caught in the draft). Still unenforced: nothing checks that the cited comment exists or preceded the tag; the mitigation path above stands.
 
 ---
 
@@ -278,6 +296,15 @@ Maintainer decisions taken on a register concern, recorded here so the reasoning
 - **Ships with:** #64. Closes when 1.1.0 is published with the change in its notes.
 - **Residual, now live (found by the code review of #64, 2026-09-18):** C-22's — and the direct `to_dict()` reader it warned about exists: views-pipeline-core averages group values for its WandB scalars with a mean that skips `None` but not `nan` (`views_pipeline_core/modules/wandb/utils.py`, observed on their `development` branch). One empty group makes their `AP_mean` scalar `nan`. The fix is theirs (`nanmean`), named in the release notes, and C-22's trigger is widened to cover it. Also: `to_dataframe()` drops an all-`nan` column (C-40), which now applies to `AP`; the method is deprecated and goes in 2.0.0.
 - **Versioning:** filed MINOR on the ADR-022 §1 argument that the `0.0` was never documented behaviour of this library; recorded in ADR-015 R9 so the S6 checklist can answer rule 5 against it.
+
+---
+
+### D-02 — Input accepted only by a third-party kernel's leniency is not "previously-accepted input"
+- **Decided:** 2026-09-18, during the 1.1.0 release review, which found the draft checklist answering "yes" to ADR-022 §3 (previously-accepted input now fails) while filing MINOR under §5 — a combination the ADR as written did not allow after 1.0.0. Recorded as a dated clarification under ADR-022 §3; this entry is the pointer and the revisit trigger.
+- **Concern:** C-05 — retiring scikit-learn from `AP`/`MTD` (story #64) made this library the owner of what those kernels accept. scikit-learn had accepted `power=True` as Poisson, cast numeric strings for `MTD`, scored a uniform truth label of `2` as `0.0`, and computed `AP` on timedelta scores; none of that was documented by this library, and the numpy kernels reject each with a `ValueError` naming the value.
+- **Options weighed:** (A) clarify §3 so "previously-accepted" is read against §1 (documented behaviour), keeping MINOR — chosen; (B) bump to 2.0.0 now — rejected because it collapses the two-release plan and pushes the `to_dataframe()` removal to 3.0.0 for inputs no consumer was found to send; (C) keep accepting exactly what scikit-learn accepted — rejected because under R9 a uniform `2` would become a silent `nan` indistinguishable from a legitimate all-zero group, and because it would mean reproducing a third party's accidents as contract.
+- **Consequence:** the version class is decided by §1; the communication (§3.1 listing and §3.2 pre-tag notification) applies in full and was done for 1.1.0. The clarification is one paragraph and reversible.
+- **Revisit trigger:** a consumer reports that one of the listed inputs reached `NativeEvaluator` from a real pipeline. That would show the input was relied on regardless of documentation, and the next such narrowing goes through rule 2 (deprecation cycle) instead.
 
 ---
 

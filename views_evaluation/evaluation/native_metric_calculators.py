@@ -131,11 +131,16 @@ def _average_precision_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
     `to_metric_frame()` mean row by `nanmean`.
 
     Accepted ``y_true``: integral values, at most two distinct, and if two then ``1``
-    among them; the positive class is ``y_true == 1``. That is scikit-learn's accepted
-    set (``type_of_target`` in {"binary"} with ``pos_label=1``), so nothing that
-    computes today starts failing, but the rejection is a plain ``ValueError`` naming
-    the observed labels rather than scikit-learn's "Expected 2D array" (multiclass
-    path) or "continuous format is not supported".
+    among them; the positive class is ``y_true == 1``. Floating labels must also lie
+    within int64 (scikit-learn round-trips them through ``int`` and rejects the rest
+    as "continuous"). That is scikit-learn's accepted set (``type_of_target`` in
+    {"binary"} with ``pos_label=1``) with one deliberate narrowing: a uniform label
+    other than −1, 0 or 1 (every truth value 2, say) computed ``0.0`` there and is
+    rejected here, because under ruling 9 it would otherwise become a silent ``nan``
+    indistinguishable from a legitimate all-zero group. Every other input scikit-learn
+    accepted still computes; the rejection is a plain ``ValueError`` naming the
+    observed labels rather than scikit-learn's "Expected 2D array" (multiclass path)
+    or "continuous format is not supported".
 
     Args:
         y_true: (M,) labels, already repeated per sample by the caller.
@@ -153,6 +158,9 @@ def _average_precision_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
         or (len(labels) == 2 and 1 not in labels)
         or (len(labels) == 1 and labels[0] not in (-1, 0, 1))
         or np.any(labels != np.floor(labels))
+        # scikit-learn's integrality test is `y == y.astype(int)`: a float at or above
+        # 2**63 (or below -2**63) does not survive the cast and reads as continuous.
+        or (labels.dtype.kind == "f" and np.any((labels >= 2.0**63) | (labels < -(2.0**63))))
     ):
         # The single-label clause is stricter than scikit-learn, which computed 0.0 for a
         # uniform 2 or 5: under R9 that input would become a silent `nan`,
@@ -200,14 +208,19 @@ def _tweedie_deviance_numpy(y_true: np.ndarray, y_pred: np.ndarray, power: float
     p > 2). Each domain raise starts with scikit-learn's sentence verbatim and appends
     the offending value and its index, which ADR-015 requires and scikit-learn omits.
 
-    Deviations, all documented: ``power`` in the open interval (0, 1), non-finite, or
-    not a real number is rejected with a plain ``ValueError`` (scikit-learn: its own
-    ``InvalidParameterError``, a ``ValueError`` subclass, with different text). And the
-    arithmetic is always float64. scikit-learn computes in the highest-precision
+    Deviations, all documented: ``power`` in the open interval (0, 1), non-finite,
+    not a real number, or too large or too small in magnitude to be a float (an
+    ``int`` or ``Fraction`` beyond ~1.8e308, or a non-zero ``Fraction`` that rounds to
+    ±0.0) is rejected with a plain ``ValueError`` (scikit-learn:
+    its own ``InvalidParameterError``, a subclass of both ``ValueError`` and
+    ``TypeError``, with different text). And the arithmetic is always float64. scikit-learn computes in the highest-precision
     floating dtype among its inputs, so float32 input is computed in float32 there;
-    the difference from this kernel's float64 answer is ~1e-8 relative at p = 1.5 but
-    up to ~2e-3 near p = 1 and p = 2 (measured over 200 seeds), where the closed form
-    cancels. This kernel's answer is the more accurate one; the parity suite asserts it
+    the difference from this kernel's float64 answer depends on the regime. Measured
+    on 2026-09-18 over 200 seeds of 500 gamma-distributed samples: ~1e-7 relative when
+    predictions are off by tens of percent (p = 1, 1.5, 2 alike), but when predictions
+    sit within 0.1% of the truth the deviance is itself near zero, the closed form
+    cancels, and the float32 answer was off by 4%, 13% and 6% relative at p = 1, 1.5
+    and 2. This kernel's answer is the more accurate one; the parity suite asserts it
     against scikit-learn's float64 result, and records the float32 gap.
 
     Args:
@@ -217,12 +230,22 @@ def _tweedie_deviance_numpy(y_true: np.ndarray, y_pred: np.ndarray, power: float
     """
     import numbers
 
-    if isinstance(power, bool) or not isinstance(power, numbers.Real) or not np.isfinite(float(power)):
+    try:
+        p = float(power) if isinstance(power, numbers.Real) and not isinstance(power, bool) else None
+    except OverflowError:  # an int or Fraction beyond float range
+        p = None
+    if p is None or not np.isfinite(p):
         raise ValueError(
             f"Mean Tweedie deviance requires a finite real power; got {power!r} "
             f"({type(power).__name__})"
         )
-    p = float(power)
+    # A non-zero Fraction too small in magnitude for a float rounds to ±0.0 and would
+    # take the Gaussian branch for a power that is not 0; either sign is rejected.
+    if p == 0.0 and power != 0:
+        raise ValueError(
+            f"Mean Tweedie deviance requires a power representable as a float; "
+            f"{power!r} rounds to {p!r}"
+        )
     if 0.0 < p < 1.0:
         raise ValueError(
             f"Mean Tweedie deviance is not defined for power in (0, 1); got {power}"

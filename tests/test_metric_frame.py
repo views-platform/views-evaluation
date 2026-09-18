@@ -569,6 +569,22 @@ class TestAllSentinelFrameBeige:
             "logging standard §5.1: the emit path logs under the metric_frame logger"
         )
 
+    def test_a_none_value_still_coerces_to_nan_as_it_did_in_1_0_0(self, caplog):
+        """1.0.0 coerced a `None` metric value to nan through the float32 cast. The
+        all-sentinel gate must run on the coerced array, not the raw list: `np.isnan(None)`
+        raises TypeError, so a gate placed before the cast would turn a value that used
+        to emit into a crash — and only when the `None` happened to be tested."""
+        for results in (
+            {"month": {"m1": {"AP": None}, "m2": {"AP": 0.5}}, "time_series": {}, "step": {}},
+            {"month": {"m1": {"AP": None}}, "time_series": {}, "step": {}},
+        ):
+            caplog.clear()
+            with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+                mf = EvaluationReport("t", "classification", "point", results).to_metric_frame()
+            assert np.isnan(mf.values[0, 0])
+        # The second report is all-nan after coercion and must still warn.
+        assert any("every value is a sentinel" in r.message for r in caplog.records)
+
 
 class TestVacuousEmitRed:
 
@@ -636,18 +652,20 @@ _CONSUMER_PYPROJECT = (
 
 
 def _fake_package_file(root):
-    """The path `metric_frame.py` would have if this package lived under `root`.
+    """The path `metric_frame.py` would have if this repository's checkout were `root`.
 
-    Anchored to the module's real path relative to the package's parent, so moving the
-    module (or adopting a `src/` layout) changes the fixture and turns the Green test red
-    instead of leaving the `parents[2]` assumption in `_source_git_sha` silently wrong.
+    Anchored to the module's real path relative to the REPOSITORY root (the directory
+    holding `pyproject.toml`), not to the package's parent: under a `src/` layout the
+    package's parent is `src/`, the fixture would be unchanged, and the Green test would
+    stay green while `_source_git_sha`'s `parents[2]` had silently become `src/` and every
+    editable install stamped bare. Anchored here, the fixture moves with the layout and
+    the Green test turns red.
     """
-    import views_evaluation
     from views_evaluation.evaluation import metric_frame as mf_mod
 
-    rel = Path(mf_mod.__file__).resolve().relative_to(
-        Path(views_evaluation.__file__).resolve().parents[1]
-    )
+    repo_root = Path(__file__).resolve().parents[1]
+    assert (repo_root / "pyproject.toml").exists(), repo_root
+    rel = Path(mf_mod.__file__).resolve().relative_to(repo_root)
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch()
@@ -728,6 +746,62 @@ class TestSourceGitShaBoundaryRed:
             r.levelno == logging.WARNING and "no commit could be read" in r.message
             for r in caplog.records
         ), "a missing HEAD in our own .git is a fault and must be logged, not classified as a wheel"
+
+    def test_scalar_project_or_tool_key_reads_as_not_ours(self, tmp_path, monkeypatch, caplog):
+        """`project = "x"` (or `[tool] poetry = 1`) is a valid TOML document with a
+        scalar where a table is expected. Chained `.get()` raised AttributeError, which
+        the fault tuple did not catch, so `to_metric_frame()` crashed on a malformed
+        NEIGHBOUR file. It is not this distribution's pyproject: bare, and silent."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "cafebabe000000000000000000000000000000000")
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+        for text in ('project = "x"\n', '[tool]\npoetry = 1\n', '[project]\nname = 7\n'):
+            (repo / "pyproject.toml").write_text(text)
+            caplog.clear()
+            with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+                assert mf_mod._source_git_sha() is None, text
+            assert not caplog.records, text
+
+    @pytest.mark.parametrize("layout", ["main-repo", "main-repo-no-HEAD", "worktree-common-only", "worktree-own-only"])
+    def test_reftable_ref_storage_is_named_in_the_warning(self, layout, tmp_path, monkeypatch, caplog):
+        """git 2.45+ `--ref-format=reftable` keeps refs in `.git/reftable/`, with no
+        loose ref and no `packed-refs`. Not parsed here: bare stamp and a WARNING that
+        says reftable, not "unborn branch" — whichever of the worktree's own dir or the
+        common dir holds the table, and even when HEAD is missing too (the format is
+        the more useful thing to name, so it is checked first)."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        if layout.startswith("main-repo"):
+            _git_dir(repo, "ref: refs/heads/main")
+            (repo / ".git" / "reftable").mkdir()
+            (repo / ".git" / "reftable" / "tables.list").write_text("")
+            if layout.endswith("no-HEAD"):
+                (repo / ".git" / "HEAD").unlink()
+        else:
+            main = tmp_path / "main"
+            _git_dir(main, "ref: refs/heads/main")
+            own = main / ".git" / "worktrees" / "wt"
+            own.mkdir(parents=True)
+            (own / "HEAD").write_text("ref: refs/heads/feature\n")
+            (own / "commondir").write_text("../..\n")
+            repo.mkdir()
+            (repo / ".git").write_text(f"gitdir: {own}\n")
+            table_home = main / ".git" if layout == "worktree-common-only" else own
+            (table_home / "reftable").mkdir()
+            (table_home / "reftable" / "tables.list").write_text("")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            assert mf_mod._source_git_sha() is None
+        # The tmp_path itself contains "reftable" (pytest names it after the test), so
+        # the check is on the exception text, not on a bare substring of the record.
+        assert any("stored in git's reftable format" in r.message for r in caplog.records), (
+            [r.message for r in caplog.records]
+        )
 
 
     def test_wheel_inside_own_checkout_venv_stamps_no_sha(self, tmp_path, monkeypatch):

@@ -139,10 +139,13 @@ class EvaluationReport:
         For each schema (month/time_series/step) present, one row is emitted per
         (group_id, metric), PLUS a cross-group aggregate row with ``group_id="mean"`` carrying
         the ``nanmean`` over the groups that reported that metric (the value views-reporting
-        matches on). The denominator is every group that reported a non-sentinel value: a
-        group carrying `nan` (MCR, Pearson or AP on degenerate input, ADR-015 R1/R2/R9) is
-        excluded, and a metric present in only some groups is averaged over just those. Schema names are mapped to the
-        consumer-facing ``eval_type`` spelling via ``SCHEMA_TO_EVAL_TYPE``.
+        matches on). The denominator is every group that reported a number: a group
+        carrying `nan` (MCR, Pearson or AP on degenerate input, ADR-015 R1/R2/R9) is
+        excluded, and a metric present in only some groups is averaged over just those.
+        `inf` is not `nan`: MCR's `inf` (predicted conflict where none occurred, R1) is a
+        calibration statement, `nanmean` keeps it, and the mean row reads `inf`. Schema
+        names are mapped to the consumer-facing ``eval_type`` spelling via
+        ``SCHEMA_TO_EVAL_TYPE``.
 
         Provenance is split per ADR-020 (register C-47): generic identity goes in the reused
         ``views_frames.FrameMetadata``; ``scoring_code_version`` and ``evaluation_timestamp``
@@ -250,7 +253,11 @@ class EvaluationReport:
         # but it records nothing while looking complete. Raising here would abort a
         # legitimate workflow (a constant baseline scored only on Pearson), which is
         # the R2 reversal; so it logs at WARNING on the emit path and emits.
-        if values and all(np.isnan(v) for v in values):
+        # Tested on the coerced array, not the raw list: a `None` value coerces to
+        # nan under float32 exactly as it did in 1.0.0, and `np.isnan(None)` would
+        # have raised TypeError before the coercion could happen.
+        values_arr = np.asarray(values, dtype=np.float32).reshape(-1, 1)
+        if np.isnan(values_arr).all():
             import logging
             logging.getLogger("views_evaluation.evaluation.metric_frame").warning(
                 "to_metric_frame(): every value is a sentinel (nan) — no metric produced "
@@ -259,7 +266,6 @@ class EvaluationReport:
                 "column is degenerate (all zeros, or constant) or the wrong column was passed.",
                 self.target, self.task, self.pred_type,
             )
-        values_arr = np.asarray(values, dtype=np.float32).reshape(-1, 1)
         identifiers = {axis: np.asarray(columns[axis], dtype=str) for axis in AXES}
 
         metadata = MetricFrameMetadata(

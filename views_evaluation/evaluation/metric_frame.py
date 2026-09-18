@@ -81,6 +81,19 @@ def _json_default(obj: Any) -> Any:
 _DISTRIBUTION_NAME = "views-evaluation"
 
 
+def _nested_str(data: Any, *keys: str) -> Optional[str]:
+    """``data[k1][k2]...`` if every level is a table and the leaf a string, else None.
+
+    A pyproject with ``project = "x"`` or ``[tool] poetry = 1`` is not this
+    distribution's; it must read as "not ours" rather than raise AttributeError.
+    """
+    for key in keys:
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data if isinstance(data, str) else None
+
+
 def _normalised_project_name(pyproject: Path) -> Optional[str]:
     """The distribution name a pyproject.toml declares, PEP 503-normalised, or None.
 
@@ -89,8 +102,8 @@ def _normalised_project_name(pyproject: Path) -> Optional[str]:
     contract, a dependency line, a description) is not mistaken for ownership.
     """
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))  # TOML is UTF-8 by spec
-    name = data.get("project", {}).get("name") or data.get("tool", {}).get("poetry", {}).get("name")
-    if not isinstance(name, str):
+    name = _nested_str(data, "project", "name") or _nested_str(data, "tool", "poetry", "name")
+    if name is None:
         return None
     return re.sub(r"[-_.]+", "-", name).lower()
 
@@ -102,7 +115,8 @@ def _read_head_sha(git: Path) -> str:
     submodule's real dir, a symbolic HEAD with a loose or packed ref, and a linked
     worktree's ``commondir`` (refs and ``packed-refs`` live in the main repository's dir,
     HEAD in the worktree's own). Every read is UTF-8. A symbolic-ref chain is not
-    followed and an unborn branch has no commit: both raise rather than return a
+    followed, an unborn branch has no commit, and the reftable ref storage (git 2.45+,
+    ``--ref-format=reftable``) is not parsed: all three raise rather than return a
     non-hash, so the caller can log them.
     """
     if git.is_file():  # linked worktree or submodule: `.git` is a file pointing at the real dir
@@ -110,6 +124,12 @@ def _read_head_sha(git: Path) -> str:
         git = (git.parent / gitdir).resolve()  # relative to the file, never to the cwd
     commondir = git / "commondir"
     refs_root = (git / commondir.read_text(encoding="utf-8").strip()).resolve() if commondir.exists() else git
+    if (git / "reftable").is_dir() or (refs_root / "reftable").is_dir():
+        # git >= 2.45 `--ref-format=reftable`: refs live in a binary table, not in
+        # `refs/` or `packed-refs`. Checked in both the worktree's own dir and the
+        # common dir, before HEAD is read, so the format is named whatever else is
+        # missing. Not read here; say so instead of "unborn branch".
+        raise ValueError("refs are stored in git's reftable format, which is not read")
     head = (git / "HEAD").read_text(encoding="utf-8").strip()
     if head.startswith("ref:"):
         ref = head.split(":", 1)[1].strip()
@@ -138,11 +158,13 @@ def _source_git_sha() -> Optional[str]:
 
     The check is bounded to one directory: the one containing the ``views_evaluation/``
     package directory (``parents[2]`` of this file under the repository's flat layout —
-    a ``src/`` layout would need ``parents[3]``; the tests anchor their fixtures to the
-    real module path so a move turns them red). A ``.git`` directory or ``.git`` file
-    there counts only if a ``pyproject.toml`` beside it declares this distribution. No
-    parent of that directory is consulted for ``.git``; a ``.git`` *file* is followed to
-    wherever it points, which is how git lays out worktrees and submodules.
+    a ``src/`` layout would need ``parents[3]``, and until it got it every editable
+    install would stamp bare; the tests anchor their fixtures to the module's path
+    relative to the repository root so that move turns them red). A ``.git`` directory
+    or ``.git`` file there counts only if a ``pyproject.toml`` beside it declares this
+    distribution. No parent of that directory is consulted for ``.git``; a ``.git``
+    *file* is followed to wherever it points, which is how git lays out worktrees and
+    submodules.
 
     Why bounded: the first version walked every parent to the nearest ``.git``. A wheel
     installed into a virtualenv nested inside a consumer's checkout (uv's default
@@ -155,7 +177,7 @@ def _source_git_sha() -> Optional[str]:
     another distribution (a vendored copy). A third is a fault and logs at WARNING: a
     ``.git`` is present for this distribution but no commit could be read from it
     (unreadable file, corrupt pointer, symbolic-ref chain, unborn branch, undecodable
-    bytes). The stamp is still the bare version — the caller may pass
+    bytes, reftable ref storage). The stamp is still the bare version — the caller may pass
     ``scoring_code_version`` explicitly — but the trace is left (logging standard §5.1).
 
     Read from ``.git`` directly rather than shelling out: ``git`` is not guaranteed to
