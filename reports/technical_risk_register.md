@@ -38,7 +38,10 @@
 > guard probes the removed names behaviourally and bans `__getattr__` (a shim with a split token beat
 > the `dir()` listing), the logging guard checks for Logger objects rather than a text pattern, the
 > dependency guard handles both pyproject layouts, and the doc guard scans fenced code in the section
-> being cut with real line numbers. Residuals stated in the docstrings. Count unchanged.
+> being cut with real line numbers. Residuals stated in the docstrings. Published 21:27 UTC: publish
+> run 35396893934 ran the suite (993 passed, 1 skipped) before the upload; PyPI 2.0.0 declares numpy,
+> scipy and the `frames` extra only. The library half of epic #66 is done; S9 and S10 (consumer pins)
+> remain. Count unchanged.
 
 > **2026-09-18 — story S7 (#63) closed C-40 and Cluster A's second residue.** `to_dataframe()`, its
 > DataFrame helper and the three dead factories are gone; the `dataframe` extra is deleted and
