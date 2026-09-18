@@ -33,37 +33,52 @@ jobs:
 
     - name: Install dependencies
       run: |
-        # --all-extras is REQUIRED, not tidiness. `views-frames` and `pandas` are
-        # optional extras, and tests/test_metric_frame.py and
-        # tests/test_evaluation_report.py both guard with a MODULE-LEVEL
-        # pytest.importorskip. Without the extras those files are skipped whole and
+        # --all-extras is REQUIRED, not tidiness. `views-frames` is an optional
+        # extra, and tests/test_metric_frame.py guards with a MODULE-LEVEL
+        # pytest.importorskip. Without the extra that file is skipped whole and
         # CI reports green without ever touching the MetricFrame cross-repo contract
         # (ADR-022 §1). Guarded by tests/test_falsification_ci_coverage_gap.py.
         poetry install --all-extras
 
     # Nothing else ever exercises "works without the dev group": the local env and the
-    # steps below always carry scikit-learn. `poetry sync --only main` removes the dev
-    # group (scikit-learn among it) and keeps the extras; the probe then asserts that
-    # scikit-learn is genuinely ABSENT — not merely unloaded, which would be vacuous —
-    # and that importing the package does not load pandas, which the extras install
-    # (ADR-011; C-05). The reinstall restores the dev group; the verify step below
-    # proves the extras are present, and the pytest step needs the dev group or it
-    # cannot collect.
+    # steps below always carry scikit-learn and pandas. `poetry sync --only main`
+    # removes the dev group (both among it) and keeps the extras; the probe then
+    # asserts that scikit-learn and pandas are genuinely ABSENT — not merely unloaded,
+    # which would be vacuous — and then evaluates a frame and emits a MetricFrame,
+    # because the emit path imports everything it needs at call time and an
+    # import-only probe would not execute a line of it (ADR-011; C-05, C-40). The
+    # "does not LOAD pandas when it is present" half is the purity guard in
+    # tests/test_metric_calculators.py, which fails rather than skips if pandas is
+    # missing from the dev group. The reinstall restores the dev group; the verify
+    # step below proves the extra is present, and the pytest step needs the dev group
+    # or it cannot collect.
     - name: Prove the runtime-only install works
       run: |
         set -e
         poetry sync --only main --all-extras
-        poetry run python -c "import sys, importlib.util as u, views_evaluation, views_evaluation.evaluation.metric_frame; assert u.find_spec('sklearn') is None, 'scikit-learn still installed'; assert 'pandas' not in sys.modules, 'import loaded pandas'"
+        poetry run python - <<'PY'
+        import importlib.util as u
+        import numpy as np
+        from views_evaluation import EvaluationFrame, NativeEvaluator
+        assert u.find_spec('sklearn') is None, 'scikit-learn still installed'
+        assert u.find_spec('pandas') is None, 'pandas still installed'
+        ids = {k: np.array(v) for k, v in {'time': [1, 1], 'unit': [1, 2], 'origin': [0, 0], 'step': [1, 1]}.items()}
+        cfg = {'steps': [1], 'classification_targets': ['t'], 'classification_point_metrics': ['AP', 'Brier_cls_point'], 'evaluation_profile': 'base'}
+        report = NativeEvaluator(cfg).evaluate(EvaluationFrame(np.array([0., 1.]), np.array([[0.2], [0.8]]), ids, metadata={'target': 't'}))
+        mf = report.to_metric_frame(model_id='ci', run_type='test', timestamp='2026-09-18T00:00:00')
+        assert mf.n_rows == 12, mf.n_rows  # 2 metrics x (1 group + mean) x 3 schemas
+        print('runtime-only install: evaluate + to_metric_frame OK, rows =', mf.n_rows)
+        PY
         poetry install --all-extras
 
-    # Proves the extras ARRIVED, not merely that --all-extras was requested.
+    # Proves the extra ARRIVED, not merely that --all-extras was requested.
     # `poetry install` exits 0 even if it resolves without an optional package, and
-    # every downstream guard is a module-level pytest.importorskip that turns absence
+    # the downstream guard is a module-level pytest.importorskip that turns absence
     # into silence. Without this step a partial install silently shrinks the suite
     # and CI still reports green. Guarded by
     # tests/test_falsification_extras_actually_installed.py.
     - name: Verify optional extras are installed
-      run: poetry run python -c "import views_frames, pandas"
+      run: poetry run python -c "import views_frames"
 
     - name: Run tests
       run: |

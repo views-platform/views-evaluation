@@ -76,8 +76,8 @@ def _crps_ensemble_numpy(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
 # where scikit-learn returned 0.0 (ADR-015 R9) — and the parity suite in
 # tests/test_metric_calculators.py still runs them against scikit-learn, now a dev-only
 # dependency, as the oracle, permanently. Level 0 imports
-# numpy and scipy only (ADR-011), so `import views_evaluation` no longer loads pandas
-# through scikit-learn.
+# numpy and scipy only (ADR-011), so `import views_evaluation` no longer loads a
+# dataframe library through scikit-learn.
 #
 # Input validation is the kernels' own. On the NativeEvaluator path EvaluationFrame
 # already rejects NaN, inf and object dtype, but the public kernels and

@@ -113,7 +113,7 @@ This is a **future evolution path**, not a current mandate. The current bundling
 
 - **Explicit imports:** Avoid `from module import *`.
 - **Circular dependency guard:** Follow ADR-011 layering. Level 0 modules must not import from Level 1 or Level 2.
-- **Lazy imports for Pandas:** Pandas is imported inside methods (e.g. the deprecated `to_dataframe()`, gone in 2.0.0) rather than at module level in Level 0/1 code.
+- **No pandas anywhere in the package:** since 2.0.0 nothing under `views_evaluation/` imports pandas, lazily or otherwise (the last two sites, `EvaluationReport.to_dataframe()` and `BaseEvaluationMetrics.evaluation_dict_to_dataframe()`, were removed after the deprecation cycle; `tests/test_metric_calculators.py` polices the whole package by AST). The one lazy **Level-1 bridge** that remains is `views_frames` inside `to_metric_frame()`, gated on `importlib.util.find_spec`; other function-level imports (numpy, logging, this package's own `metric_frame`) are ordinary call-time imports on that same path, not bridges to a framework.
 
 ---
 

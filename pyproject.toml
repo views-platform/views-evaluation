@@ -13,11 +13,9 @@ readme = "README.md"
 python = ">=3.11,<3.15"
 numpy = "^1.26.4"
 scipy = "^1.11"  # Level-0 kernels (EMD, Pearson); ADR-011 permits numpy and scipy
-pandas = {version = "^1.5.3", optional = true}
 views-frames = {version = ">=1.10.2,<2", optional = true}
 
 [tool.poetry.extras]
-dataframe = ["pandas"]
 frames = ["views-frames"]
 
 [tool.poetry.group.dev.dependencies]
@@ -25,6 +23,7 @@ pytest = "^9.0.3"
 ruff = "*"
 properscoring = "^0.1.0"  # Dev-only: used as test oracle for CRPS parity verification
 scikit-learn = "^1.6.0"  # Dev-only: test oracle for AP/MTD parity verification (left runtime 2026-09-18, C-05)
+pandas = ">=2.1.1,<3"  # Dev-only: the import-purity guard needs pandas *present* to prove it is not loaded (left runtime 2.0.0, C-40). Floor = first cp312 wheels; 1.5.x cannot install on 3.12
 
 [build-system]
 requires = ["poetry-core"]

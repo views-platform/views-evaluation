@@ -17,7 +17,39 @@ provided they were announced here.
 
 ## [Unreleased]
 
-_Nothing yet._
+The next release is **2.0.0** (MAJOR, ADR-022 §5): it removes surface that 1.1.0 deprecated.
+
+### Removed
+
+- **Removed: `EvaluationReport.to_dataframe()`** and, with it, `BaseEvaluationMetrics.evaluation_dict_to_dataframe()`,
+  the three `make_*_evaluation_dict` factories (unused since 0.4.0 removed `EvaluationManager`,
+  their only caller; never documented, never warned on — they go as private cleanup), and
+  the **`dataframe` extra** (`pip install views-evaluation[dataframe]` is no longer a thing
+  to install). Breaking. The `DeprecationWarning` for the removed `to_dataframe()` and
+  `evaluation_dict_to_dataframe()` shipped in 1.1.0 (see that section's *Deprecated*
+  entry). views-pipeline-core, the one production caller: its `development` branch stopped
+  calling it (their #513, observed 2026-09-16), but as of 2026-09-18 that is in no release
+  of theirs — their released 3.2.0 still calls the removed `to_dataframe()`, and their
+  `^1.0.0` pin excludes this release until they move (their #515, after views-reporting).
+  **Migration:**
+  build the table in the caller —
+  `pd.DataFrame.from_dict(report.to_dict()['schemas'][schema], orient='index')`. Same
+  values; not byte-identical, as the 1.1.0 entry spells out: the old method dropped any
+  column that was `nan` in every group (register **C-40**, closed by this removal —
+  `to_dict()` and `to_metric_frame()` now are the only export paths and agree on the
+  metric set by construction), ordered columns by dataclass field, and kept an empty
+  group as a `nan` row. `schema='raw'` callers use `to_dict()['schemas']`.
+  `get_schema_results()` and the four typed dataclasses' fields are unchanged (the
+  dataclasses lose the four inherited helpers named above and nothing else).
+- `examples/benchmark_probabilistic_scaling.py`, a relic that never imported this package.
+
+### Changed
+
+- **Nothing under `views_evaluation/` imports pandas any more**, lazily or otherwise; the
+  package's runtime dependencies are numpy, scipy and the optional `frames` extra. pandas
+  moves to the dev group so the import-purity guard, which fails rather than skips when
+  pandas is absent, keeps something to prove. The CI runtime-only install step now asserts
+  pandas is *absent* alongside scikit-learn.
 
 ---
 
