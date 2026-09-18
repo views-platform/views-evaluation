@@ -72,6 +72,210 @@ def _crps_ensemble_numpy(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
     return mae_term - spread_term
 
 
+# ── Pure-numpy AP and Tweedie deviance (register C-05; epic #66, story #70) ──────
+#
+# These two exist alongside the scikit-learn kernels they will replace. NOTHING
+# DISPATCHES TO THEM YET: the parity suite in tests/test_metric_calculators.py runs
+# them against scikit-learn as the oracle, and only once that suite is green — and has
+# been seen to fail on a deliberately broken kernel — does #64 point the public kernels
+# here and drop the sklearn import. Each is a transcription of the scikit-learn 1.7.2
+# algorithm, so that the switch is numerically invisible for float64 input.
+#
+# Input validation is the kernels' own. On the NativeEvaluator path EvaluationFrame
+# already rejects NaN, inf and object dtype, but the public kernels and
+# METRIC_CATALOG[...].function are importable directly, and scikit-learn's check_array
+# rejected what the frame lets through (complex, string, empty, mismatched length).
+# Dropping the oracle must not turn those raises into numbers.
+
+
+def _kernel_vector(name: str, values) -> np.ndarray:
+    """A validated 1-D real, finite, non-empty vector for a kernel — what scikit-learn's
+    `check_array(ensure_2d=False, ensure_min_samples=1)` plus `assert_all_finite`
+    guaranteed. Returned in its own dtype (integer or floating); callers cast where the
+    arithmetic needs float64, and not where it does not (AP sorts scores natively, so
+    int64 scores above 2**53 stay distinct as they do in scikit-learn)."""
+    arr = np.asarray(values)
+    if arr.ndim != 1:
+        raise ValueError(f"{name} must be 1-D, got shape {arr.shape}")
+    if arr.size == 0:
+        raise ValueError(f"{name} is empty; at least one sample is required")
+    if arr.dtype == bool:
+        arr = arr.astype(np.int64)
+    if not (np.issubdtype(arr.dtype, np.floating) or np.issubdtype(arr.dtype, np.integer)):
+        raise ValueError(f"{name} must be real-numeric, got dtype {arr.dtype}")
+    if np.issubdtype(arr.dtype, np.floating) and not np.all(np.isfinite(arr)):
+        bad = int(np.flatnonzero(~np.isfinite(arr))[0])
+        raise ValueError(f"{name} contains {arr[bad]!r} at index {bad}; values must be finite")
+    return arr
+
+
+def _average_precision_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    """Average precision as scikit-learn computes it, in numpy.
+
+    Reproduces ``sklearn.metrics.average_precision_score`` for binary ``y_true``:
+    a descending-score threshold sweep with tied scores collapsed to one operating
+    point (``_binary_clf_curve``), precision zero where a threshold has no
+    predictions, recall against the total positives — or all-ones with a
+    ``UserWarning`` when there are no positives, as scikit-learn does — and the
+    step-wise sum ``Σ (R_n − R_{n−1}) P_n`` over the reversed curve with the ``(1, 0)``
+    endpoint appended. Not the trapezoidal area under the curve.
+
+    ⚠ The no-positives branch (0.0 plus a warning) is transcribed from scikit-learn so
+    that this kernel is behaviourally identical to the public path today. It is a
+    non-raising return with no ADR-015 ruling: #64 must rule on it — raise, or a
+    contracted sentinel with the warning suppressed as `calculate_pearson_native`
+    does — before dispatching here. Register C-05.
+
+    Accepted ``y_true``: integral values, at most two distinct, and if two then ``1``
+    among them; the positive class is ``y_true == 1``. That is scikit-learn's accepted
+    set (``type_of_target`` in {"binary"} with ``pos_label=1``), so nothing that
+    computes today starts failing, but the rejection is a plain ``ValueError`` naming
+    the observed labels rather than scikit-learn's "Expected 2D array" (multiclass
+    path) or "continuous format is not supported".
+
+    Args:
+        y_true: (M,) labels, already repeated per sample by the caller.
+        y_score: (M,) scores, already flattened.
+    """
+    y_true = _kernel_vector("y_true", y_true)
+    y_score = _kernel_vector("y_score", y_score)
+    if y_true.shape[0] != y_score.shape[0]:
+        raise ValueError(
+            f"y_true and y_score have different lengths: {y_true.shape[0]} vs {y_score.shape[0]}"
+        )
+    labels = np.unique(y_true)
+    if (
+        len(labels) > 2
+        or (len(labels) == 2 and 1 not in labels)
+        or np.any(labels != np.floor(labels))
+    ):
+        raise ValueError(
+            f"AP requires binary y_true with 1 as the positive label; observed labels "
+            f"{labels.tolist()[:8]}{'...' if len(labels) > 8 else ''}"
+        )
+    positive = y_true == 1
+
+    # Stable ascending sort, then reversed — scikit-learn's exact permutation, which
+    # matters only for which tied element comes first and is then collapsed anyway.
+    # Sorted in the scores' own dtype: casting int64 to float64 first would merge
+    # values above 2**53 into false ties.
+    order = np.argsort(y_score, kind="mergesort")[::-1]
+    y_score = y_score[order]
+    positive = positive[order]
+
+    # One operating point per distinct score: the LAST index of each run of ties.
+    distinct = np.where(np.diff(y_score) != 0)[0]
+    thresholds = np.r_[distinct, positive.size - 1]
+    tps = np.cumsum(positive, dtype=np.float64)[thresholds]
+    fps = 1 + thresholds - tps
+
+    precision = tps / (tps + fps)  # never zero: each threshold has >= 1 prediction
+    if tps[-1] == 0:
+        warnings.warn(
+            "No positive class found in y_true, recall is set to one for all thresholds."
+        )
+        recall = np.ones_like(tps)
+    else:
+        recall = tps / tps[-1]
+
+    # Reverse so recall is decreasing, append the (precision=1, recall=0) endpoint,
+    # then the negated step integral; clip a numerical -0.0.
+    precision = np.hstack((precision[::-1], 1.0))
+    recall = np.hstack((recall[::-1], 0.0))
+    return float(max(0.0, -np.sum(np.diff(recall) * precision[:-1])))
+
+
+def _tweedie_deviance_numpy(y_true: np.ndarray, y_pred: np.ndarray, power: float) -> float:
+    """Mean Tweedie deviance as scikit-learn computes it, in numpy, always in float64.
+
+    Reproduces ``sklearn.metrics.mean_tweedie_deviance`` branch for branch: p < 0
+    (extreme stable; the first term clamps y at 0), p == 0 (Gaussian, squared error),
+    p == 1 (Poisson, with x·log(x/μ) taken as 0 at x == 0), p == 2 (Gamma), and the
+    general form for every other admissible power (1 < p < 2 compound Poisson–Gamma,
+    p > 2). Each domain raise starts with scikit-learn's sentence verbatim and appends
+    the offending value and its index, which ADR-015 requires and scikit-learn omits.
+
+    Deviations, all documented: ``power`` in the open interval (0, 1), non-finite, or
+    not a real number is rejected with a plain ``ValueError`` (scikit-learn: its own
+    ``InvalidParameterError``, a ``ValueError`` subclass, with different text). And the
+    arithmetic is always float64. scikit-learn computes in the highest-precision
+    floating dtype among its inputs, so float32 input is computed in float32 there;
+    the difference from this kernel's float64 answer is ~1e-8 relative at p = 1.5 but
+    up to ~2e-3 near p = 1 and p = 2 (measured over 200 seeds), where the closed form
+    cancels. This kernel's answer is the more accurate one; the parity suite asserts it
+    against scikit-learn's float64 result, and records the float32 gap.
+
+    Args:
+        y_true: (M,) observations, already repeated per sample by the caller.
+        y_pred: (M,) predictions, already flattened.
+        power: the Tweedie power p, a finite real number outside (0, 1).
+    """
+    import numbers
+
+    if isinstance(power, bool) or not isinstance(power, numbers.Real) or not np.isfinite(power):
+        raise ValueError(
+            f"Mean Tweedie deviance requires a finite real power; got {power!r} "
+            f"({type(power).__name__})"
+        )
+    p = float(power)
+    if 0.0 < p < 1.0:
+        raise ValueError(
+            f"Mean Tweedie deviance is not defined for power in (0, 1); got {power}"
+        )
+    y = _kernel_vector("y_true", y_true).astype(np.float64)
+    mu = _kernel_vector("y_pred", y_pred).astype(np.float64)
+    if y.shape[0] != mu.shape[0]:
+        raise ValueError(
+            f"y_true and y_pred have different lengths: {y.shape[0]} vs {mu.shape[0]}"
+        )
+
+    message = f"Mean Tweedie deviance error with power={power} can only be used on "
+
+    def offending(mask, name, arr):
+        i = int(np.flatnonzero(mask)[0])
+        return f" Offending {name}: {arr[i]!r} at index {i}."
+
+    def generic(y_first_term):
+        # The closed form for every power outside {0, 1, 2}. p < 0 passes a clamped y
+        # for the first term only — scikit-learn's `where(y > 0, y, 0)` — and the
+        # signed y for the second.
+        return 2 * (
+            np.power(y_first_term, 2 - p) / ((1 - p) * (2 - p))
+            - y * np.power(mu, 1 - p) / (1 - p)
+            + np.power(mu, 2 - p) / (2 - p)
+        )
+
+    if p < 0:
+        if np.any(mu <= 0):
+            raise ValueError(message + "strictly positive y_pred." + offending(mu <= 0, "y_pred", mu))
+        dev = generic(np.where(y > 0, y, 0.0))
+    elif p == 0:
+        dev = (y - mu) ** 2
+    elif 1 <= p < 2:
+        if np.any(y < 0):
+            raise ValueError(message + "non-negative y and strictly positive y_pred." + offending(y < 0, "y", y))
+        if np.any(mu <= 0):
+            raise ValueError(message + "non-negative y and strictly positive y_pred." + offending(mu <= 0, "y_pred", mu))
+        if p == 1:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                xlogy = np.where(y == 0.0, 0.0, y * np.log(y / mu))
+            dev = 2 * (xlogy - y + mu)
+        else:
+            dev = generic(y)
+    elif p >= 2:
+        if np.any(y <= 0):
+            raise ValueError(message + "strictly positive y and y_pred." + offending(y <= 0, "y", y))
+        if np.any(mu <= 0):
+            raise ValueError(message + "strictly positive y and y_pred." + offending(mu <= 0, "y_pred", mu))
+        if p == 2:
+            dev = 2 * (np.log(mu / y) + y / mu - 1)
+        else:
+            dev = generic(y)
+    else:  # unreachable: every finite real p outside (0, 1) matched above
+        raise ValueError(f"unhandled Tweedie power {power!r}")
+    return float(np.mean(dev))
+
+
 def calculate_crps_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
     y_true, y_pred = _guard_shapes(y_true, y_pred)
     return float(np.mean(_crps_ensemble_numpy(y_true, y_pred)))
