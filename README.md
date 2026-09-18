@@ -260,7 +260,7 @@ pip install views_evaluation
 The library follows a strict three-layer architecture (ADR-011):
 
 ```
-Level 0 — Pure Core (NumPy + SciPy + sklearn; no dataframe libraries)
+Level 0 — Pure Core (NumPy + SciPy; no dataframe libraries)
   EvaluationFrame            Canonical data container (y_true, y_pred, identifiers)
   NativeEvaluator            Stateless evaluation engine (month/sequence/step schemas)
   MetricCatalog              Genome registry mapping metrics → functions + required params

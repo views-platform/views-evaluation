@@ -56,4 +56,4 @@ If a dependency feels “convenient but wrong,” it probably is.
 
 ### Known Deviations
 
-- **sklearn/scipy in Level 0:** `native_metric_calculators.py` imports `sklearn.metrics` (AP, MTD) and `scipy.stats` (EMD, Pearson) at module level. These 4 of ~25 metrics violate the "no external imports except numpy" claim. The ADR permits `scipy`; `sklearn` is a pragmatic deviation pending pure-NumPy replacements or migration to a Level 1 module. Tracked as risk register C-05 (Tier 3).
+- *(No longer a deviation, kept as the record.)* **scipy in Level 0** (`EMD`, `Pearson`) is permitted by this ADR's layering rule. **scikit-learn left Level 0 on 2026-09-18** (register C-05, epic #66): `AP` and `MTD` are pure-numpy transcriptions of the scikit-learn algorithms, held to parity by a test suite that uses scikit-learn as a dev-only oracle. A guard asserts that `import views_evaluation` loads neither scikit-learn nor pandas.

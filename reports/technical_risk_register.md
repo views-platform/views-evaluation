@@ -1,7 +1,7 @@
 # Technical Risk Register — views-evaluation
 
-**Last updated:** 2026-09-17
-**Total open concerns:** 16
+**Last updated:** 2026-09-18
+**Total open concerns:** 15
 **Governing ADR:** ADR-023
 **Citation convention:** `Location` fields name files and symbols (functions, classes, sections), not line numbers — line numbers drift as soon as anything is inserted above them.
 
@@ -13,6 +13,15 @@
 > red on the old walker before the fix (own-checkout already passed). The PR's max code
 > review then found four gaps in the rewrite (linked-worktree `commondir`, locale-dependent
 > reads, unchecked ref contents, an unpinned name gate) — all fixed and tested before merge. 18 → 17.
+
+> **2026-09-18 — story S5 (#64) closed C-05 and Cluster C.** `AP` and `MTD` dispatch to the numpy
+> kernels; scikit-learn is a dev-only oracle; a guard asserts `import views_evaluation` loads
+> neither scikit-learn nor pandas, and a CI step proves the runtime-only install works.
+> 16 → 15.
+
+> **2026-09-18 — decision D-01 recorded** (a new *Decisions* section): `AP` on a group with no
+> positive truth returns `nan` with the warning suppressed, per ADR-015 R9, ruled by the maintainer
+> ahead of the AP kernel switch in #64. Count unchanged.
 
 > **2026-09-17 — story S3 (#69) closed C-44** and added the `to_dataframe()` `DeprecationWarning`
 > (one per call; pandas import guarded, `ModuleNotFoundError` naming the extra); docs mark it
@@ -70,7 +79,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 
 - **Cluster A — No doctrine for degenerate or empty results (Fail-Loud violations)** → **RESOLVED 2026-08-02**, two residues: **C-22** (accepted sentinel) and **C-40** (opened 2026-09-16 — `to_dataframe()` erases the sentinel that ADR-015 contracted; a leak in the doctrine's application, not in the doctrine). **ADR-015** now defines what a computation does when it cannot produce a result and rules on every non-raising path individually, on a **fault-vs-data-property** test. C-02, C-28(a), C-29, C-30, C-32 closed; C-20's truncation half closed. **C-22 remains open as an accepted, documented sentinel rather than a defect** — Pearson's `nan` was ruled a raise and reversed the same day when the raise proved to abort any evaluation of a constant baseline. The cluster's root cause is gone; what is left is a contract, not a silence.
 - **Cluster B — Phase-3 deletion left config validation and its documented contracts unowned** → **CLOSED 2026-08-02.** `NativeEvaluator._validate_config` (#31) restored ownership of config validation, deriving the valid key set from `EvaluationConfig` so the schema has one authority; the README was corrected (#38) and a documentation-contract test now guards it (#40). Former members C-02, C-29 closed (+ previously demoted C-21, C-23).
-- **Cluster C — scipy/sklearn in the Level-0 core** → **C-05** (reduced from C-05 + C-19). The *declaration* half closed on 2026-08-02 (#29 declared `scipy` in `pyproject.toml`, C-19). The **ADR-011 purity violation remains open**: `native_metric_calculators.py` still imports `sklearn.metrics` and `scipy.stats` at module level. **No longer latent (2026-09-16):** with pandas installed, `sklearn.metrics` imports it eagerly, so a bare `import views_evaluation` loads pandas into every process — the "pandas-free core" is true of this repo's source and false of the running interpreter. A scope-3 reimplementation, or lazy imports inside the four kernels, to fix.
+- **Cluster C — scipy/sklearn in the Level-0 core** → **CLOSED 2026-09-18.** The declaration half closed 2026-08-02 (#29, C-19); the purity half closed with #64 (C-05): `AP` and `MTD` are numpy transcriptions held to parity against scikit-learn as a dev-only oracle, and `import views_evaluation` no longer loads pandas. scipy stays, as ADR-011 permits.
 - **Cluster D — MetricFrame evaluation-of-record integrity** → **C-24, C-26** (C-25 closed by #57; C-39 — #57's fix mis-stamping under a consumer's in-repo venv — opened 2026-09-16 and **closed 2026-09-17** by #67). The vacuous-emit exposure (C-30) closed on 2026-08-02 (#34). C-24 and C-26 were deliberately deferred until **after** the first stable release ships (0.5.0, then 1.0.0), so the drift guards pin the contract that actually shipped rather than a moving one. Consumers (views-reporting, pipeline-core) are actively building against this surface.
 - **Cluster E — `Ignorance` bin contract is unsound** → **C-28** (reduced). #32 guards both tails of the bin range, raising per ADR-015 ruling 8 — C-27 closed and C-28's silent-mis-scoring half with it. What remains is **C-28(b)**: `low_bin`/`high_bin` are declared, required, and inert. Kept as documented reserved placeholders by maintainer decision rather than deleted (#33 reverted), so the cluster stays open on a use-it-or-lose-it basis.
 - **Cluster F — Input-boundary shape contract incomplete** → **CLOSED 2026-08-02.** #36 added the `y_true.ndim` check at the frame boundary and the missing `_guard_shapes` call in `y_hat_bar`. C-31, C-32 closed. (C-32 was fixed rather than demoted — the demotion recommendation from the 2026-08-02 strategic review is superseded.)
@@ -90,18 +99,6 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 
 ---
 
-### C-05 — sklearn/scipy in pure-math core
-- **Tier:** 3 (Medium)
-- **Description:** `native_metric_calculators.py` imports `sklearn.metrics` and `scipy.stats` at module level. Only 4 metric functions use these (AP, EMD, Pearson, MTD). This contradicts the zero-external-dep goal for Level 0 (ADR-011).
-- **Observable consequence (added 2026-09-16, falsification audit, verified per module in fresh subprocesses).** With pandas installed, `sklearn.metrics` imports pandas eagerly. Because `views_evaluation/__init__.py` imports `native_evaluator` → `metric_catalog` → `native_metric_calculators` at package import, **every** module in this package — including `evaluation_frame`, the class whose CIC says it "has zero knowledge of Pandas" — puts `pandas` into `sys.modules` as a side effect of being imported. Measured: `import numpy`, `import scipy.stats`, `import views_frames` → pandas not loaded; `import sklearn.metrics` → loaded; `import views_evaluation.evaluation.evaluation_frame` → loaded. The README's "independent of Pandas" (line 92) and ADR-011's "ZERO knowledge of external data frameworks" are true of this repo's own import statements and false of the interpreter that runs them. The `dataframe` extra is therefore optional in name only wherever scikit-learn finds pandas on the path.
-- **Trigger:** When someone packages views-evaluation as a minimal-dep wheel, or adds a CI/import-lint check asserting Level-0 imports only numpy — the module-level `sklearn`/`scipy` imports fail it. **Also (2026-09-16):** when anyone measures import time or memory of the package, ships it into a process where pandas is present but unwanted, or reads ADR-011 / the README as a process-level guarantee — check `'pandas' in sys.modules` after `import views_evaluation`.
-- **Location:** `views_evaluation/evaluation/native_metric_calculators.py` — the module-level `sklearn.metrics` and `scipy.stats` imports at the top of the file; consumed by `calculate_ap_native`, `calculate_emd_native`, `calculate_pearson_native` and `calculate_mtd_native`; `views_evaluation/__init__.py` (eager import of `native_evaluator`, which is what makes the leak package-wide)
-- **Source:** repo-assimilation (2026-03-31); trigger sharpened 2026-06-26 (strategic review); Location field added 2026-08-02 (strategic review — required field was missing); live consequence added 2026-09-16 (falsification audit, probe P6 — the auditor predicted the opposite)
-- **Mitigation path:** Replace with pure-numpy implementations or move affected metrics to a Level 1 module.
-- **Note:** The packaging half (C-19 — `scipy` undeclared in `pyproject.toml`) was **closed on 2026-08-02** (#29). What remains here is purely the ADR-011 purity violation: the imports are now honestly declared, but they still sit in the Level-0 core. Part of causal cluster C. **Tracked as GitHub issue #64** (2026-09-16): numpy reimplementation of AP and MTD; scikit-learn to the dev group. Not blocked. The issue gates retirement of the sklearn path on a comprehensive parity suite that has been observed failing on a broken kernel (C-37).
-
----
-
 ### C-20 — Identifier semantics and dtype for `step` (and `time`) are assumed but enforced nowhere
 - **Tier:** 2 (High) — reduced from 2 to 3 on 2026-08-02 when the silent-truncation half was fixed; **raised back to 2 on 2026-09-16** on new evidence that a dtype mismatch produces a structurally valid record with an empty step-wise schema and no error signal (see the 2026-09-16 block below)
 - **Description:** The step-wise schema groups rows by the caller-supplied `step` identifier under the convention that step = 1-indexed positional lead time (step 1 = the first month of each origin's forecast window). ADR-040 documents the convention and `CICs/EvaluationFrame.md` §8 explains its consequence, but **nothing validates it**. The adapter that used to synthesise `step` positionally (`PandasAdapter`) was deleted in Phase 3, so the assumption now rests entirely on callers. If a caller supplies `step` meaning something else — an absolute month offset, a 0-indexed position — the step groups are mislabelled and cross-model comparison is invalid, with no signal.
@@ -117,7 +114,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 ### C-22 — `Pearson` records `nan` for degenerate groups (accepted sentinel)
 - **Tier:** 4 (Low) — reduced from 3 on 2026-08-02; the behaviour is now contracted and documented rather than incidental
 - **Description:** `calculate_pearson_native` returns `nan` when either series is constant, and that `nan` flows into the `EvaluationReport` and on into `to_metric_frame()`. This was originally filed because the value appeared unflagged and undocumented. It is now an **explicitly accepted sentinel** under ADR-015 ruling 2, documented in the function docstring in `MCR`'s style, asserted by tests, and recorded in `CICs/MetricCatalog.md`. The residual concern is only that a consumer who does not read the contract may treat `nan` as a computed value.
-- **Trigger:** When a downstream consumer aggregates Pearson across groups without excluding `nan` — e.g. using `mean` rather than `nanmean` — a single degenerate group silently poisons the aggregate to `nan`. (`to_metric_frame()` already uses `nanmean` and is safe; the risk is in consumers that read `to_dict()` directly.)
+- **Trigger:** When a downstream consumer aggregates a sentinel-bearing metric — `Pearson`, `MCR`, and since 2026-09-18 `AP` (ADR-015 R9) — across groups without excluding `nan`, a single degenerate group silently poisons the aggregate to `nan`. `to_metric_frame()` uses `nanmean` and is safe. **The consumer that reads `to_dict()` directly is views-pipeline-core's WandB logging** (`modules/wandb/utils.py`, a mean skipping `None` only; observed 2026-09-18), which is live for `AP` via `views-models/ensembles/rusty_bucket` — see D-01.
 - **Location:** `views_evaluation/evaluation/native_metric_calculators.py` (`calculate_pearson_native`); `documentation/CICs/MetricCatalog.md` (degenerate-input table)
 - **Source:** repo-assimilation (2026-06-24); re-tiered 4→3 on 2026-06-26; **ruled a raise then reversed to a sentinel on 2026-08-02** (ADR-015 R2) after the raise was found to abort any evaluation of a constant baseline
 - **Mitigation path:** Accepted as designed. If it needs closing, the route is to document the `nan` contract in the consumer-facing MetricFrame docs so downstream aggregation is provably safe — not to change the metric.
@@ -228,7 +225,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 ### C-40 — `to_dataframe()` silently erases any metric that is `nan` in every group
 - **Tier:** 3 (Medium) — one of three export paths disagrees with the other two on which metrics exist; affects every consumer of the DataFrame path and every comparison between paths. Not Tier 2: the DataFrame is a convenience export, not the record; the record (`MetricFrame`) is correct.
 - **Description:** `BaseEvaluationMetrics.evaluation_dict_to_dataframe` ends with `df.loc[:, df.notna().any()]`, dropping every column that is `nan` in every row. That predates ADR-015, which now rules `nan` a **documented sentinel** for Pearson (ruling 2) and MCR. **Probed 2026-09-16:** a constant-truth frame scored with `['MSE', 'Pearson']` gives `to_dict()` month results with a finite `MSE` and `Pearson: nan` in *both* month groups, a MetricFrame with both `MSE` and `Pearson` rows (16 rows), and a DataFrame with columns `['MSE']` only. The sentinel and the metric's *name* both vanish, with no warning. A researcher comparing a DataFrame to a MetricFrame, or reading a DataFrame to check which metrics ran, sees a different metric set from the same report. A metric that is `nan` in *some* groups survives, so the erasure is conditional on the data, which is the worst kind of silence: the same config yields different column sets on different inputs.
-- **Trigger:** When someone reads `to_dataframe(schema)` to determine which metrics were computed, or joins it against `to_dict()` / a MetricFrame, for any report where a metric is `nan` in every group of that schema — a constant-baseline model scored with Pearson, or an all-zero-truth group scored with MCR. Check whether the metric column exists.
+- **Trigger:** When someone reads `to_dataframe(schema)` to determine which metrics were computed, or joins it against `to_dict()` / a MetricFrame, for any report where a metric is `nan` in every group of that schema — a constant-baseline model scored with Pearson, an all-zero-truth group scored with MCR, or (since 2026-09-18, ADR-015 R9) a classification target with no positive in any group scored with AP. Check whether the metric column exists.
 - **Location:** `views_evaluation/evaluation/metrics.py` (`BaseEvaluationMetrics.evaluation_dict_to_dataframe`, the `df.loc[:, df.notna().any()]` filter); `views_evaluation/evaluation/evaluation_report.py` (`to_dataframe`, the caller)
 - **Source:** repo-assimilation (2026-09-16), empirically verified
 - **Mitigation path:** Remove the column filter so the DataFrame carries the same metric set as the other two paths, with `nan` in place; or, if the filter is wanted, make it opt-in and document that the DataFrame is not the record. Add a test asserting the three export paths agree on the set of metric names for a report containing an all-`nan` metric — no test does today (`tests/test_evaluation_report.py` never constructs a `nan` value).
@@ -243,7 +240,7 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Location:** `pyproject.toml` (`numpy = "^1.26.4"`, `python = ">=3.11,<3.15"`, caret ranges on `scikit-learn` and `scipy` that admit future 1.x minors); `.github/workflows/run_pytest.yml` (`python-version: "3.11"`; `poetry install --all-extras` without a lock); absence of `poetry.lock`
 - **Source:** repo-assimilation (2026-09-16)
 - **Mitigation path:** Commit `poetry.lock` (or record the resolved set in the CI log as an artifact) so a green build names its versions; add the declared interpreters to the CI matrix or narrow the declared range to what is tested; decide deliberately whether the numpy 1.x ceiling is a constraint or an oversight, and either lift it with a test run under numpy 2 or document why it stays.
-- **Note:** Inward-facing counterpart of C-38 — that entry is about consumers' resolution being unchecked; this is about this repo's own resolution being unrecorded. Same evidence gap as C-35: "it passed" without "against what".
+- **Note:** Inward-facing counterpart of C-38 — that entry is about consumers' resolution being unchecked; this is about this repo's own resolution being unrecorded. Same evidence gap as C-35: "it passed" without "against what". **2026-09-18:** the resolve shrank — scikit-learn left the runtime dependencies (C-05, #64) and is now dev-only; the parity suite's oracle is whatever scikit-learn CI resolves, which this entry's lockfile point now also covers.
 
 ---
 
@@ -266,6 +263,21 @@ Root-cause groupings (added 2026-06-26; expanded then largely closed 2026-08-02 
 - **Source:** repo-assimilation (2026-09-16)
 - **Mitigation path:** Accept and document in `CICs/NativeEvaluator.md` that `pred_type` is a property of the frame, not the model; or let the config declare the expected prediction type per target and raise when the frame's width disagrees. The second is the ADR-012 answer; the first is cheaper and may be sufficient.
 - **Note:** Cross-ref C-20 (the other place a frame property is trusted without being declared).
+
+---
+
+## Decisions
+
+Maintainer decisions taken on a register concern, recorded here so the reasoning outlives the session that produced it (ADR-023). A decision is not a concern: it has no tier and no trigger, and it closes when its consequence ships.
+
+### D-01 — `AP` on a group with no positive truth: `nan` sentinel, warning suppressed
+- **Decided:** 2026-09-18, by the maintainer, on the three options laid out with the code in front of them. Recorded in full as ADR-015 ruling 9 (R9); this entry is the pointer and the consequence tracker.
+- **Concern:** C-05 — the switch from the scikit-learn AP kernel to the numpy one (epic #66, story #64) is where scikit-learn's inherited `0.0`-plus-`UserWarning` convention would otherwise have become a first-party non-raising return with no ADR-015 ruling; found by `/code-review max` of story #70.
+- **Options weighed:** (A) `nan`, warning suppressed — chosen; (B) raise — rejected on the R2 evidence (aborts every metric and schema for a routine data condition; tried on Pearson and reversed the same day); (C) keep `0.0`, warning suppressed — rejected because it codifies a wrong number into the evaluation-of-record and silently pulls the `mean` row toward zero by an amount set by the data, not the model (the C-02 shape).
+- **Consequence (ADR-022 §3):** a behaviour change for any evaluation whose data contains an empty classification group — `nan` for the group, `mean` row over the rest, where before it was `0.0` and a lower mean. Affected at the time of decision: `views-models/ensembles/rusty_bucket` (the one live config requesting `AP`) and views-reporting's canonical classification cell. Both to be named in the release notes of the release that carries the switch (S6, 1.1.0).
+- **Ships with:** #64. Closes when 1.1.0 is published with the change in its notes.
+- **Residual, now live (found by the code review of #64, 2026-09-18):** C-22's — and the direct `to_dict()` reader it warned about exists: views-pipeline-core averages group values for its WandB scalars with a mean that skips `None` but not `nan` (`views_pipeline_core/modules/wandb/utils.py`, observed on their `development` branch). One empty group makes their `AP_mean` scalar `nan`. The fix is theirs (`nanmean`), named in the release notes, and C-22's trigger is widened to cover it. Also: `to_dataframe()` drops an all-`nan` column (C-40), which now applies to `AP`; the method is deprecated and goes in 2.0.0.
+- **Versioning:** filed MINOR on the ADR-022 §1 argument that the `0.0` was never documented behaviour of this library; recorded in ADR-015 R9 so the S6 checklist can answer rule 5 against it.
 
 ---
 
@@ -304,6 +316,7 @@ Moved out of the register (no correctness/reliability dimension) — tracked in 
 
 | ID | Tier | Description | Resolution | Issue |
 |----|------|-------------|------------|-------|
+| C-05 | 3 | sklearn/scipy in pure-math core | `AP` and `MTD` reimplemented in numpy as transcriptions of scikit-learn 1.7.2 (S4, #70: kernels alongside + parity suite, seen red on 26 injected defects; S5, #64: the switch). scikit-learn moved to the dev group as the parity oracle. `TestLevelZeroImportPurity` asserts a fresh `import views_evaluation` loads neither scikit-learn nor pandas and fails (not skips) if either is uninstalled; a CI step proves the runtime-only install. scipy stays (ADR-011 permits it). The empty-group AP case was ruled on the way (D-01, ADR-015 R9). | #70, #64 |
 | C-44 | 4 | `to_dataframe()` without pandas raises a bare `ModuleNotFoundError`, unlike its guarded sibling | `find_spec("pandas")` gate raising `ModuleNotFoundError(name="pandas")` that names `pip install views-evaluation[dataframe]` — same type as the bare import, so no caller's `except` changes; no log, since Level 0 does not log (standard §5.1). Test `tests/test_adversarial_inputs.py::TestOptionalExtraAbsentRed` (outside the pandas-gated module so it runs where the case applies; observed red on the bare import first). The entry's second cited site, `metrics.py`'s `evaluation_dict_to_dataframe`, is deprecated with the method and deleted in S7 rather than guarded. Same change deprecates the method (S3, #69). | #69 |
 | C-39 | 2 | `scoring_code_version` stamps the consumer's git SHA when the wheel is installed inside the consumer's checkout | `_source_git_sha` bounded to the directory containing `views_evaluation/` (`parents[2]`, flat layout), accepted only when a `pyproject.toml` there declares this distribution (parsed with `tomllib`, PEP 503-normalised); reads UTF-8; follows a `.git` file's `gitdir:` relative to the file and a linked worktree's `commondir`; rejects non-hash ref contents; logs at WARNING when `.git` is ours but unreadable. Tests `TestSourceGitShaBoundary{Red,Green,Beige}` in `tests/test_metric_frame.py` (consumer venv, vendored copy, unreadable state, loose/packed refs, hyphenated name, linked worktree, submodule); the consumer-venv and relative-`gitdir:` cases were observed failing on the old walker first. CHANGELOG, CIC MetricFrame.md and CIC EvaluationReport.md corrected. Epic #66, story #67; the `/code-review max` of that PR found the `commondir`, locale, hex-check and name-gate gaps and they were fixed before merge. | #67 |
 

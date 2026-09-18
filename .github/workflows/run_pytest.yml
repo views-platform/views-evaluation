@@ -41,6 +41,21 @@ jobs:
         # (ADR-022 §1). Guarded by tests/test_falsification_ci_coverage_gap.py.
         poetry install --all-extras
 
+    # Nothing else ever exercises "works without the dev group": the local env and the
+    # steps below always carry scikit-learn. `poetry sync --only main` removes the dev
+    # group (scikit-learn among it) and keeps the extras; the probe then asserts that
+    # scikit-learn is genuinely ABSENT — not merely unloaded, which would be vacuous —
+    # and that importing the package does not load pandas, which the extras install
+    # (ADR-011; C-05). The reinstall restores the dev group; the verify step below
+    # proves the extras are present, and the pytest step needs the dev group or it
+    # cannot collect.
+    - name: Prove the runtime-only install works
+      run: |
+        set -e
+        poetry sync --only main --all-extras
+        poetry run python -c "import sys, importlib.util as u, views_evaluation, views_evaluation.evaluation.metric_frame; assert u.find_spec('sklearn') is None, 'scikit-learn still installed'; assert 'pandas' not in sys.modules, 'import loaded pandas'"
+        poetry install --all-extras
+
     # Proves the extras ARRIVED, not merely that --all-extras was requested.
     # `poetry install` exits 0 even if it resolves without an optional package, and
     # every downstream guard is a module-level pytest.importorskip that turns absence

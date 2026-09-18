@@ -496,6 +496,44 @@ class TestMetricFrameMetadata:
 # why the report was empty.
 # ---------------------------------------------------------------------------
 
+class TestSentinelGroupsInTheMeanRow:
+    """ADR-015 R9 / R1 / R2: a group carrying a sentinel `nan` is excluded from the
+    cross-group `mean` row, so an empty classification group neither drags AP toward
+    zero nor poisons the aggregate."""
+
+    def test_nan_ap_group_is_excluded_from_the_mean(self):
+        results = {
+            "month": {"month100": {"AP": float("nan")}, "month101": {"AP": 0.8}, "month102": {"AP": 0.6}},
+            "time_series": {}, "step": {},
+        }
+        mf = EvaluationReport("t", "classification", "point", results).to_metric_frame()
+        mean_rows = (mf.identifiers["group_id"] == MEAN_GROUP_ID) & (mf.identifiers["metric"] == "AP")
+        assert mf.values[mean_rows].ravel().tolist() == pytest.approx([0.7], abs=1e-6)
+        empty = (mf.identifiers["group_id"] == "month100") & (mf.identifiers["metric"] == "AP")
+        assert empty.sum() == 1, "the sentinel row must be CARRIED, not omitted (R9 set omission aside)"
+        assert np.isnan(mf.values[empty]).all()
+
+
+class TestAllSentinelFrameBeige:
+    """ADR-015 R6 amended 2026-09-18: a frame whose every value is a sentinel emits (it
+    is a data property, and raising would abort a constant baseline scored on Pearson —
+    the R2 reversal) but leaves a WARNING on the emit path, because before R9 such an
+    evaluation at least emitted scikit-learn's warnings and now it would be silent."""
+
+    def test_all_nan_frame_emits_and_warns(self, caplog):
+        results = {"month": {"m1": {"AP": float("nan")}, "m2": {"AP": float("nan")}}, "time_series": {}, "step": {}}
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            mf = EvaluationReport("t", "classification", "point", results).to_metric_frame()
+        assert mf.n_rows == 3 and np.isnan(mf.values).all()
+        assert any("every value is a sentinel" in r.message for r in caplog.records)
+
+    def test_a_frame_with_one_real_value_does_not_warn(self, caplog):
+        results = {"month": {"m1": {"AP": float("nan")}, "m2": {"AP": 0.5}}, "time_series": {}, "step": {}}
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            EvaluationReport("t", "classification", "point", results).to_metric_frame()
+        assert not [r for r in caplog.records if "sentinel" in r.message]
+
+
 class TestVacuousEmitRed:
 
     def test_report_with_no_metric_values_raises(self):

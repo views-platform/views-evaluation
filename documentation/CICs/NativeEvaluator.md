@@ -137,7 +137,7 @@ schema = report.get_schema_results('time_series')  # dict → typed metrics data
 
 ## 12. Known Deviations
 
-- **sklearn/scipy in "pure core":** The `NativeEvaluator` dispatches to metric functions that import `sklearn` and `scipy` at module level. This contradicts the stated goal of a zero-external-dep Level 0 core (ADR-011). (Risk register C-05)
+- *(No longer a deviation, kept as the record.)* **scipy in the pure core:** the `EMD` and `Pearson` kernels use `scipy.stats`, which ADR-011 permits. scikit-learn was removed from the core on 2026-09-18 (register C-05); `AP` and `MTD` are numpy transcriptions held to parity against scikit-learn as a dev-only oracle.
 
 ---
 

@@ -1,10 +1,6 @@
 import warnings
 
 import numpy as np
-from sklearn.metrics import (
-    average_precision_score,
-    mean_tweedie_deviance,
-)
 from scipy.stats import wasserstein_distance, pearsonr
 from scipy.stats import ConstantInputWarning
 
@@ -72,20 +68,25 @@ def _crps_ensemble_numpy(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
     return mae_term - spread_term
 
 
-# ── Pure-numpy AP and Tweedie deviance (register C-05; epic #66, story #70) ──────
+# ── Pure-numpy AP and Tweedie deviance (register C-05; epic #66, stories #70 and #64) ──
 #
-# These two exist alongside the scikit-learn kernels they will replace. NOTHING
-# DISPATCHES TO THEM YET: the parity suite in tests/test_metric_calculators.py runs
-# them against scikit-learn as the oracle, and only once that suite is green — and has
-# been seen to fail on a deliberately broken kernel — does #64 point the public kernels
-# here and drop the sklearn import. Each is a transcription of the scikit-learn 1.7.2
-# algorithm, so that the switch is numerically invisible for float64 input.
+# These replaced the scikit-learn kernels on 2026-09-18. Each is a transcription of the
+# scikit-learn 1.7.2 algorithm, so the switch was numerically invisible for float64
+# input with one ruled exception — AP on a group with no positive truth returns `nan`
+# where scikit-learn returned 0.0 (ADR-015 R9) — and the parity suite in
+# tests/test_metric_calculators.py still runs them against scikit-learn, now a dev-only
+# dependency, as the oracle, permanently. Level 0 imports
+# numpy and scipy only (ADR-011), so `import views_evaluation` no longer loads pandas
+# through scikit-learn.
 #
 # Input validation is the kernels' own. On the NativeEvaluator path EvaluationFrame
 # already rejects NaN, inf and object dtype, but the public kernels and
 # METRIC_CATALOG[...].function are importable directly, and scikit-learn's check_array
-# rejected what the frame lets through (complex, string, empty, mismatched length).
-# Dropping the oracle must not turn those raises into numbers.
+# rejected some of what the frame lets through (complex, empty, mismatched length).
+# Dropping the oracle must not turn those raises into numbers. The validation here is
+# stricter than scikit-learn's in a few places, each named in the CHANGELOG as an input
+# that now fails: string and timedelta arrays (scikit-learn cast strings to numbers), a
+# bool `power`, and a single truth label outside {-1, 0, 1}.
 
 
 def _kernel_vector(name: str, values) -> np.ndarray:
@@ -101,11 +102,13 @@ def _kernel_vector(name: str, values) -> np.ndarray:
         raise ValueError(f"{name} is empty; at least one sample is required")
     if arr.dtype == bool:
         arr = arr.astype(np.int64)
-    if not (np.issubdtype(arr.dtype, np.floating) or np.issubdtype(arr.dtype, np.integer)):
+    # kind, not issubdtype: np.timedelta64 subclasses np.signedinteger and would pass.
+    if arr.dtype.kind not in "iuf":
         raise ValueError(f"{name} must be real-numeric, got dtype {arr.dtype}")
-    if np.issubdtype(arr.dtype, np.floating) and not np.all(np.isfinite(arr)):
+    if arr.dtype.kind == "f" and not np.all(np.isfinite(arr)):
         bad = int(np.flatnonzero(~np.isfinite(arr))[0])
-        raise ValueError(f"{name} contains {arr[bad]!r} at index {bad}; values must be finite")
+        # .item(): a Python float, so the message reads `nan`, not `np.float64(nan)` under numpy 2
+        raise ValueError(f"{name} contains {arr[bad].item()!r} at index {bad}; values must be finite")
     return arr
 
 
@@ -114,17 +117,18 @@ def _average_precision_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
 
     Reproduces ``sklearn.metrics.average_precision_score`` for binary ``y_true``:
     a descending-score threshold sweep with tied scores collapsed to one operating
-    point (``_binary_clf_curve``), precision zero where a threshold has no
-    predictions, recall against the total positives — or all-ones with a
-    ``UserWarning`` when there are no positives, as scikit-learn does — and the
+    point (``_binary_clf_curve``), recall against the total positives, and the
     step-wise sum ``Σ (R_n − R_{n−1}) P_n`` over the reversed curve with the ``(1, 0)``
     endpoint appended. Not the trapezoidal area under the curve.
 
-    ⚠ The no-positives branch (0.0 plus a warning) is transcribed from scikit-learn so
-    that this kernel is behaviourally identical to the public path today. It is a
-    non-raising return with no ADR-015 ruling: #64 must rule on it — raise, or a
-    contracted sentinel with the warning suppressed as `calculate_pearson_native`
-    does — before dispatching here. Register C-05.
+    **A group with no positive label returns `nan`** (ADR-015 ruling 9, decided
+    2026-09-18; register D-01). Average precision is undefined without a positive to
+    recall; scikit-learn's convention on that input — set recall to 1 everywhere and
+    return `0.0` with a `UserWarning` — is a convention, not a score, and would mark a
+    model that correctly predicted "nothing here" as the worst possible. An empty
+    group is a property of conflict data, not a fault, so it is ruled as `MCR` and
+    `Pearson` are: a documented sentinel, warning suppressed, excluded from the
+    `to_metric_frame()` mean row by `nanmean`.
 
     Accepted ``y_true``: integral values, at most two distinct, and if two then ``1``
     among them; the positive class is ``y_true == 1``. That is scikit-learn's accepted
@@ -147,13 +151,20 @@ def _average_precision_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
     if (
         len(labels) > 2
         or (len(labels) == 2 and 1 not in labels)
+        or (len(labels) == 1 and labels[0] not in (-1, 0, 1))
         or np.any(labels != np.floor(labels))
     ):
+        # The single-label clause is stricter than scikit-learn, which computed 0.0 for a
+        # uniform 2 or 5: under R9 that input would become a silent `nan`,
+        # indistinguishable from a legitimate all-zero group, and a uniformly mis-coded
+        # truth column is a fault the caller must see.
         raise ValueError(
             f"AP requires binary y_true with 1 as the positive label; observed labels "
             f"{labels.tolist()[:8]}{'...' if len(labels) > 8 else ''}"
         )
     positive = y_true == 1
+    if not positive.any():
+        return float("nan")  # ADR-015 R9: undefined for this group, not "worst possible"
 
     # Stable ascending sort, then reversed — scikit-learn's exact permutation, which
     # matters only for which tied element comes first and is then collapsed anyway.
@@ -170,13 +181,7 @@ def _average_precision_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
     fps = 1 + thresholds - tps
 
     precision = tps / (tps + fps)  # never zero: each threshold has >= 1 prediction
-    if tps[-1] == 0:
-        warnings.warn(
-            "No positive class found in y_true, recall is set to one for all thresholds."
-        )
-        recall = np.ones_like(tps)
-    else:
-        recall = tps / tps[-1]
+    recall = tps / tps[-1]
 
     # Reverse so recall is decreasing, append the (precision=1, recall=0) endpoint,
     # then the negated step integral; clip a numerical -0.0.
@@ -233,7 +238,7 @@ def _tweedie_deviance_numpy(y_true: np.ndarray, y_pred: np.ndarray, power: float
 
     def offending(mask, name, arr):
         i = int(np.flatnonzero(mask)[0])
-        return f" Offending {name}: {arr[i]!r} at index {i}."
+        return f" Offending {name}: {arr[i].item()!r} at index {i}."
 
     def generic(y_first_term):
         # The closed form for every power outside {0, 1, 2}. p < 0 passes a clamped y
@@ -281,11 +286,9 @@ def calculate_crps_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, *
     return float(np.mean(_crps_ensemble_numpy(y_true, y_pred)))
 
 def calculate_ap_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
+    """Average precision; `nan` for a group with no positive truth (ADR-015 R9)."""
     y_true, y_pred = _guard_shapes(y_true, y_pred)
-    return average_precision_score(
-        np.repeat(y_true, y_pred.shape[1]), 
-        y_pred.flatten()
-    )
+    return _average_precision_numpy(np.repeat(y_true, y_pred.shape[1]), y_pred.flatten())
 
 def calculate_emd_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
     y_true, y_pred = _guard_shapes(y_true, y_pred)
@@ -326,12 +329,9 @@ def calculate_pearson_native(y_true: np.ndarray, y_pred: np.ndarray, target=None
     return correlation
 
 def calculate_mtd_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, *, power: float, **kwargs) -> float:
+    """Mean Tweedie deviance, computed in float64 for every power outside (0, 1)."""
     y_true, y_pred = _guard_shapes(y_true, y_pred)
-    return mean_tweedie_deviance(
-        np.repeat(y_true, y_pred.shape[1]), 
-        y_pred.flatten(),
-        power=power
-    )
+    return _tweedie_deviance_numpy(np.repeat(y_true, y_pred.shape[1]), y_pred.flatten(), power)
 
 def calculate_mean_prediction_native(y_true: np.ndarray, y_pred: np.ndarray, target=None, **kwargs) -> float:
     # C-32: this kernel ignores y_true, but it must still guard like every sibling.

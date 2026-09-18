@@ -26,6 +26,7 @@ The improvisations that resulted, all empirically verified on 2026-08-02:
 | `to_metric_frame()` on an empty report | Emits a structurally valid **zero-row** evaluation-of-record |
 | `legacy_compatibility=True` | Returns `{}` for steps the caller explicitly requested |
 | `MCR`, zero-truth group | Returns `inf` or `nan` — **documented and tested** |
+| `AP`, group with no positive truth *(added 2026-09-18)* | Returned scikit-learn's `0.0` plus a `UserWarning` — a convention inherited unexamined while the kernel dispatched to scikit-learn |
 
 The last row differs in kind from the others, and that difference is the substance of this ADR.
 
@@ -82,9 +83,10 @@ Each path enumerated in the Context is ruled on individually below. These ruling
 | 3 | `MetricFrame.values` permitting `NaN` | **Permitted, unchanged** | See R3 |
 | 4 | Unknown / misspelled config key | **Raise at construction** | Direct application of the rule |
 | 5 | Missing `steps` config key | **Raise at construction** | Direct application of the rule |
-| 6 | Zero-row `to_metric_frame()` emit | **Raise at emit** | Direct application of the rule |
+| 6 | Zero-row `to_metric_frame()` emit | **Raise at emit**; an all-sentinel emit **logs at WARNING** (amended 2026-09-18) | Direct application of the rule; see R9 for the amendment |
 | 7 | `legacy_compatibility` truncating requested steps | **Omit the key** (revised) | ⚠ Reversed 2026-08-02; see R7 |
 | 8 | `Ignorance` observation outside the bin range | **Raise**, both tails | See R8 |
+| 9 | `AP` on a group with no positive truth | **Documented sentinel** — `nan`, warning suppressed | Same case as R1/R2; see R9 |
 
 ---
 
@@ -142,6 +144,25 @@ Every views-models config sets `steps = list(range(1, 37))`, so a caller whose s
 *The lesson, generalised:* this ADR's exception test asks whether a degenerate case is a **fault or a data property**. Ruling 7 failed a prior question — *whose* fault. Before ruling that something must raise, identify who is being told off and whether they actually did anything wrong. Here the caller had followed the documented contract exactly.
 
 **R8 — `Ignorance` raises on out-of-range observations.** An observation outside the configured bins means the profile's `bins` do not fit the target. Two alternatives were considered and rejected under the doctrine: **clamping** into the edge bins is a silent fix that redefines the metric precisely at the tails, where conflict data matters most; **widening the base profile's ceiling** is a magic number that relocates the cliff without removing it and does nothing for the underflow. The configuration is wrong and must be corrected by the researcher.
+
+**R9 — `AP` on a group with no positive truth returns `nan`.** Decided 2026-09-18 by the maintainer, before the AP kernel moved from scikit-learn to numpy (epic #66, story #64; register C-05). Average precision is undefined when a group contains no positive label: the precision–recall curve has no recall axis to integrate. scikit-learn's convention on that input is to set recall to 1 at every threshold and emit a plain `UserWarning`, which collapses the step sum to precision at the lowest threshold, i.e. `0 / N = 0.0`. That is a convention, not a score — a model that correctly predicted "nothing here" gets the worst possible value — and the public kernel inherited it unexamined for as long as it dispatched to scikit-learn.
+
+Applying the fault-vs-data-property test: a month, origin sequence or lead step in which no unit had the event is a **property of conflict data**, exactly the zero-truth and constant-input cases of R1 and R2, and not something the caller can correct. Criterion 1 holds; the ruling follows R1 and R2. Three options were weighed on 2026-09-18 with the code in front of the maintainer:
+
+- **Raise** was rejected on the R2 evidence: it aborts the whole `evaluate()` call — every metric, every schema — for a routine data condition, which is the failure this ADR's Validation section records being tried on Pearson and reversed the same day.
+- **Keep `0.0` with the warning suppressed** was rejected because it codifies a wrong number into the evaluation-of-record: `0.0` reads as "the model scored zero", and `to_metric_frame()`'s `mean` row is pulled toward zero by however many empty groups the data happens to contain — a distortion of the absolute value and of any cross-period comparison that depends on the data, not the model, and is silent. That is the plausible-number-never-computed shape the register rates Tier 1 (C-02).
+- **`nan`, warning suppressed** was chosen. `nan` is the true statement ("undefined for this group"), the `mean` row's `nanmean` excludes the group instead of penalising it, and the treatment is identical to R1 and R2. Omitting the metric key for the group (R7's device) was considered and set aside: the emit path tolerates it, but it makes group dicts ragged and departs from how the sibling sentinels are carried.
+
+The warning is suppressed under the same reasoning as for Pearson: a contracted sentinel's warning is noise (`ConstantInputWarning` is suppressed in `calculate_pearson_native` for this reason). Behavioural consequence, named for ADR-022 §3: an evaluation whose data contains an empty group now carries `nan` for that group and a `mean` row over the remaining groups, where before it carried `0.0` and a lower mean. At the time of ruling one live configuration requests `AP` (`views-models/ensembles/rusty_bucket`), and views-reporting's canonical classification cell expects it; both are named in the release notes of the release that carries the switch. Residual, unchanged: C-22 — a consumer that reads `to_dict()` directly and averages with `mean` rather than `nanmean` is poisoned by one `nan`.
+
+Documented in `_average_precision_numpy`'s docstring and `CICs/MetricCatalog.md`'s degenerate-input table; asserted by `tests/test_metric_calculators.py::TestAPParityWithSklearn::test_all_negative_truth_is_the_nan_sentinel` and `tests/test_metric_frame.py` (the group is excluded from the `mean` row).
+
+*Two consequences found by the code review of the switch (2026-09-18) and recorded here so the ruling is not read as costless:*
+
+1. **Consumer aggregation.** views-pipeline-core builds its WandB scalars from `report.to_dict()` and averages group values with a mean that skips `None` but not `nan` (`views_pipeline_core/modules/wandb/utils.py`, observed 2026-09-18 on their `development` branch). Under this ruling one empty group makes their `AP_mean` scalar `nan`, where before it was pulled toward zero. That is register C-22's residual, now live for a consumer that requests `AP` (`views-models/ensembles/rusty_bucket`). The fix is theirs and is the one C-22 already prescribes — `nanmean` — and they are named in the release notes as an affected consumer. The MetricFrame `mean` row, which views-reporting reads, is already `nanmean` and is correct.
+2. **An all-sentinel frame.** An evaluation whose truth is entirely zero (an upstream mis-join, or the wrong column) with `AP` as its only metric now produces a MetricFrame in which every value is `nan`. Before this ruling it produced zeros plus a warning per group. Raising at emit was rejected on the R2 evidence (a constant baseline scored only on Pearson is the same shape and is a legitimate workflow), so **R6 is amended**: `to_metric_frame()` logs at WARNING on the emit path when every value it is about to emit is a sentinel, and emits. The frame is valid; the trace says why it may be empty of meaning.
+
+*Versioning (ADR-022).* This ruling changes a value in the evaluation-of-record from `0.0` to `nan`. It is filed as a MINOR change, on this argument: §1 defines the public surface as `__all__` symbols plus their **documented** behaviour, and the `0.0`-on-no-positives behaviour was documented nowhere — it was scikit-learn's convention, never this library's contract; no accepted input fails (§3 does not apply); no signature, type or on-disk format changes. A consumer reading the value change as breaking has that argument here to weigh, and the S6 release checklist answers rule 5 against it.
 
 ---
 
