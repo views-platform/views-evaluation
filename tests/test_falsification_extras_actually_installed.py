@@ -446,6 +446,12 @@ jobs:
     - name: Install dependencies
       run: |
         poetry install --all-extras
+    - name: Prove the runtime-only install works
+      run: |
+        set -e
+        poetry sync --only main --all-extras
+        poetry run python -c "import sys, importlib.util as u, views_evaluation, views_evaluation.evaluation.metric_frame; assert u.find_spec('sklearn') is None, 'scikit-learn still installed'; assert 'pandas' not in sys.modules, 'import loaded pandas'"
+        poetry install --all-extras
     - name: Verify optional extras are installed
       run: poetry run python -c "import views_frames, pandas"
     - name: Run tests

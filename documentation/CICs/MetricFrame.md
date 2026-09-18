@@ -74,7 +74,7 @@ All raise `ValueError` at construction, each logged at `ERROR` first:
 
 - `load()` must faithfully reconstruct whatever `save()` wrote, including historical frames.
 - The `group_id="mean"` aggregate row carries `nanmean` semantics by design.
-- Accepted sentinels upstream (`MCR`'s `inf`/`nan`, `Pearson`'s `nan`) legitimately reach here.
+- Accepted sentinels upstream (`MCR`'s `inf`/`nan`, `Pearson`'s `nan`, `AP`'s `nan` on a group with no positive truth — ADR-015 R1/R2/R9) legitimately reach here, in any cell. The `mean` row excludes them (`nanmean`). A frame in which every value is a sentinel is emitted with a WARNING logged (R6, amended 2026-09-18).
 
 ADR-015 **ruling 3** rules on this explicitly: the guard against a *vacuous* record belongs at the emit site (`to_metric_frame` raises when no schema produced any value), not in the container, because the emit site has the context to say *why* it was empty. Tightening the container would break the round-trip and change a published cross-repo envelope.
 

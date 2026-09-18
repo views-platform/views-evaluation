@@ -139,9 +139,9 @@ class EvaluationReport:
         For each schema (month/time_series/step) present, one row is emitted per
         (group_id, metric), PLUS a cross-group aggregate row with ``group_id="mean"`` carrying
         the ``nanmean`` over the groups that reported that metric (the value views-reporting
-        matches on). In the normal emit path the denominator is every group in the schema,
-        because NativeEvaluator computes the same metric set for every group; a metric present
-        in only some groups would be averaged over just those. Schema names are mapped to the
+        matches on). The denominator is every group that reported a non-sentinel value: a
+        group carrying `nan` (MCR, Pearson or AP on degenerate input, ADR-015 R1/R2/R9) is
+        excluded, and a metric present in only some groups is averaged over just those. Schema names are mapped to the
         consumer-facing ``eval_type`` spelling via ``SCHEMA_TO_EVAL_TYPE``.
 
         Provenance is split per ADR-020 (register C-47): generic identity goes in the reused
@@ -245,6 +245,20 @@ class EvaluationReport:
             logging.getLogger("views_evaluation.evaluation.metric_frame").error(err_msg)
             raise ValueError(err_msg)
 
+        # ADR-015 R6, amended 2026-09-18: a frame in which EVERY value is a sentinel —
+        # every group of every metric degenerate — is structurally valid and persists,
+        # but it records nothing while looking complete. Raising here would abort a
+        # legitimate workflow (a constant baseline scored only on Pearson), which is
+        # the R2 reversal; so it logs at WARNING on the emit path and emits.
+        if values and all(np.isnan(v) for v in values):
+            import logging
+            logging.getLogger("views_evaluation.evaluation.metric_frame").warning(
+                "to_metric_frame(): every value is a sentinel (nan) — no metric produced "
+                "a number for any group. Target='%s', task='%s', pred_type='%s'. The frame "
+                "is emitted, but an evaluation that scores nothing usually means the truth "
+                "column is degenerate (all zeros, or constant) or the wrong column was passed.",
+                self.target, self.task, self.pred_type,
+            )
         values_arr = np.asarray(values, dtype=np.float32).reshape(-1, 1)
         identifiers = {axis: np.asarray(columns[axis], dtype=str) for axis in AXES}
 

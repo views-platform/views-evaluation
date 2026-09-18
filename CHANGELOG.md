@@ -33,6 +33,46 @@ provided they were announced here.
   views-pipeline-core removed its call on its `development` branch (their #513, observed
   2026-09-16 — not yet in a release of theirs; their `^1.0.0` pin admits this release).
 
+### Changed
+
+- **scikit-learn is no longer a runtime dependency.** `AP` and `MTD` are now pure-numpy
+  transcriptions of the scikit-learn 1.7.2 algorithms, held to parity (1e-10 on float64)
+  by a test suite that uses scikit-learn as a dev-only oracle. `import views_evaluation`
+  therefore no longer loads pandas — scikit-learn imported it eagerly, so every module
+  of this package did too (register **C-05**, closed). Any consumer that imports
+  scikit-learn itself must declare it — it no longer arrives through this package. Two documented
+  deviations from scikit-learn: `MTD` always computes in float64 (scikit-learn computes
+  float32 input in float32; up to ~2e-3 relative apart near p = 1 and p = 2, the numpy
+  answer being the more accurate), and rejections carry this library's messages, with
+  the offending value and index appended to scikit-learn's domain sentences.
+- **`AP` on a group with no positive truth is now `nan`, not `0.0`** (ADR-015 ruling 9,
+  register D-01, decided 2026-09-18). scikit-learn's `0.0`-plus-`UserWarning` convention
+  marked a model that correctly predicted "nothing here" as the worst possible and pulled
+  `to_metric_frame()`'s `mean` row toward zero by an amount set by the data; the empty
+  group is a property of conflict data (the `MCR`/`Pearson` case) and is now a documented
+  sentinel, with no warning. **Behaviour change for known consumers, by path:**
+  - the MetricFrame `mean` row (what views-reporting reads) is `nanmean` and excludes the
+    group — a mean over the rest;
+  - `views-models/ensembles/rusty_bucket`, the one live config requesting `AP`, gets `nan`
+    for such a group in every export;
+  - **views-pipeline-core's WandB scalars** are averaged from `to_dict()` with a mean that
+    skips `None` but not `nan` (observed 2026-09-18 on their `development` branch), so one
+    empty group makes their `AP_mean` scalar `nan`. That is register C-22's residual, now
+    live; the fix on their side is `nanmean`, as C-22 prescribes. They are notified with
+    this release.
+  - `to_dataframe()` (deprecated) drops a column that is `nan` in every group (register
+    C-40), which now applies to `AP` too.
+  An evaluation whose truth is entirely zero now emits an all-`nan` frame with a WARNING
+  logged at the emit site (ADR-015 R6, amended), where before it emitted zeros plus one
+  scikit-learn warning per group.
+- **Inputs that fail from this release** (ADR-022 §3.1), all previously accepted by the
+  scikit-learn kernels through `NativeEvaluator`: an `AP` truth column that is a single
+  label outside `{-1, 0, 1}` (a uniform `2` computed `0.0`; under the ruling above it
+  would have been a silent `nan`, so it raises); string, timedelta and other non-real
+  array dtypes for `AP`/`MTD` (scikit-learn cast strings to numbers); and `power=True` for
+  `MTD` (scikit-learn accepted a bool as a Real and computed Poisson). A `Fraction` power
+  is newly accepted. Every rejection is a `ValueError` naming the offending value.
+
 ### Fixed
 
 - **`to_dataframe()` without pandas now names the extra.** With the `dataframe` extra
