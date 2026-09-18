@@ -40,8 +40,10 @@
 > dependency guard handles both pyproject layouts, and the doc guard scans fenced code in the section
 > being cut with real line numbers. Residuals stated in the docstrings. Published 21:27 UTC: publish
 > run 35396893934 ran the suite (993 passed, 1 skipped) before the upload; PyPI 2.0.0 declares numpy,
-> scipy and the `frames` extra only. The library half of epic #66 is done; S9 and S10 (consumer pins)
-> remain. Count unchanged.
+> scipy and the `frames` extra only. The library half of epic #66 is done. **S10 done 2026-09-19:**
+> views-pipeline-core pins `>=2.0.0,<3.0.0` (their #523), the tripwire is gone, and their WandB mean
+> now skips `nan` (D-01's live residual closed on their side). S9 (views-reporting) is a check, not a
+> change: their `main` already admits 2.0.0. Count unchanged.
 
 > **2026-09-18 — story S7 (#63) closed C-40 and Cluster A's second residue.** `to_dataframe()`, its
 > DataFrame helper and the three dead factories are gone; the `dataframe` extra is deleted and
@@ -339,7 +341,7 @@ Maintainer decisions taken on a register concern, recorded here so the reasoning
 - **Options weighed:** (A) `nan`, warning suppressed — chosen; (B) raise — rejected on the R2 evidence (aborts every metric and schema for a routine data condition; tried on Pearson and reversed the same day); (C) keep `0.0`, warning suppressed — rejected because it codifies a wrong number into the evaluation-of-record and silently pulls the `mean` row toward zero by an amount set by the data, not the model (the C-02 shape).
 - **Consequence (ADR-022 §3):** a behaviour change for any evaluation whose data contains an empty classification group — `nan` for the group, `mean` row over the rest, where before it was `0.0` and a lower mean. Affected at the time of decision: `views-models/ensembles/rusty_bucket` (the one live config requesting `AP`) and views-reporting's canonical classification cell. Both to be named in the release notes of the release that carries the switch (S6, 1.1.0).
 - **Ships with:** #64. **Shipped:** 1.1.0 published to PyPI 2026-09-18 with the change in its notes; this decision's consequence is live.
-- **Residual, now live (found by the code review of #64, 2026-09-18):** C-22's — and the direct `to_dict()` reader it warned about exists: views-pipeline-core averages group values for its WandB scalars with a mean that skips `None` but not `nan` (`views_pipeline_core/modules/wandb/utils.py`, observed on their `development` branch). One empty group makes their `AP_mean` scalar `nan`. The fix is theirs (`nanmean`), named in the release notes, and C-22's trigger is widened to cover it. Also, until 2.0.0: `to_dataframe()` dropped an all-`nan` column (C-40), which applied to `AP` too; the method was deprecated in 1.1.0 and removed in 2.0.0 (S7, #63; C-40 closed 2026-09-18).
+- **Residual, now live (found by the code review of #64, 2026-09-18):** C-22's — and the direct `to_dict()` reader it warned about exists: views-pipeline-core averages group values for its WandB scalars with a mean that skips `None` but not `nan` (`views_pipeline_core/modules/wandb/utils.py`, observed on their `development` branch). One empty group makes their `AP_mean` scalar `nan`. The fix is theirs (`nanmean`), named in the release notes, and C-22's trigger is widened to cover it. **Resolved on their side 2026-09-19 (their PR #523, `e65f705`, their C-329; ships in their 3.3.0):** reproduced on 2.0.0, then fixed — nanmean semantics, `inf` still a number, an all-`nan` metric omitted. Their consumer assessment of 1.1.0/2.0.0 (tracker #73) found no defect on this side; nothing their pipeline sends is on the 1.1.0 refused-inputs list. Also, until 2.0.0: `to_dataframe()` dropped an all-`nan` column (C-40), which applied to `AP` too; the method was deprecated in 1.1.0 and removed in 2.0.0 (S7, #63; C-40 closed 2026-09-18).
 - **Versioning:** filed MINOR on the ADR-022 §1 argument that the `0.0` was never documented behaviour of this library; recorded in ADR-015 R9 so the S6 checklist can answer rule 5 against it.
 
 ---
