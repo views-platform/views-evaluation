@@ -21,6 +21,97 @@ _Nothing yet._
 
 ---
 
+## [2.0.0] — 2026-09-18
+
+**MAJOR** (ADR-022 §5): this release removes the surface 1.1.0 deprecated, one release
+cycle later as §2 requires. It is the end of the pandas-free epic (#66): `import
+views_evaluation` loads neither pandas nor scikit-learn, no public method returns a
+pandas object, and the runtime dependencies are numpy, scipy and the optional `frames`
+extra. `MetricFrame` (on disk and in memory), `to_dict()` and `get_schema_results()` are
+unchanged from 1.1.0: every test on them passes unmodified. Stories S7 (#63) and S8
+(#72); tracking #73.
+
+### Removed
+
+- **Removed: `EvaluationReport.to_dataframe()`** and, with it, `BaseEvaluationMetrics.evaluation_dict_to_dataframe()`,
+  the three `make_*_evaluation_dict` factories (unused since 0.4.0 removed `EvaluationManager`,
+  their only caller; never documented, never warned on — they go as private cleanup), and
+  the **`dataframe` extra** (`pip install views-evaluation[dataframe]` is no longer a thing
+  to install). Breaking. The `DeprecationWarning` for the removed `to_dataframe()` and
+  `evaluation_dict_to_dataframe()` shipped in 1.1.0 (see that section's *Deprecated*
+  entry). views-pipeline-core, the one production caller: its `development` branch stopped
+  calling it (their #513, observed 2026-09-16), but as of 2026-09-18 that is in no release
+  of theirs — their released 3.2.0 still calls the removed `to_dataframe()`, and their
+  `^1.0.0` pin excludes this release until they move (their #515, after views-reporting).
+  **Migration:**
+  build the table in the caller —
+  `pd.DataFrame.from_dict(report.to_dict()['schemas'][schema], orient='index')`. Same
+  values; not byte-identical, as the 1.1.0 entry spells out: the old method dropped any
+  column that was `nan` in every group (register **C-40**, closed by this removal —
+  `to_dict()` and `to_metric_frame()` now are the only export paths and agree on the
+  metric set by construction), ordered columns by dataclass field, and kept an empty
+  group as a `nan` row. `schema='raw'` callers use `to_dict()['schemas']`.
+  `get_schema_results()` and the four typed dataclasses' fields are unchanged (the
+  dataclasses lose the four inherited helpers named above and nothing else).
+- `examples/benchmark_probabilistic_scaling.py`, a relic that never imported this package.
+
+### Changed
+
+- **Nothing under `views_evaluation/` imports pandas any more**, lazily or otherwise; the
+  package's runtime dependencies are numpy, scipy and the optional `frames` extra. pandas
+  moves to the dev group so the import-purity guard, which fails rather than skips when
+  pandas is absent, keeps something to prove. The CI runtime-only install step now asserts
+  pandas is *absent* alongside scikit-learn.
+
+### Release checklist (ADR-022 §7)
+
+- [x] **Does this release do anything rule 2 governs — remove an `__all__` symbol, remove
+  a supported config key, narrow an accepted input, or change a raised exception type?
+  If so, did a `DeprecationWarning` ship at least one release ago?** It removes a
+  documented method of an `__all__` symbol (the removed `EvaluationReport.to_dataframe()`)
+  and the helper behind it. Yes: the `DeprecationWarning` naming `to_dict()` as the replacement
+  shipped in **1.1.0** (published 2026-09-18; see its *Deprecated* entry), one full release
+  cycle before this one, and both release notes record it (§2 rule 3). Said plainly: §2
+  counts cycles in releases, not days, and both releases were cut on the same date, so a
+  consumer who never installed 1.1.0 never saw the warning at runtime. The release notes
+  and the pre-tag notifications below are that consumer's notice; the maintainer chose
+  two same-day releases over one so the warning exists in a published artifact and the
+  §2 record is honest rather than skipped. The three
+  `make_*_evaluation_dict` factories were never documented behaviour of any `__all__`
+  symbol (§1) and had no caller since 0.4.0; they go as private cleanup and are listed
+  above for completeness, not because rule 2 reached them. No config key is removed, no
+  accepted input narrowed, no raised exception type changed.
+- [x] **Does this release make previously-accepted input fail? If so, are the release
+  notes explicit, and have known consumers been notified?** Yes — a call to
+  `to_dataframe()` (any schema, including `'raw'`) now raises `AttributeError`, and
+  `pip install views-evaluation[dataframe]` no longer selects an extra. The migration is
+  above. Known consumers, measured 2026-09-18: **views-pipeline-core** — their released
+  3.2.0 still calls the removed `report.to_dataframe()` in `managers/evaluation/stage.py`;
+  their `development` branch does not (their #513) and keeps a deliberate tripwire test
+  that calls it; their pin `^1.0.0` excludes this release until they move (their #515).
+  **views-reporting** — `main` and `development` pin `>=1.0.0,<3.0.0`; their released
+  v0.3.3 still pins `<2.0.0`, so an environment built from that tag excludes this
+  release too; they call nothing that changed. Both were
+  notified **before the tag** on 2026-09-18: views-platform/views-pipeline-core#515
+  (comment 5733334619) and views-platform/views-reporting#289 (comment 5733334868);
+  the comments are the committed artifact.
+- [x] **Does the version bump match the change class (rule 5)?** `1.1.0` → `2.0.0`,
+  MAJOR. Removing a documented method is breaking under §1/§5; nothing here is argued
+  MINOR-eligible.
+- [x] **Do the release notes list every breaking change with its migration?** Yes — the
+  one breaking change is the *Removed* entry, with the `to_dict()` recipe, the three ways
+  it differs from what the old method returned, and the `schema='raw'` replacement. The
+  dependency change (pandas to dev-only) removes nothing any consumer imported through
+  this package: the `dataframe` extra was the only way pandas arrived, and it is the
+  removed surface.
+- [x] **Does `MetricFrame`'s format or axis vocabulary change? If so, has it been agreed
+  with views-reporting and views-pipeline-core?** No. Axes, `MEAN_GROUP_ID`,
+  `SCHEMA_TO_EVAL_TYPE`, dtype and the `save`/`load` layout are unchanged; the CI
+  runtime-only step emits a frame from the release commit with pandas and scikit-learn
+  removed.
+
+---
+
 ## [1.1.0] — 2026-09-18
 
 The first release cut through the gated publish path (S2, #68): `publish_package.yml` now

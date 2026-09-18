@@ -89,7 +89,7 @@ The evaluation ontology has been updated to be more explicit and task-specific. 
 
 The **VIEWS Evaluation** repository provides a standardized framework for **assessing time-series forecasting models** used in the **VIEWS conflict prediction pipeline**. It ensures consistent, robust, and interpretable evaluations through **metrics tailored to conflict-related data**, which often exhibit **right-skewness and zero-inflation**.
 
-The library is built on a **three-layer architecture** with a framework-agnostic NumPy core, ensuring that all mathematical evaluation logic is independent of Pandas or any other data-frame library.  
+The library is built as a pure NumPy + SciPy core (ADR-011's Level 0, which includes `EvaluationReport`) plus a thin emit layer — `MetricFrame` and `EvaluationReport.to_metric_frame()`, the emit path of the logging standard §5.1 — with orchestration left to the caller (ADR-011's Level 2, external). All mathematical evaluation logic is independent of Pandas or any other data-frame library — nothing in the package imports one.  
 
 ---
 
@@ -119,8 +119,8 @@ report = evaluator.evaluate(ef)
 # 3. Access results
 report.to_dict()                     # {'target', 'task', 'pred_type', 'schemas': {'step': {...}, ...}}
 report.get_schema_results("month")   # typed metrics dataclass
-# to_dataframe() is deprecated and removed in 2.0.0; build a DataFrame from
-# to_dict()['schemas'][schema] in the caller if you need one.
+# Need a DataFrame? Build it in the caller:
+#   pd.DataFrame.from_dict(report.to_dict()['schemas']['month'], orient='index')
 ```
 
 > For the full walkthrough including input formatting and sample evaluation, see [`documentation/integration_guide.md`](documentation/integration_guide.md).
@@ -257,7 +257,7 @@ pip install views_evaluation
 ---
 ## 🏗 **Architecture**
 
-The library follows a strict three-layer architecture (ADR-011):
+The library follows the strict layering of ADR-011; the first two levels live in this repository:
 
 ```
 Level 0 — Pure Core (NumPy + SciPy; no dataframe libraries)
@@ -268,7 +268,7 @@ Level 0 — Pure Core (NumPy + SciPy; no dataframe libraries)
   Profiles                   Named hyperparameter sets (base, hydranet_ucdp, ...)
 
 Level 1 — Bridge / Emit
-  EvaluationReport      Results container with dict / MetricFrame export (DataFrame export deprecated)
+  EvaluationReport      Results container with dict / MetricFrame export
   MetricFrame           Typed, provenance-stamped evaluation-of-record (views-frames ADR-020)
 
 Level 2 — Orchestration

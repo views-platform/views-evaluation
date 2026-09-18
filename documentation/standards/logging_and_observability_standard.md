@@ -128,7 +128,7 @@ The following must be logged:
 > **Scope note (revised 2026-08-02):** logging responsibility in this repository splits by architectural level (ADR-011). The split is stated positively below so it cannot be re-derived by guesswork as new components are added — the previous wording named three classes and predated `MetricFrame`, which left Level 1 uncovered by omission rather than by decision.
 >
 > **Level 0 — exempt. Must NOT maintain loggers.**
-> `evaluation_frame.py`, `native_evaluator.py`, `evaluation_report.py`, `metric_catalog.py`, `native_metric_calculators.py`.
+> `evaluation_frame.py`, `native_evaluator.py`, `evaluation_report.py`, `metric_catalog.py`, `native_metric_calculators.py`, `metrics.py`, `config_schema.py` (the last two added 2026-09-18 so this list, the logging guard and the import-purity guard classify the same files).
 > These are pure math and pure registry. They compute and validate; they do not act on the world. They rely on exception propagation per ADR-013, and logging responsibility sits at the orchestration layer (e.g. `views-pipeline-core`). Adding a logger here is a violation, not an improvement: it would duplicate what the orchestrator already records and put I/O in the numeric core.
 >
 > **Level 1 — must log at `ERROR` before raising.**

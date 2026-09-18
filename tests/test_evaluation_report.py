@@ -2,20 +2,21 @@
 Direct unit tests for EvaluationReport.
 
 Structured per ADR-020 (Red/Beige/Green):
-  GREEN — construction, to_dict, get_schema_results, to_dataframe for all four task/type combos
-  BEIGE — empty schema, multiple metrics per group, raw schema passthrough, the
-          to_dataframe() DeprecationWarning (one per call, attributed to the caller)
-  RED   — unknown schema key, invalid task/pred_type combination
+  GREEN — construction, to_dict, get_schema_results for all four task/type combos
+  BEIGE — empty schema, multiple metrics per group
+  RED   — unknown schema key, invalid task/pred_type combination, the removed
+          to_dataframe() surface staying removed
 
-The no-pandas fail-loud case for to_dataframe() (C-44) lives in
-tests/test_adversarial_inputs.py: this module import-skips on pandas, so it could never
-run here in the one environment that case describes.
+Until 2.0.0 this module import-skipped on pandas for the to_dataframe() tests, so
+without the `dataframe` extra every test here was silently skipped. It now runs in
+every environment; the report has no pandas surface left.
 """
-import pytest
-pd = pytest.importorskip("pandas")
+import logging
 
-from views_evaluation.evaluation.evaluation_report import EvaluationReport  # noqa: E402
-from views_evaluation.evaluation.metrics import (  # noqa: E402
+import pytest
+
+from views_evaluation.evaluation.evaluation_report import EvaluationReport
+from views_evaluation.evaluation.metrics import (
     RegressionPointEvaluationMetrics,
     RegressionSampleEvaluationMetrics,
     ClassificationPointEvaluationMetrics,
@@ -97,6 +98,36 @@ class TestEvaluationReportGreen:
         assert schema['month100'].MSE == 1.0
         assert schema['month101'].MSE == 2.0
 
+    @pytest.mark.parametrize("schema, groups", [
+        ("month", {"month100": 1.0, "month101": 2.0}),
+        ("time_series", {"ts00": 1.5}),
+        ("step", {"step01": 1.0, "step02": 2.0}),
+    ])
+    def test_get_schema_results_maps_every_schema(self, schema, groups):
+        """All three schemas, not only `month`: until 2.0.0 the `time_series` and `step`
+        paths were exercised only through the deleted to_dataframe tests, so a
+        `get_schema_results` that only looked up `month` would have gone unnoticed
+        (release review, 2026-09-18)."""
+        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
+        mapped = report.get_schema_results(schema)
+        assert {k: v.MSE for k, v in mapped.items()} == groups
+        assert all(isinstance(v, RegressionPointEvaluationMetrics) for v in mapped.values())
+
+    def test_to_dict_schemas_is_the_live_structure_not_a_copy(self):
+        """Documented identity (1.0.0 behaviour): `to_dict()['schemas']` IS the internal
+        dict — the same object across calls and the object `to_metric_frame()` reads.
+        Pinned so a silent switch to a copy (or a silent switch of the emit path to a
+        different object) is a red build rather than an invisible behaviour change."""
+        results = _regression_point_results()
+        report = EvaluationReport('t', 'regression', 'point', results)
+        first = report.to_dict()['schemas']
+        assert first is report.to_dict()['schemas']
+        assert first is results
+        first['month']['month100']['MSE'] = 42.0
+        mf = report.to_metric_frame()
+        row = (mf.identifiers["group_id"] == "month100") & (mf.identifiers["metric"] == "MSE")
+        assert mf.values[row].item() == 42.0, "the emit path reads the same live structure"
+
     def test_get_schema_results_regression_sample_returns_correct_cls(self):
         report = EvaluationReport('t', 'regression', 'sample', _regression_sample_results())
         schema = report.get_schema_results('month')
@@ -115,47 +146,7 @@ class TestEvaluationReportGreen:
         assert isinstance(schema['month100'], ClassificationSampleEvaluationMetrics)
         assert schema['month100'].CRPS == 0.3
 
-    def test_to_dataframe_returns_dataframe_with_correct_shape(self):
-        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
-            df = report.to_dataframe('month')
-        assert isinstance(df, pd.DataFrame)
-        assert len(df) == 2  # month100 and month101
-
-    def test_to_dataframe_index_matches_group_keys(self):
-        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
-            df = report.to_dataframe('month')
-        assert set(df.index.tolist()) == {'month100', 'month101'}
-
-    def test_to_dataframe_time_series_schema(self):
-        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
-            df = report.to_dataframe('time_series')
-        assert isinstance(df, pd.DataFrame)
-        assert 'ts00' in df.index
-
-    def test_to_dataframe_step_schema(self):
-        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
-            df = report.to_dataframe('step')
-        assert isinstance(df, pd.DataFrame)
-        assert 'step01' in df.index
-
-
-# ---------------------------------------------------------------------------
-# BEIGE: Edge cases
-# ---------------------------------------------------------------------------
-
 class TestEvaluationReportBeige:
-
-    def test_to_dataframe_empty_schema_returns_empty_dataframe(self):
-        results = {'month': {}, 'time_series': {}, 'step': {}}
-        report = EvaluationReport('t', 'regression', 'point', results)
-        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
-            df = report.to_dataframe('month')
-        assert isinstance(df, pd.DataFrame)
-        assert len(df) == 0
 
     def test_get_schema_results_empty_schema_returns_empty_dict(self):
         results = {'month': {}, 'time_series': {}, 'step': {}}
@@ -172,54 +163,6 @@ class TestEvaluationReportBeige:
         schema = report.get_schema_results('month')
         assert schema['month100'].MSE == 1.0
         assert schema['month100'].RMSLE == 0.5
-
-    def test_to_dataframe_emits_exactly_one_deprecation_warning_naming_the_replacement(self):
-        """ADR-022 §2: the warning ships one release before the removal (S3, #69).
-        `to_dict()` is the replacement and `2.0.0` the removal version; both are in the
-        text so a consumer reading the warning knows what to do and by when."""
-        import warnings
-        report = EvaluationReport('t', 'regression', 'point', {
-            'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            df = report.to_dataframe('month')
-            assert len(w) == 1, [str(x.message) for x in w]
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert "to_dict()['schemas'][schema]" in str(w[0].message) and "2.0.0" in str(w[0].message)
-            # stacklevel=2: the warning is attributed to the CALLER's file, which is what
-            # makes it visible under CPython's default `default::DeprecationWarning:__main__`
-            # filter for a script consumer. stacklevel=1 would attribute it to the library
-            # and every default-filtered consumer would see nothing.
-            assert w[0].filename == __file__
-        assert "MSE" in df.columns
-
-    def test_evaluation_dict_to_dataframe_warns_when_called_directly(self):
-        """The helper is reachable on a dataclass from get_schema_results(); a direct
-        caller must get the deprecation too (it goes in 2.0.0 with to_dataframe)."""
-        report = EvaluationReport('t', 'regression', 'point', {
-            'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
-        mapped = report.get_schema_results('month')
-        cls = type(mapped['month100'])
-        with pytest.warns(DeprecationWarning, match="2.0.0"):
-            df = cls.evaluation_dict_to_dataframe(mapped)
-        assert "MSE" in df.columns
-
-    def test_to_dataframe_raw_returns_internal_results_dict_with_deprecation(self):
-        """schema='raw' is a deprecated passthrough to the raw results dict."""
-        import warnings
-        results = {'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}}
-        report = EvaluationReport('t', 'regression', 'point', results)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            raw = report.to_dataframe('raw')
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            # The raw path's replacement is the whole schemas dict, not one schema.
-            assert "to_dict()['schemas'] in" in str(w[0].message)
-        assert 'month' in raw
-        assert raw['month']['month100']['MSE'] == 42.0
-        # Identity, as documented: the same object as to_dict()['schemas'], not a copy.
-        assert raw is report.to_dict()['schemas']
 
     def test_all_four_task_pred_type_combinations_resolve_correctly(self):
         """get_schema_results must not raise for any valid (task, pred_type) pair."""
@@ -253,16 +196,56 @@ class TestEvaluationReportRed:
         with pytest.raises(AttributeError):
             report.get_schema_results('month')
 
+    def test_public_surface_is_exactly_the_documented_one(self):
+        """2.0.0 removed to_dataframe() and the evaluation_dict_to_dataframe helper after
+        1.1.0's DeprecationWarning (ADR-022 §2; register C-40), and the three
+        make_*_evaluation_dict factories as private cleanup (unused since 0.4.0). Pinned
+        as an ALLOWLIST of public names (a helper under a new name — `to_records`,
+        `as_rows` — is a red build and must go through the CIC) PLUS a behavioural probe
+        of the removed names on instances and a ban on `__getattr__`, because `dir()`
+        does not list what `__getattr__` serves (release review and guard audit,
+        2026-09-18). The import-purity guard separately catches any pandas import
+        whatever the name."""
+        import dataclasses
+        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
+
+        def public(obj):
+            return sorted(n for n in dir(obj) if not n.startswith("_"))
+
+        removed = ("to_dataframe", "evaluation_dict_to_dataframe", "make_time_series_wise_evaluation_dict",
+                   "make_step_wise_evaluation_dict", "make_month_wise_evaluation_dict")
+        assert public(EvaluationReport) == ["get_schema_results", "to_dict", "to_metric_frame"]
+        assert public(report) == ["get_schema_results", "pred_type", "target", "task", "to_dict", "to_metric_frame"]
+        # `dir()` never lists what a `__getattr__` serves, so the removed names are ALSO
+        # probed behaviourally on an instance (guard audit, 2026-09-18: a shim survived
+        # the listing alone), and no `__getattr__` may exist at all.
+        for name in removed:
+            assert not hasattr(report, name), f"EvaluationReport().{name} is served (a shim?)"
+        assert not hasattr(EvaluationReport, "__getattr__")
+        for cls in (RegressionPointEvaluationMetrics, RegressionSampleEvaluationMetrics,
+                    ClassificationPointEvaluationMetrics, ClassificationSampleEvaluationMetrics):
+            fields = sorted(f.name for f in dataclasses.fields(cls))
+            assert public(cls) == fields, f"{cls.__name__} carries non-field public attributes"
+            assert public(cls()) == fields, f"{cls.__name__}() serves non-field attributes (a shim?)"
+            for name in removed:
+                assert not hasattr(cls(), name), f"{cls.__name__}().{name} is served (a shim?)"
+            assert not hasattr(cls, "__getattr__")
+
+    def test_metric_with_no_dataclass_field_raises(self, caplog):
+        """FM1 guard: a computed metric that has no field on the typed dataclass raises
+        instead of being dropped. The CIC has claimed a Red test for this since before
+        2.0.0; there was none, and the guard could be replaced by `continue` unnoticed."""
+        report = EvaluationReport('t', 'regression', 'point', {
+            'month': {'month100': {'MSE': 1.0, 'BOGUS': 9.9}}, 'time_series': {}, 'step': {}})
+        with caplog.at_level(logging.DEBUG):
+            with pytest.raises(ValueError, match="no field exists"):
+                report.get_schema_results('month')
+        assert not caplog.records, "Level 0 does not log (logging standard §5.1); only the emit path does"
+
     def test_get_schema_results_unknown_schema_raises_key_error(self):
         report = EvaluationReport('t', 'regression', 'point', {})
         with pytest.raises(KeyError, match="nonexistent"):
             report.get_schema_results('nonexistent')
-
-    def test_to_dataframe_unknown_schema_raises_key_error(self):
-        report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        with pytest.raises(KeyError):
-            with pytest.warns(DeprecationWarning):
-                report.to_dataframe('nonexistent_schema')
 
     def test_invalid_task_type_raises_on_get_schema_results(self):
         """An unrecognised (task, pred_type) pair must fail at lookup time."""

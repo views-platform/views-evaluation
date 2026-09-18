@@ -1,5 +1,4 @@
 import dataclasses
-import warnings
 from typing import Dict, Any, Optional
 from views_evaluation.evaluation.metrics import (
     RegressionPointEvaluationMetrics,
@@ -13,7 +12,9 @@ class EvaluationReport:
     A structured, framework-agnostic container for evaluation results.
     
     This class decouples the raw result data from its final presentation
-    format, allowing for flexible export to JSON, Dictionaries, or Pandas.
+    format: ``to_dict()`` for JSON and dictionaries, ``to_metric_frame()`` for the
+    typed evaluation-of-record. It returns no DataFrame; a caller that wants one
+    builds it from ``to_dict()['schemas'][schema]``.
     """
     def __init__(self, target: str, task: str, pred_type: str, results: Dict[str, Dict[str, Any]]):
         self.target = target
@@ -60,60 +61,6 @@ class EvaluationReport:
             
         return mapped_results
 
-    def to_dataframe(self, schema: str):
-        """
-        Converts a specific schema's results into a Pandas DataFrame.
-        If schema='raw', returns the internal results dict — the same object as
-        ``to_dict()['schemas']``; do not mutate it.
-
-        **Deprecated; removed in 2.0.0** (ADR-022 §2; register C-40, C-44). Build a
-        DataFrame in the caller from ``to_dict()['schemas'][schema]`` instead:
-        ``pd.DataFrame.from_dict(report.to_dict()['schemas'][schema], orient='index')``
-        carries the same values. It is not byte-identical: this method orders columns by
-        dataclass field, drops any column that is NaN in every group (C-40), and keeps a
-        group with no metrics as a NaN row; the recipe orders columns as the metrics were
-        configured, keeps every column, and omits an empty group.
-        """
-        # One warning on every call, whatever the schema: the `raw` passthrough used to
-        # carry its own; it is folded in here so a caller sees exactly one.
-        replacement = "to_dict()['schemas']" if schema == "raw" else "to_dict()['schemas'][schema]"
-        warnings.warn(
-            f"EvaluationReport.to_dataframe() is deprecated and will be removed in 2.0.0. "
-            f"Build a DataFrame from {replacement} in the caller.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if schema == "raw":
-            return self._results
-
-        # Gate on find_spec so the helpful error fires only when the extra is truly
-        # absent; a genuine import error inside pandas then propagates loudly. Until
-        # 2026-09-17 this was a bare `import pandas` that surfaced as
-        # `ModuleNotFoundError: No module named 'pandas'` with no mention of the extra
-        # (register C-44). Raised as ModuleNotFoundError — the type the bare import
-        # raised — so no `except ModuleNotFoundError` caller changes behaviour (ADR-022
-        # §1 counts raised types as public surface). No log: this path computes a value
-        # in memory and Level 0 does not log (logging standard §5.1); only the
-        # `to_metric_frame()` emit path below does.
-        import importlib.util
-        if importlib.util.find_spec("pandas") is None:
-            raise ModuleNotFoundError(
-                "EvaluationReport.to_dataframe() requires the optional 'pandas' "
-                "dependency. Install it with: pip install views-evaluation[dataframe]",
-                name="pandas",
-            )
-        import pandas as pd
-        mapped_results = self.get_schema_results(schema)
-        if not mapped_results:
-            return pd.DataFrame()
-        
-        metrics_cls = self._get_metrics_cls()
-        # The helper warns on its own for direct callers; this call already has.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            return metrics_cls.evaluation_dict_to_dataframe(mapped_results)
-
-
     def to_metric_frame(
         self,
         *,
@@ -133,8 +80,7 @@ class EvaluationReport:
 
         A Level-1 bridge: it flattens the nested per-group results into rows keyed by
         ``(eval_type, target, metric, group_id, partition, level)`` and attaches provenance.
-        ``to_dict()`` is unaffected — this is purely additive. (``to_dataframe()`` is
-        deprecated and goes in 2.0.0.)
+        ``to_dict()`` is unaffected — this is purely additive.
 
         For each schema (month/time_series/step) present, one row is emitted per
         (group_id, metric), PLUS a cross-group aggregate row with ``group_id="mean"`` carrying
@@ -283,7 +229,14 @@ class EvaluationReport:
         return MetricFrame(values=values_arr, identifiers=identifiers, metadata=metadata)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts the entire report into a nested dictionary."""
+        """The report as a nested dictionary.
+
+        ``schemas`` is the report's LIVE internal structure — the same object every call
+        returns, the object ``to_metric_frame()`` reads, and (as constructed) the caller's
+        own ``results`` argument — not a copy. Mutating it changes what is subsequently
+        emitted. That has been the behaviour since 1.0.0 and is pinned by a test; a copy
+        would be a behaviour change and is not made here. Treat the result as read-only.
+        """
         return {
             "target": self.target,
             "task": self.task,

@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 
 from views_evaluation.evaluation.evaluation_frame import EvaluationFrame
-from views_evaluation.evaluation.evaluation_report import EvaluationReport
 from views_evaluation.evaluation.native_evaluator import NativeEvaluator
 
 
@@ -128,36 +127,33 @@ class TestAdversarialNativeInputs:
 
 
 class TestOptionalExtraAbsentRed:
-    """Register C-44. A missing optional extra must name itself; this module has no
-    pandas import-skip, so the case runs wherever the suite runs."""
+    """A missing optional extra must name itself, with the extra pyproject actually
+    declares, in the exception type the CIC documents, logged on the emit path. Until
+    2.0.0 this class pinned `to_dataframe()`'s pandas branch (C-44); that method is gone,
+    and this is the same shape transplanted to the surviving bridge. Seen red on three
+    injections before it was trusted: extra renamed to `[framez]`, `ImportError` swapped
+    for `RuntimeError`, and the `.error()` call deleted — and a fourth, the logger renamed, found by the guard audit."""
 
-    def test_to_dataframe_without_pandas_names_the_extra(self, monkeypatch, caplog):
-        """Contract, not mechanism: pandas genuinely unimportable (a `None` entry in
-        sys.modules makes both `import pandas` and `find_spec("pandas")` report absence
-        on CPython) → the deprecation warning is still emitted first, the raise names
-        `views-evaluation[dataframe]`, keeps the type the bare import raised
-        (`ModuleNotFoundError`, `.name == "pandas"`), the extra it names is one
-        pyproject.toml declares, and nothing is logged (Level 0 does not log). Seen red
-        on the bare import first: that raised `ModuleNotFoundError: import of pandas
-        halted` with no extra named."""
+    def test_to_metric_frame_without_views_frames_names_the_extra(self, monkeypatch, caplog):
         import logging
         import re
         import sys
         import tomllib
-        import warnings
         from pathlib import Path
+        from views_evaluation.evaluation.evaluation_report import EvaluationReport
 
-        monkeypatch.setitem(sys.modules, "pandas", None)
+        # A `None` entry makes both `import views_frames` and `find_spec` report absence.
+        monkeypatch.setitem(sys.modules, "views_frames", None)
         report = EvaluationReport('t', 'regression', 'point', {
             'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
-        with caplog.at_level(logging.DEBUG):
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                with pytest.raises(ModuleNotFoundError, match=r"views-evaluation\[dataframe\]") as exc:
-                    report.to_dataframe('month')
-        assert [x.category for x in w] == [DeprecationWarning], "warn first, then raise"
-        assert exc.value.name == "pandas"
-        assert not caplog.records, "Level 0 does not log (logging standard §5.1)"
+        with caplog.at_level(logging.ERROR, logger="views_evaluation.evaluation.metric_frame"):
+            with pytest.raises(ImportError, match=r"views-evaluation\[frames\]") as exc:
+                report.to_metric_frame()
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert errors and errors[0].message == str(exc.value), "emit path logs the message it raises (§5.1)"
+        assert errors[0].name == "views_evaluation.evaluation.metric_frame", (
+            "the emit path logs under the metric_frame logger, not the file's (§5.1)"
+        )
         # The extra named in the message must exist, or the advice is unfollowable.
         extra = re.search(r"views-evaluation\[(\w+)\]", str(exc.value)).group(1)
         pyproject = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))

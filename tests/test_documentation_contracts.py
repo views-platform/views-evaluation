@@ -51,6 +51,33 @@ _DELETED_SYMBOLS = (
 _DELETED_MODULE_PATHS = [p for _, paths in _DELETED_SYMBOLS for p in paths]
 _DELETED_CLASS_NAMES = [name for name, _ in _DELETED_SYMBOLS]
 
+# Methods removed in 2.0.0 (epic #66, story #63) after the 1.1.0 DeprecationWarning.
+# Matched as whole-word tokens — `to_dataframe(`, `to_dataframe ('month')`, a table row
+# `` `to_dataframe` ``, the attribute form `EvaluationReport.to_dataframe` all count — in
+# docs, CICs, examples AND package docstrings, so a guide that still shows the method as
+# a thing to do is a red build: the exact shape of C-29 (a README promising support the
+# package lacks), for a method this time. A mention is exempt only when a removal
+# framing sits on the same line as it (`_REMOVAL_FRAMING`), NOT
+# when the surrounding paragraph merely contains one of `_HISTORICAL_MARKERS` somewhere:
+# the guard audit of 2026-09-18 placed `report.to_dataframe('month')` in a paragraph
+# whose other sentence said "no longer", and the block-wide exemption let it through.
+_DELETED_METHODS = (
+    "to_dataframe",
+    "evaluation_dict_to_dataframe",
+    "make_time_series_wise_evaluation_dict",
+    "make_step_wise_evaluation_dict",
+    "make_month_wise_evaluation_dict",
+)
+# Word-anchored phrases that predicate removal on the thing named. Ordinary
+# collocations (`used to`, `was the`, `deleted`) exempted "is used to build the table"
+# and an unanchored `removed` matched `removed_cols = ...` (release review, 2026-09-18);
+# `\b` on both sides is what keeps `removed_cols` out (`_` is a word character).
+_REMOVAL_FRAMING = re.compile(
+    r"\b(?:removed|removal|gone in \d|until \d+\.\d|no longer|deprecated|"
+    r"retired|purged|lost the|left in \d|now raises)\b",
+    re.I,
+)
+
 # Files where a historical mention is legitimate: change logs, decision records and
 # the risk register all necessarily discuss things that no longer exist.
 _HISTORICAL_ALLOWLIST = {
@@ -249,6 +276,70 @@ class TestDocumentationMatchesCode:
             + "\n  ".join(offenders)
         )
 
+    def test_no_doc_or_docstring_presents_a_removed_method_as_current(self):
+        """`to_dataframe()` left in 2.0.0. Eight documents were hand-edited for it; this
+        is what makes the ninth a red build instead of a C-29 repeat. A mention is exempt
+        only with a removal framing ON THE SAME LINE, which is how the metrics.py
+        docstring ("Until 2.0.0 it also carried") and the CIC's Evolution Notes pass;
+        dated CHANGELOG sections of published releases are frozen and skipped, the
+        section being cut is scanned. Seen red on
+        `report.to_dataframe('month')` injected into the integration guide, the
+        `[Unreleased]` section, a docstring, a CIC, an example, and — after the guard
+        audit — with a space before the paren, as a bare table token, as an attribute,
+        and with "no longer" one line away. Known residual: a single LINE that both
+        frames a removal and advertises the method ("X is no longer shipped; call
+        to_dataframe()"), or an identifier named `removed`, or a `# deprecated`
+        trailer, passes; no text heuristic distinguishes those from a legitimate
+        "to_dataframe() is no longer available"."""
+        import views_evaluation
+        pkg_root = Path(views_evaluation.__file__).parent
+        offenders = []
+        # Wider than `_doc_files()`: the CICs' Evolution Notes are framed line by line
+        # (so the CIC of the very class that lost the method is NOT exempt here), and
+        # `examples/` is scanned by nothing else. ADRs and reports stay history.
+        sources = ([README, CHANGELOG] + sorted(DOCS.rglob("*.md")) + sorted(pkg_root.rglob("*.py"))
+                   + sorted((REPO_ROOT / "examples").rglob("*.py")) + sorted((REPO_ROOT / "examples").rglob("*.md")))
+        pattern = re.compile(r"\b(" + "|".join(_DELETED_METHODS) + r")\b")
+        for path in sources:
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            if rel.startswith(("documentation/ADRs", "documentation/contributor_protocols")):
+                continue  # history by nature (the CICs are NOT skipped: framed line by line)
+            text = path.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            scan = set(range(len(lines)))
+            if path == CHANGELOG:
+                # A dated section of an already-published release is a frozen record and
+                # legitimately names what it deprecated. `[Unreleased]` AND the section
+                # for the version pyproject declares — the release being cut, which the
+                # checklist points consumers at — make current claims and are scanned,
+                # fenced code included (a fence-stripped body hid a "how to" example in
+                # the [2.0.0] section; guard audit, 2026-09-18). Headings are located
+                # with the shared parser's regex on the RAW text so line numbers are real.
+                TestChangelogCoversTheDeclaredVersion._released_sections(text)  # structural asserts
+                pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+                version = pyproject.get("project", {}).get("version") or pyproject["tool"]["poetry"]["version"]
+                heading = TestChangelogCoversTheDeclaredVersion._HEADING
+                starts = [i for i, line in enumerate(lines) if heading.match(line)]
+                scan = set(range(starts[0] if starts else len(lines)))
+                for k, i in enumerate(starts):
+                    if heading.match(lines[i]).group("version") == version:
+                        scan |= set(range(i, starts[k + 1] if k + 1 < len(starts) else len(lines)))
+            for i, line in enumerate(lines):
+                if i not in scan:
+                    continue
+                m = pattern.search(line)
+                if not m:
+                    continue
+                # Same line only: a one-line-either-side window still admitted a
+                # "no longer" one sentence away (guard audit, 2026-09-18).
+                if _REMOVAL_FRAMING.search(line):
+                    continue
+                offenders.append(f"{rel}:{i + 1} presents `{m.group(1)}` as current: {line.strip()[:80]}")
+        assert not offenders, (
+            "A document, example or docstring presents a method removed in 2.0.0 as current:\n  "
+            + "\n  ".join(offenders)
+        )
+
     def test_documentation_uses_current_metric_names(self):
         """Metric tokens in prose must exist in METRIC_CATALOG.
 
@@ -441,20 +532,31 @@ class TestChangelogCoversTheDeclaredVersion:
 class TestLoggingScopeContract:
     """The Level-0/Level-1 split from logging standard §5.1, asserted against code."""
 
+    # Must agree with logging standard §5.1 and with `TestLevelZeroImportPurity._LEVEL_0`
+    # (tests/test_metric_calculators.py): `metrics` and `config_schema` were classified
+    # Level 0 by the import guard on 2026-09-18 and belong here too.
     _LEVEL_0 = [
         "evaluation_frame", "native_evaluator", "evaluation_report",
-        "metric_catalog", "native_metric_calculators",
+        "metric_catalog", "native_metric_calculators", "metrics", "config_schema",
     ]
 
     @pytest.mark.parametrize("module_name", _LEVEL_0)
     def test_level_zero_modules_declare_no_module_logger(self, module_name):
         import importlib
+        import logging
         module = importlib.import_module(f"views_evaluation.evaluation.{module_name}")
-        src = inspect.getsource(module)
-        # A module-level `logger = logging.getLogger(__name__)` is the violation.
-        assert not re.search(r"^logger\s*=\s*logging\.getLogger", src, re.MULTILINE), (
+        # Behavioural, not textual: any module-level binding that IS a Logger, whatever
+        # it is called and however it was obtained (`_logger = ...`, `from logging import
+        # getLogger`) — a regex on `^logger = logging.getLogger` missed both (guard audit,
+        # 2026-09-18). The text check stays for the canonical spelling in a docstring.
+        loggers = sorted(k for k, v in vars(module).items() if isinstance(v, (logging.Logger, logging.LoggerAdapter)))
+        assert not loggers, (
             f"{module_name} is Level 0 and must not maintain a module logger "
-            f"(logging standard §5.1)"
+            f"(logging standard §5.1); found {loggers}"
+        )
+        src = inspect.getsource(module)
+        assert not re.search(r"^\w+\s*=\s*(?:logging\.)?getLogger\(", src, re.MULTILINE), (
+            f"{module_name} binds a logger at module level (logging standard §5.1)"
         )
 
     def test_standard_names_both_levels_explicitly(self):
