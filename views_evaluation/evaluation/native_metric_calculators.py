@@ -212,7 +212,7 @@ def _tweedie_deviance_numpy(y_true: np.ndarray, y_pred: np.ndarray, power: float
     """
     import numbers
 
-    if isinstance(power, bool) or not isinstance(power, numbers.Real) or not np.isfinite(power):
+    if isinstance(power, bool) or not isinstance(power, numbers.Real) or not np.isfinite(float(power)):
         raise ValueError(
             f"Mean Tweedie deviance requires a finite real power; got {power!r} "
             f"({type(power).__name__})"

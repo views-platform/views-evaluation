@@ -275,6 +275,33 @@ def _as_kernel_input(y_true, y_pred):
     return np.repeat(y_true, y_pred.shape[1]), y_pred.flatten()
 
 
+def test_as_kernel_input_matches_what_the_public_kernels_build():
+    """A parity suite cannot see a defect shared by both paths, and this helper IS the
+    shared path. Pin it to the construction in calculate_ap_native / calculate_mtd_native
+    by observing what they hand to the oracle."""
+    from unittest import mock
+    y_true = np.array([1., 0., 1.])
+    y_pred = np.array([[.1, .2], [.3, .4], [.5, .6]])
+    seen = {}
+
+    def spy(yt, ys, **kw):
+        seen["ap"] = (yt.copy(), ys.copy())
+        return 0.0
+
+    def spy_mtd(yt, ys, power):
+        seen["mtd"] = (yt.copy(), ys.copy())
+        return 0.0
+
+    with mock.patch("views_evaluation.evaluation.native_metric_calculators.average_precision_score", spy), \
+         mock.patch("views_evaluation.evaluation.native_metric_calculators.mean_tweedie_deviance", spy_mtd):
+        calculate_ap_native(y_true, y_pred)
+        calculate_mtd_native(y_true, y_pred, power=1.5)
+    expected = _as_kernel_input(y_true, y_pred)
+    for key in ("ap", "mtd"):
+        np.testing.assert_array_equal(seen[key][0], expected[0])
+        np.testing.assert_array_equal(seen[key][1], expected[1])
+
+
 def _warnings_of(fn, *args, **kwargs):
     """(result, [(category, message)]) — the two paths are compared on both."""
     with warnings.catch_warnings(record=True) as w:
@@ -343,6 +370,23 @@ class TestAPParityWithSklearn:
     def test_integer_truth_and_scores(self):
         self._assert_parity(np.array([1, 0, 1, 0]), np.array([[3], [1], [2], [2]]))
 
+    def test_bool_truth_computes(self):
+        """A bool label array is a valid binary target on both paths."""
+        self._assert_parity(np.array([True, False, True, False]), np.array([[.9], [.1], [.8], [.2]]))
+
+    def test_python_lists_are_accepted(self):
+        yt, ys = [1., 0., 1., 0.], [.9, .1, .8, .2]
+        assert _average_precision_numpy(yt, ys) == pytest.approx(average_precision_score(yt, ys), abs=1e-10)
+
+    def test_scores_one_ulp_apart_are_distinct(self):
+        """Ties are exact equality, not a tolerance: scores one ulp apart are separate
+        operating points, on both paths. Chosen so that merging them changes AP: the
+        positive sits one ulp ABOVE the negative, so exact ordering ranks it alone first
+        (precision 1 there) while any tolerance ties it with the negative and lowers it."""
+        s = 0.5
+        self._assert_parity(np.array([0., 1., 0., 1.]),
+                            np.array([[s], [np.nextafter(s, 1.0)], [.1], [.9]]))
+
     def test_int64_scores_above_2_pow_53_stay_distinct(self):
         """A float64 cast would merge these two into a tie; sklearn sorts natively."""
         self._assert_parity(np.array([1., 0.]), np.array([[2**53 + 1], [2**53]], dtype=np.int64))
@@ -401,10 +445,15 @@ class TestAPParityWithSklearn:
         with pytest.raises(ValueError, match="must be 1-D"):
             _average_precision_numpy(np.array([1., 0.]), np.array([[.9], [.1]]))
 
+    def test_zero_dimensional_input_raises(self):
+        with pytest.raises(ValueError, match="must be 1-D"):
+            _average_precision_numpy(np.array(1.), np.array(.5))
+
     @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
-    def test_non_finite_score_raises(self, bad):
-        with pytest.raises(ValueError, match="must be finite"):
-            _average_precision_numpy(np.array([1., 0., 1., 0.]), np.array([.9, bad, .2, .1]))
+    def test_non_finite_score_raises_naming_value_and_index(self, bad):
+        """The message names which array, which value, and where — ADR-015."""
+        with pytest.raises(ValueError, match=rf"^y_score contains {re.escape(repr(bad))} at index 2; values must be finite$"):
+            _average_precision_numpy(np.array([1., 0., 1., 0.]), np.array([.9, .8, bad, .1]))
 
     def test_nan_in_truth_raises(self):
         with pytest.raises(ValueError, match="must be finite"):
@@ -543,6 +592,39 @@ class TestMTDParityWithSklearn:
             mean_tweedie_deviance(yt, ys, power=power)
         with pytest.raises(ValueError, match="^" + full + r" Offending (y|y_pred): .* at index 0\.$"):
             _tweedie_deviance_numpy(yt, ys, power)
+
+    def test_domain_error_names_the_first_offender_by_value_and_index(self):
+        """Not index 0, not the first array: the third y_pred is the offender, and the
+        message prints that value at that index."""
+        y, mu = self._positive_data(47)
+        mu[2, 0] = -0.25
+        mu[7, 0] = -0.75   # a second offender: the FIRST must be reported
+        yt, ys = _as_kernel_input(y, mu)
+        with pytest.raises(ValueError, match=r" Offending y_pred: -0\.25 at index 2\.$"):
+            _tweedie_deviance_numpy(yt, ys, 1.5)
+
+    def test_domain_error_reports_y_before_y_pred_when_both_offend(self):
+        """Precedence is y then y_pred, as scikit-learn checks them; with both offending
+        the message names y — and y's value, not y_pred's."""
+        y, mu = self._positive_data(53)
+        y[4] = -3.0
+        mu[1, 0] = 0.0
+        yt, ys = _as_kernel_input(y, mu)
+        with pytest.raises(ValueError, match=r" Offending y: -3\.0 at index 4\.$"):
+            _tweedie_deviance_numpy(yt, ys, 1.5)
+
+    def test_fraction_power_is_a_real_number(self):
+        """A numbers.Real that numpy cannot coerce directly must compute as the equal
+        float does, not raise TypeError. (scikit-learn itself cannot take a Fraction, so
+        this is a property test, not a parity one.)"""
+        from fractions import Fraction
+        y, mu = self._positive_data(59)
+        yt, ys = _as_kernel_input(y, mu)
+        assert _tweedie_deviance_numpy(yt, ys, Fraction(3, 2)) == _tweedie_deviance_numpy(yt, ys, 1.5)
+
+    def test_python_lists_are_accepted(self):
+        yt, ys = [1., 2., 3.], [1.5, 2.5, 2.5]
+        assert _tweedie_deviance_numpy(yt, ys, 1.5) == pytest.approx(mean_tweedie_deviance(yt, ys, power=1.5), rel=1e-10)
 
     @pytest.mark.parametrize("power", [0.5, 0.0001, 0.9999])
     def test_power_in_open_unit_interval_raises_on_both_paths(self, power):
