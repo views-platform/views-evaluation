@@ -161,9 +161,6 @@ report.pred_type     # str: 'point' or 'sample'
 report.to_dict()     # {'target': ..., 'task': ..., 'pred_type': ...,
                      #  'schemas': {'month': {...}, 'time_series': {...}, 'step': {...}}}
 
-report.to_dataframe(schema)         # DEPRECATED, removed in 2.0.0 — use
-                                    # to_dict()['schemas'][schema]; emits DeprecationWarning
-
 report.get_schema_results('month')  # dict mapping key → typed metrics dataclass
 ```
 

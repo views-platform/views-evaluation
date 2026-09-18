@@ -51,6 +51,28 @@ _DELETED_SYMBOLS = (
 _DELETED_MODULE_PATHS = [p for _, paths in _DELETED_SYMBOLS for p in paths]
 _DELETED_CLASS_NAMES = [name for name, _ in _DELETED_SYMBOLS]
 
+# Methods removed in 2.0.0 (epic #66, story #63) after the 1.1.0 DeprecationWarning.
+# Matched as whole-word tokens — `to_dataframe(`, `to_dataframe ('month')`, a table row
+# `` `to_dataframe` ``, the attribute form `EvaluationReport.to_dataframe` all count — in
+# docs, CICs, examples AND package docstrings, so a guide that still shows the method as
+# a thing to do is a red build: the exact shape of C-29 (a README promising support the
+# package lacks), for a method this time. A mention is exempt only when a removal
+# framing sits on the same line as it (`_REMOVAL_FRAMING`), NOT
+# when the surrounding paragraph merely contains one of `_HISTORICAL_MARKERS` somewhere:
+# the guard audit of 2026-09-18 placed `report.to_dataframe('month')` in a paragraph
+# whose other sentence said "no longer", and the block-wide exemption let it through.
+_DELETED_METHODS = (
+    "to_dataframe",
+    "evaluation_dict_to_dataframe",
+    "make_time_series_wise_evaluation_dict",
+    "make_step_wise_evaluation_dict",
+    "make_month_wise_evaluation_dict",
+)
+_REMOVAL_FRAMING = re.compile(
+    r"removed|remove[sd]? in|gone in|until 2\.|deprecated|deleted|was the|were the|"
+    r"used to|no longer|left in|retired|purged|lost the", re.I,
+)
+
 # Files where a historical mention is legitimate: change logs, decision records and
 # the risk register all necessarily discuss things that no longer exist.
 _HISTORICAL_ALLOWLIST = {
@@ -71,6 +93,9 @@ _HISTORICAL_ALLOWLIST = {
 # or add the new phrasing here — otherwise the check fails for a purely cosmetic edit.
 _HISTORICAL_MARKERS = (
     "until 0.", "prior to 0.", "before 0.",
+    # 2.0-era framing, added with the 2.0.0 removals: a dated CHANGELOG section written
+    # before 2.0.0 says "removed in 2.0.0"; a docstring written after says "until 2.0.0".
+    "until 2.", "removed in 2.", "gone in 2.", "since 2.", "before 2.",
     "was removed", "were removed", "was deleted", "were deleted",
     "removed in phase 3", "deleted in phase 3",
     "replaced by", "were replaced", "renamed", "breaking rename",
@@ -246,6 +271,53 @@ class TestDocumentationMatchesCode:
                         )
         assert not offenders, (
             "Source docstrings/comments present a deleted class as current:\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_no_doc_or_docstring_presents_a_removed_method_as_current(self):
+        """`to_dataframe()` left in 2.0.0. Eight documents were hand-edited for it; this
+        is what makes the ninth a red build instead of a C-29 repeat. A mention is exempt
+        only with a removal framing within a line of it, which is how the metrics.py
+        docstring ("Until 2.0.0 it also carried") and the CIC's Evolution Notes pass;
+        dated CHANGELOG sections are frozen and skipped. Seen red on
+        `report.to_dataframe('month')` injected into the integration guide, the
+        `[Unreleased]` section, a docstring, a CIC, an example, and — after the guard
+        audit — with a space before the paren, as a bare table token, as an attribute,
+        and with "no longer" one line away. Known residual: a single LINE that both
+        frames a removal and advertises the method ("X is no longer shipped; call
+        to_dataframe()") passes; no text heuristic distinguishes that from a
+        legitimate "to_dataframe() is no longer available"."""
+        import views_evaluation
+        pkg_root = Path(views_evaluation.__file__).parent
+        offenders = []
+        # Wider than `_doc_files()`: the CICs' Evolution Notes are framed line by line
+        # (so the CIC of the very class that lost the method is NOT exempt here), and
+        # `examples/` is scanned by nothing else. ADRs and reports stay history.
+        sources = ([README, CHANGELOG] + sorted(DOCS.rglob("*.md")) + sorted(pkg_root.rglob("*.py"))
+                   + sorted((REPO_ROOT / "examples").glob("*.py")))
+        pattern = re.compile(r"\b(" + "|".join(_DELETED_METHODS) + r")\b")
+        for path in sources:
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            if rel.startswith(("documentation/ADRs", "documentation/contributor_protocols", "reports")):
+                continue
+            text = path.read_text(encoding="utf-8")
+            if path == CHANGELOG:
+                # A dated `## [x.y.z]` section is a frozen record of what that release
+                # did and legitimately names what it deprecated; only `[Unreleased]`
+                # (everything above the first dated heading) makes a current claim.
+                text = re.split(r"^## \[\d+\.\d+\.\d+\]", text, maxsplit=1, flags=re.M)[0]
+            lines = text.splitlines()
+            for i, line in enumerate(lines):
+                m = pattern.search(line)
+                if not m:
+                    continue
+                # Same line only: a one-line-either-side window still admitted a
+                # "no longer" one sentence away (guard audit, 2026-09-18).
+                if _REMOVAL_FRAMING.search(line):
+                    continue
+                offenders.append(f"{rel}:{i + 1} presents `{m.group(1)}` as current: {line.strip()[:80]}")
+        assert not offenders, (
+            "A document, example or docstring presents a method removed in 2.0.0 as current:\n  "
             + "\n  ".join(offenders)
         )
 

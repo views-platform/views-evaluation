@@ -450,10 +450,22 @@ jobs:
       run: |
         set -e
         poetry sync --only main --all-extras
-        poetry run python -c "import sys, importlib.util as u, views_evaluation, views_evaluation.evaluation.metric_frame; assert u.find_spec('sklearn') is None, 'scikit-learn still installed'; assert 'pandas' not in sys.modules, 'import loaded pandas'"
+        poetry run python - <<'PY'
+        import importlib.util as u
+        import numpy as np
+        from views_evaluation import EvaluationFrame, NativeEvaluator
+        assert u.find_spec('sklearn') is None, 'scikit-learn still installed'
+        assert u.find_spec('pandas') is None, 'pandas still installed'
+        ids = {k: np.array(v) for k, v in {'time': [1, 1], 'unit': [1, 2], 'origin': [0, 0], 'step': [1, 1]}.items()}
+        cfg = {'steps': [1], 'classification_targets': ['t'], 'classification_point_metrics': ['AP', 'Brier_cls_point'], 'evaluation_profile': 'base'}
+        report = NativeEvaluator(cfg).evaluate(EvaluationFrame(np.array([0., 1.]), np.array([[0.2], [0.8]]), ids, metadata={'target': 't'}))
+        mf = report.to_metric_frame(model_id='ci', run_type='test', timestamp='2026-09-18T00:00:00')
+        assert mf.n_rows == 12, mf.n_rows  # 2 metrics x (1 group + mean) x 3 schemas
+        print('runtime-only install: evaluate + to_metric_frame OK, rows =', mf.n_rows)
+        PY
         poetry install --all-extras
     - name: Verify optional extras are installed
-      run: poetry run python -c "import views_frames, pandas"
+      run: poetry run python -c "import views_frames"
     - name: Run tests
       run: |
         set -e

@@ -22,7 +22,7 @@ The 2025 version of this ADR asserted that *"views-evaluation returns a structur
 
 - `to_dict()` — nested plain dict; the pandas-free, extra-free path.
 - `get_schema_results(schema)` — mapped onto the typed metrics dataclasses.
-- `to_dataframe(schema)` — pandas DataFrame; requires the optional `dataframe` extra. **Deprecated; removed in 2.0.0** (ADR-022 §2): build the DataFrame from `to_dict()` in the caller.
+- `to_dataframe(schema)` — *removed in 2.0.0* after a 1.1.0 `DeprecationWarning` (ADR-022 §2). It returned a pandas DataFrame behind the optional `dataframe` extra; a caller builds one from `to_dict()` now.
 
 `views-evaluation` does **not** serialise these to JSON or render HTML. That remains the orchestrator's job, and the original rationale still holds for them: formatting and run context belong where the run is orchestrated.
 

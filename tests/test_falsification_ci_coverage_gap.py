@@ -23,14 +23,18 @@ Measured, not inferred:
     (These read 361/68 until 2026-08-02, against a docstring claiming they were
     "measured, not inferred". They were not: 361 was a later local count that included
     tests added after the tag, and 68 followed from it. 44 + 22 = 66 is forced by the
-    two per-file counts on the line above.)
+    two per-file counts on the line above. Since 2.0.0 `test_evaluation_report.py` no
+    longer import-skips at all — its pandas surface was removed with `to_dataframe()`.
+    Executed with `views_frames` made unimportable, two skips remain, and they are what
+    this guard protects: the module-level skip in `test_metric_frame.py` and the
+    function-level one in `test_falsification_legacy_compatibility.py`.)
 
 This matters more than the raw count. ADR-022 §1 designates the `MetricFrame` on-disk
 format and axis vocabulary a **cross-repo contract**, "treated as public API regardless
 of `__all__`". It is the artifact `views-reporting` and `views-pipeline-core` consume.
-Its 44 guards, plus the emit path in `test_evaluation_report.py` and the end-to-end probe
-in `test_falsification_legacy_compatibility.py`, are exactly the tests that do not run on
-any pull request.
+Its 44 guards, plus the end-to-end probe in `test_falsification_legacy_compatibility.py`,
+were exactly the tests that did not run on any pull request. (`test_evaluation_report.py`
+was skipped for pandas, not for `views_frames`; it never held a `to_metric_frame` test.)
 
 The skip is silent by construction: a green CI run reporting "293 passed" is
 indistinguishable from one where the contract is verified. That is register C-37's
