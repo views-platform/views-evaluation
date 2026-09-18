@@ -1,5 +1,8 @@
-import pytest
+import re
+import warnings
+
 import numpy as np
+import pytest
 from views_evaluation.evaluation.native_metric_calculators import (
     calculate_mse_native,
     calculate_msle_native,
@@ -22,6 +25,14 @@ from views_evaluation.evaluation.native_metric_calculators import (
     calculate_qs_point_native,
 )
 from views_evaluation.evaluation.metric_catalog import METRIC_MEMBERSHIP
+from views_evaluation.evaluation.native_metric_calculators import (
+    _average_precision_numpy,
+    _tweedie_deviance_numpy,
+)
+# The parity oracle. Imported at module level on purpose: the parity tests record
+# warnings around the oracle call, and a lazy import inside that recording would capture
+# any import-time warning from the scikit-learn stack as a spurious parity failure.
+from sklearn.metrics import average_precision_score, mean_tweedie_deviance
 
 
 # Point-prediction test data (N=4, S=1)
@@ -245,6 +256,521 @@ class TestCRPSParityWithProperscoring:
         ours = calculate_crps_native(y_true, y_pred)
         oracle = self._crps_oracle(y_true, y_pred)
         assert ours == pytest.approx(oracle, abs=1e-7)
+
+
+# ---------------------------------------------------------------------------
+# AP / MTD parity: pure-numpy candidates vs scikit-learn oracle (C-05; epic #66, S4)
+# ---------------------------------------------------------------------------
+#
+# `_average_precision_numpy` and `_tweedie_deviance_numpy` are what the public kernels
+# dispatch to since 2026-09-18 (#64); this suite was the gate that switch had to pass,
+# and it stays as the permanent parity contract. The oracle is whatever scikit-learn the
+# environment resolves (C-41): a numeric parity failure after a scikit-learn upgrade is
+# a finding about the oracle, never a reason to loosen the tolerance. Ruled divergences
+# from the oracle are asserted as such, not as parity: AP on a group with no positive
+# truth (ADR-015 R9), float64-always MTD, this library's rejection messages, and the
+# stricter input validation listed in the CHANGELOG.
+
+
+def _as_kernel_input(y_true, y_pred):
+    """The exact form the public kernels hand to the numpy kernels: truth repeated per sample."""
+    return np.repeat(y_true, y_pred.shape[1]), y_pred.flatten()
+
+
+def test_as_kernel_input_matches_what_the_public_kernels_build():
+    """A parity suite cannot see a defect shared by both paths, and this helper IS the
+    shared path. Pin it to the construction in calculate_ap_native / calculate_mtd_native
+    by observing what they hand to the numpy kernels."""
+    from unittest import mock
+    y_true = np.array([1., 0., 1.])
+    y_pred = np.array([[.1, .2], [.3, .4], [.5, .6]])
+    seen = {}
+
+    def spy(yt, ys, *a, **kw):
+        seen["ap"] = (np.array(yt, copy=True), np.array(ys, copy=True))
+        return 0.0
+
+    def spy_mtd(yt, ys, power):
+        seen["mtd"] = (np.array(yt, copy=True), np.array(ys, copy=True))
+        return 0.0
+
+    with mock.patch("views_evaluation.evaluation.native_metric_calculators._average_precision_numpy", spy), \
+         mock.patch("views_evaluation.evaluation.native_metric_calculators._tweedie_deviance_numpy", spy_mtd):
+        calculate_ap_native(y_true, y_pred)
+        calculate_mtd_native(y_true, y_pred, power=1.5)
+    expected = _as_kernel_input(y_true, y_pred)
+    for key in ("ap", "mtd"):
+        np.testing.assert_array_equal(seen[key][0], expected[0])
+        np.testing.assert_array_equal(seen[key][1], expected[1])
+
+
+def _warnings_of(fn, *args, **kwargs):
+    """(result, [(category, message)]) — the two paths are compared on both."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = fn(*args, **kwargs)
+    return result, [(x.category, str(x.message)) for x in w]
+
+
+class TestAPParityWithSklearn:
+    """The numpy AP must equal `sklearn.metrics.average_precision_score` to 1e-10 on
+    every shape of input the public kernel can see, and warn where and as it warns —
+    except the ruled all-negative case (R9), which is asserted as the ruling."""
+
+    def _assert_parity(self, y_true, y_pred):
+        yt, ys = _as_kernel_input(y_true, y_pred)
+        ours, ours_w = _warnings_of(_average_precision_numpy, yt, ys)
+        ref, ref_w = _warnings_of(average_precision_score, yt, ys)
+        assert ours == pytest.approx(ref, abs=1e-10), (ours, ref)
+        assert type(ours) is float  # a Python float, not np.float64
+        assert ours_w == ref_w, f"warnings differ: ours {ours_w} vs sklearn {ref_w}"
+
+    # ── deterministic shapes ──
+    def test_perfect_ranking(self):
+        self._assert_parity(np.array([1., 1., 0., 0.]), np.array([[.9], [.8], [.2], [.1]]))
+
+    def test_inverted_ranking(self):
+        self._assert_parity(np.array([0., 0., 1., 1.]), np.array([[.9], [.8], [.2], [.1]]))
+
+    def test_all_scores_tied(self):
+        self._assert_parity(np.array([1., 0., 1., 0.]), np.full((4, 1), .5))
+
+    def test_all_positive_truth(self):
+        self._assert_parity(np.ones(5), np.array([[.1], [.5], [.9], [.3], [.7]]))
+
+    def test_all_negative_truth_is_the_nan_sentinel(self):
+        """ADR-015 ruling 9 (register D-01): a group with no positive truth is a property
+        of the data, so AP is `nan` there — not scikit-learn's `0.0`-plus-warning
+        convention — and nothing is warned. The oracle's behaviour is pinned here too, so
+        the divergence stays visible if scikit-learn ever changes its own."""
+        yt, ys = _as_kernel_input(np.zeros(4), np.array([[.1], [.2], [.3], [.4]]))
+        ours, ours_w = _warnings_of(_average_precision_numpy, yt, ys)
+        ref, ref_w = _warnings_of(average_precision_score, yt, ys)
+        assert np.isnan(ours) and ours_w == []
+        assert ref == 0.0 and ref_w == [
+            (UserWarning, "No positive class found in y_true, recall is set to one for all thresholds.")
+        ]
+
+    def test_public_kernel_returns_nan_for_an_all_negative_group(self):
+        """Through the dispatched kernel; the mean-row exclusion is asserted in
+        tests/test_metric_frame.py::TestSentinelGroupsInTheMeanRow."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning here is a regression of R9
+            result = calculate_ap_native(np.zeros(3), np.array([[.1], [.5], [.9]]))
+        assert np.isnan(result)
+
+    def test_single_positive(self):
+        self._assert_parity(np.array([0., 0., 1., 0., 0.]), np.array([[.3], [.9], [.5], [.1], [.5]]))
+
+    def test_n_equals_one(self):
+        self._assert_parity(np.array([1.]), np.array([[.42]]))
+
+    def test_n_equals_two(self):
+        self._assert_parity(np.array([1., 0.]), np.array([[.3], [.7]]))
+
+    def test_duplicated_scores_with_mixed_labels(self):
+        """The tie-grouping case: step-wise and trapezoidal AP differ here."""
+        self._assert_parity(np.array([1., 0., 1., 0., 1., 0.]),
+                            np.array([[.9], [.9], [.5], [.5], [.5], [.1]]))
+
+    def test_label_set_minus_one_and_one(self):
+        self._assert_parity(np.array([-1., 1., 1., -1.]), np.array([[.2], [.8], [.6], [.4]]))
+
+    def test_label_set_one_and_two_treats_one_as_positive(self):
+        """sklearn silently computes with 1 as the positive class; parity, not judgement."""
+        self._assert_parity(np.array([1., 2., 1., 2.]), np.array([[.9], [.8], [.2], [.1]]))
+
+    def test_integer_truth_and_scores(self):
+        self._assert_parity(np.array([1, 0, 1, 0]), np.array([[3], [1], [2], [2]]))
+
+    def test_bool_truth_computes(self):
+        """A bool label array is a valid binary target on both paths."""
+        self._assert_parity(np.array([True, False, True, False]), np.array([[.9], [.1], [.8], [.2]]))
+
+    def test_python_lists_are_accepted(self):
+        yt, ys = [1., 0., 1., 0.], [.9, .1, .8, .2]
+        assert _average_precision_numpy(yt, ys) == pytest.approx(average_precision_score(yt, ys), abs=1e-10)
+
+    def test_scores_one_ulp_apart_are_distinct(self):
+        """Ties are exact equality, not a tolerance: scores one ulp apart are separate
+        operating points, on both paths. Chosen so that merging them changes AP: the
+        positive sits one ulp ABOVE the negative, so exact ordering ranks it alone first
+        (precision 1 there) while any tolerance ties it with the negative and lowers it."""
+        s = 0.5
+        self._assert_parity(np.array([0., 1., 0., 1.]),
+                            np.array([[s], [np.nextafter(s, 1.0)], [.1], [.9]]))
+
+    def test_int64_scores_above_2_pow_53_stay_distinct(self):
+        """A float64 cast would merge these two into a tie; sklearn sorts natively."""
+        self._assert_parity(np.array([1., 0.]), np.array([[2**53 + 1], [2**53]], dtype=np.int64))
+
+    @pytest.mark.parametrize("S", [1, 10, 100])
+    def test_ensemble_widths(self, S):
+        rng = np.random.RandomState(7)
+        y_true = (rng.rand(20) < .4).astype(float)
+        self._assert_parity(y_true, rng.rand(20, S))
+
+    def test_large_n_and_s(self):
+        """One N=5000, S=100 case — the sweep stays at N ≤ 500 to keep the suite fast."""
+        rng = np.random.RandomState(99)
+        self._assert_parity((rng.rand(5000) < .3).astype(float), np.round(rng.rand(5000, 100), 2))
+
+    # ── seeded sweep: N × S × prevalence, heavy ties from rounding ──
+    @pytest.mark.parametrize("seed", range(200))
+    def test_random_sweep(self, seed):
+        rng = np.random.RandomState(seed)
+        N = int(rng.choice([5, 50, 500]))
+        S = int(rng.choice([1, 10, 100]))
+        prevalence = rng.uniform(.01, .99)
+        y_true = (rng.rand(N) < prevalence).astype(float)
+        if not y_true.any():
+            y_true[0] = 1.0  # the empty-group case is ruled, not parity (R9); keep the sweep on parity
+        y_pred = np.round(rng.rand(N, S), int(rng.choice([1, 2, 6])))
+        self._assert_parity(y_true, y_pred)
+
+    @pytest.mark.parametrize("scale", [1e6, 1e-6])
+    def test_extreme_score_magnitudes(self, scale):
+        rng = np.random.RandomState(3)
+        self._assert_parity((rng.rand(50) < .5).astype(float), rng.rand(50, 3) * scale)
+
+    # ── domain: both raise ValueError; the TEXT is a documented deviation ──
+    @pytest.mark.parametrize("y_true", [
+        np.array([0., 1., 2., 0.]),      # three labels
+        np.array([0., 2., 0., 2.]),      # two labels, neither is 1
+        np.array([0.5, 1., 0.5, 1.]),    # two labels, one non-integral: sklearn "continuous"
+        np.array([0.2, 0.7, 0.4, 0.9]),  # continuous
+        # integral floats outside int64: sklearn's `y == y.astype(int)` test fails the
+        # cast and reads them as continuous. An integrality test by `np.floor` alone
+        # would accept them — a newly accepted input nobody listed.
+        np.array([1., 2.**63, 1., 2.**63]),
+        np.array([1., -(2.**63) * (1 + 2**-52), 1., 1.]),
+    ], ids=["three-labels", "no-positive-label", "non-integral", "continuous",
+            "float-at-2^63", "float-below--2^63"])
+    def test_non_binary_truth_raises_on_both_paths(self, y_true):
+        yt, ys = _as_kernel_input(y_true, np.array([[.1], [.4], [.35], [.8]]))
+        with pytest.raises(ValueError), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # sklearn's "invalid value in cast"
+            average_precision_score(yt, ys)
+        with pytest.raises(ValueError, match="binary y_true"):
+            _average_precision_numpy(yt, ys)
+
+    @pytest.mark.parametrize("other", [2**63 - 1, -(2**63)], ids=["int64-max", "int64-min"])
+    def test_large_integer_labels_stay_accepted_as_in_sklearn(self, other):
+        """The int64 bound applies to FLOAT labels only: an int64 array at either end of
+        the range round-trips through `int` and scikit-learn computes it (with 1 the
+        positive). So must this kernel, and to the same value."""
+        yt = np.array([1, other, 1, other], dtype=np.int64)
+        ys = np.array([.1, .4, .35, .8])
+        assert _average_precision_numpy(yt, ys) == average_precision_score(yt, ys)
+
+    def test_float_label_at_minus_2_pow_63_is_the_edge_sklearn_accepts(self):
+        """-2**63 is exactly representable as int64, so the cast round-trips and
+        scikit-learn accepts it; one ulp further out it does not. The bound is
+        `< -2**63`, not `<=`."""
+        yt = np.array([1., -(2.**63), 1., 1.])
+        ys = np.array([.1, .4, .35, .8])
+        assert _average_precision_numpy(yt, ys) == average_precision_score(yt, ys)
+
+    @pytest.mark.parametrize("label", [2., 5., -3.])
+    def test_uniform_mislabelled_truth_raises(self, label):
+        """Stricter than scikit-learn, which computed 0.0 + warning for a uniform 2:
+        under R9 that would be a silent `nan`, indistinguishable from a legitimate
+        all-zero group. A truth column that is all 2s is the wrong column."""
+        yt, ys = _as_kernel_input(np.full(4, label), np.array([[.1], [.4], [.35], [.8]]))
+        with pytest.raises(ValueError, match="binary y_true"):
+            _average_precision_numpy(yt, ys)
+
+    @pytest.mark.parametrize("label", [-1., 0., 1.])
+    def test_uniform_canonical_label_is_accepted(self, label):
+        yt, ys = _as_kernel_input(np.full(4, label), np.array([[.1], [.4], [.35], [.8]]))
+        result = _average_precision_numpy(yt, ys)
+        assert (np.isnan(result) if label != 1. else result == 1.0)
+
+    @pytest.mark.parametrize("S", [1, 10])
+    def test_public_kernel_matches_oracle_at_ensemble_width(self, S):
+        """Through calculate_ap_native, so the wrapper's repeat/flatten plumbing is on
+        the parity path at S > 1, not only the private kernel."""
+        rng = np.random.RandomState(61)
+        y_true = (rng.rand(30) < .4).astype(float)
+        y_pred = rng.rand(30, S)
+        ours = calculate_ap_native(y_true, y_pred)
+        ref = average_precision_score(*_as_kernel_input(y_true, y_pred))
+        assert ours == pytest.approx(ref, abs=1e-10)
+
+    # ── input validation the oracle did via check_array; ours must keep raising ──
+    def test_empty_input_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            _average_precision_numpy(np.array([]), np.array([]))
+
+    def test_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="different lengths"):
+            _average_precision_numpy(np.array([1., 0., 1.]), np.array([.9, .1]))
+
+    def test_column_shaped_input_raises(self):
+        with pytest.raises(ValueError, match="must be 1-D"):
+            _average_precision_numpy(np.array([1., 0.]), np.array([[.9], [.1]]))
+
+    def test_zero_dimensional_input_raises(self):
+        with pytest.raises(ValueError, match="must be 1-D"):
+            _average_precision_numpy(np.array(1.), np.array(.5))
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+    def test_non_finite_score_raises_naming_value_and_index(self, bad):
+        """The message names which array, which value, and where — ADR-015."""
+        with pytest.raises(ValueError, match=rf"^y_score contains {re.escape(repr(bad))} at index 2; values must be finite$"):
+            _average_precision_numpy(np.array([1., 0., 1., 0.]), np.array([.9, .8, bad, .1]))
+
+    def test_nan_in_truth_raises(self):
+        with pytest.raises(ValueError, match="must be finite"):
+            _average_precision_numpy(np.array([1., np.nan, 1., 0.]), np.array([.9, .8, .2, .1]))
+
+    @pytest.mark.parametrize("arr", [
+        np.array([.1 + 1j, .4, .35, .8]),
+        np.array(["0.1", "0.4", "0.35", "0.8"]),
+    ], ids=["complex", "string"])
+    def test_non_real_dtype_raises(self, arr):
+        with pytest.raises(ValueError, match="real-numeric"):
+            _average_precision_numpy(np.array([1., 0., 1., 0.]), arr)
+
+
+class TestMTDParityWithSklearn:
+    """The numpy Tweedie deviance must equal `sklearn.metrics.mean_tweedie_deviance` to
+    1e-10 (relative) on every power branch and every domain rule, for float64 input."""
+
+    POWERS = [-2, -1, -0.5, 0, 1, 1.0001, 1.5, 1.9999, 2, 2.0001, 2.5, 3, 5]
+
+    def _assert_parity(self, y_true, y_pred, power, rel=1e-10):
+        yt, ys = _as_kernel_input(y_true, y_pred)
+        ours, ours_w = _warnings_of(_tweedie_deviance_numpy, yt, ys, power)
+        ref, ref_w = _warnings_of(mean_tweedie_deviance, yt, ys, power=power)
+        assert ours == pytest.approx(ref, rel=rel, abs=1e-12), (power, ours, ref)
+        assert type(ours) is float
+        assert ours_w == ref_w, f"warnings differ at p={power}: ours {ours_w} vs sklearn {ref_w}"
+
+    @staticmethod
+    def _positive_data(seed, N=50, S=1):
+        rng = np.random.RandomState(seed)
+        return rng.gamma(2., 2., N) + 1e-3, rng.gamma(2., 2., (N, S)) + 1e-3
+
+    @pytest.mark.parametrize("power", POWERS)
+    def test_every_power_branch(self, power):
+        y, mu = self._positive_data(11)
+        self._assert_parity(y, mu, power)
+
+    @pytest.mark.parametrize("power", [1, 1.0001, 1.5, 1.9999])
+    def test_exact_zeros_in_truth_where_permitted(self, power):
+        y, mu = self._positive_data(5)
+        y[::7] = 0.0
+        self._assert_parity(y, mu, power)
+
+    @pytest.mark.parametrize("power", POWERS)
+    def test_truth_equals_prediction_is_near_zero(self, power):
+        """Deviance of a perfect prediction is 0 up to round-off; both paths agree."""
+        y, _ = self._positive_data(9)
+        mu = y[:, np.newaxis].copy()
+        self._assert_parity(y, mu, power)
+        assert _tweedie_deviance_numpy(*_as_kernel_input(y, mu), power) == pytest.approx(0.0, abs=1e-9)
+
+    @pytest.mark.parametrize("power", POWERS)
+    @pytest.mark.parametrize("ratio", [1e-3, 1e3], ids=["y<<mu", "y>>mu"])
+    def test_extreme_ratios(self, power, ratio):
+        y, mu = self._positive_data(13)
+        self._assert_parity(y * ratio, mu, power)
+
+    @pytest.mark.parametrize("S", [1, 10, 100])
+    def test_ensemble_widths(self, S):
+        y, mu = self._positive_data(17, S=S)
+        self._assert_parity(y, mu, 1.5)
+
+    def test_large_n_and_s(self):
+        """One N=5000, S=100 case per branch family — the sweep stays at N ≤ 500."""
+        y, mu = self._positive_data(99, N=5000, S=100)
+        for power in (-1, 0, 1, 1.5, 2, 3):
+            self._assert_parity(y, mu, power)
+
+    def test_negative_truth_allowed_below_zero_power(self):
+        """p < 0 admits any real y (the first term clamps at 0); only y_pred must be > 0."""
+        y, mu = self._positive_data(19)
+        self._assert_parity(y - 5.0, mu, -1)
+
+    def test_power_zero_admits_any_values(self):
+        y, mu = self._positive_data(23)
+        self._assert_parity(y - 5.0, mu - 5.0, 0)
+
+    @pytest.mark.parametrize("seed", range(200))
+    def test_random_sweep(self, seed):
+        """One dataset per seed, every power on it; negative y where the branch admits
+        it, a zero in y where it is permitted. 200 datasets × 13 powers."""
+        rng = np.random.RandomState(seed)
+        N = int(rng.choice([5, 50, 500]))
+        S = int(rng.choice([1, 10, 100]))
+        y = rng.gamma(2., 2., N) + 1e-3
+        mu = rng.gamma(2., 2., (N, S)) + 1e-3
+        for power in self.POWERS:
+            yy = y.copy()
+            if power <= 0 and rng.rand() < .5:
+                yy = yy - rng.rand() * 5.0          # negative y admitted for p <= 0
+            if 1 <= power < 2 and rng.rand() < .3:
+                yy[rng.randint(N)] = 0.0             # zero admitted for 1 <= p < 2
+            self._assert_parity(yy, mu, power)
+
+    @pytest.mark.parametrize("scale", [1e6, 1e-6])
+    def test_extreme_magnitudes(self, scale):
+        y, mu = self._positive_data(29)
+        self._assert_parity(y * scale, mu * scale, 1.5)
+
+    @pytest.mark.parametrize("power", POWERS)
+    def test_float32_input_is_computed_in_float64(self, power):
+        """Documented deviation: sklearn computes float32 input in float32; we always
+        upcast. Parity to sklearn's *float64* answer on the same numbers is tight. The
+        gap to its *float32* answer is the deviation — ~1e-8 at p=1.5, up to ~2e-3 near
+        p=1 and p=2 where the closed form cancels — and is recorded, not hidden."""
+        y, mu = self._positive_data(31)
+        y32, mu32 = y.astype(np.float32), mu.astype(np.float32)
+        ours = _tweedie_deviance_numpy(*_as_kernel_input(y32, mu32), power)
+        ref64 = mean_tweedie_deviance(*_as_kernel_input(y32.astype(np.float64), mu32.astype(np.float64)), power=power)
+        ref32 = mean_tweedie_deviance(*_as_kernel_input(y32, mu32), power=power)
+        assert ours == pytest.approx(ref64, rel=1e-10)
+        assert ours == pytest.approx(ref32, rel=5e-3), f"float32 gap larger than documented at p={power}"
+
+    # ── domain rules: raise where sklearn raises, with its sentence verbatim ──
+    @pytest.mark.parametrize("power, y_edit, mu_edit, sentence", [
+        (-1,    None,  0.0,  "strictly positive y_pred."),
+        (1,     -1.0,  None, "non-negative y and strictly positive y_pred."),
+        (1,     None,  0.0,  "non-negative y and strictly positive y_pred."),
+        (1.5,   -1.0,  None, "non-negative y and strictly positive y_pred."),
+        (1.5,   None,  0.0,  "non-negative y and strictly positive y_pred."),
+        (2,     0.0,   None, "strictly positive y and y_pred."),
+        (2,     None,  0.0,  "strictly positive y and y_pred."),
+        (3,     0.0,   None, "strictly positive y and y_pred."),
+    ])
+    def test_domain_errors_match_sklearn(self, power, y_edit, mu_edit, sentence):
+        y, mu = self._positive_data(37)
+        if y_edit is not None:
+            y[0] = y_edit
+        if mu_edit is not None:
+            mu[0, 0] = mu_edit
+        yt, ys = _as_kernel_input(y, mu)
+        # The full sentence, anchored, so the p<0 text is not satisfied by the [1,2) one.
+        full = re.escape(f"Mean Tweedie deviance error with power={power} can only be used on {sentence}")
+        with pytest.raises(ValueError, match="^" + full + "$"):
+            mean_tweedie_deviance(yt, ys, power=power)
+        with pytest.raises(ValueError, match="^" + full + r" Offending (y|y_pred): .* at index 0\.$"):
+            _tweedie_deviance_numpy(yt, ys, power)
+
+    def test_domain_error_names_the_first_offender_by_value_and_index(self):
+        """Not index 0, not the first array: the third y_pred is the offender, and the
+        message prints that value at that index."""
+        y, mu = self._positive_data(47)
+        mu[2, 0] = -0.25
+        mu[7, 0] = -0.75   # a second offender: the FIRST must be reported
+        yt, ys = _as_kernel_input(y, mu)
+        with pytest.raises(ValueError, match=r" Offending y_pred: -0\.25 at index 2\.$"):
+            _tweedie_deviance_numpy(yt, ys, 1.5)
+
+    def test_domain_error_reports_y_before_y_pred_when_both_offend(self):
+        """Precedence is y then y_pred, as scikit-learn checks them; with both offending
+        the message names y — and y's value, not y_pred's."""
+        y, mu = self._positive_data(53)
+        y[4] = -3.0
+        mu[1, 0] = 0.0
+        yt, ys = _as_kernel_input(y, mu)
+        with pytest.raises(ValueError, match=r" Offending y: -3\.0 at index 4\.$"):
+            _tweedie_deviance_numpy(yt, ys, 1.5)
+
+    def test_fraction_power_is_a_real_number(self):
+        """A numbers.Real that numpy cannot coerce directly must compute as the equal
+        float does, not raise TypeError. (scikit-learn itself cannot take a Fraction, so
+        this is a property test, not a parity one.)"""
+        from fractions import Fraction
+        y, mu = self._positive_data(59)
+        yt, ys = _as_kernel_input(y, mu)
+        assert _tweedie_deviance_numpy(yt, ys, Fraction(3, 2)) == _tweedie_deviance_numpy(yt, ys, 1.5)
+
+    def test_python_lists_are_accepted(self):
+        yt, ys = [1., 2., 3.], [1.5, 2.5, 2.5]
+        assert _tweedie_deviance_numpy(yt, ys, 1.5) == pytest.approx(mean_tweedie_deviance(yt, ys, power=1.5), rel=1e-10)
+
+    @pytest.mark.parametrize("power", [10**400, -(10**400)], ids=["huge-int", "huge-negative-int"])
+    def test_power_beyond_float_range_raises_value_error_not_overflow(self, power):
+        """`float(10**400)` raises OverflowError. A finite-check that calls it unguarded
+        lets that escape as the wrong exception class through `calculate_mtd_native`."""
+        from fractions import Fraction
+        y, mu = self._positive_data(61)
+        yt, ys = _as_kernel_input(y, mu)
+        for p in (power, Fraction(power, 1)):
+            with pytest.raises(ValueError, match="finite real power"):
+                _tweedie_deviance_numpy(yt, ys, p)
+
+    @pytest.mark.parametrize("sign", [1, -1], ids=["positive", "negative"])
+    def test_power_that_underflows_to_zero_is_rejected_for_either_sign(self, sign):
+        """`float(Fraction(1, 10**400))` is 0.0 and its negation is -0.0. Dispatching on
+        the float would take the Gaussian branch for a power that is not 0 — positive
+        and below 1 (undefined), or negative (a different branch). The check is against
+        the original number, and a `power > 0` test would let the negative one compute."""
+        from fractions import Fraction
+        y, mu = self._positive_data(67)
+        yt, ys = _as_kernel_input(y, mu)
+        with pytest.raises(ValueError, match=r"representable as a float; .* rounds to -?0\.0"):
+            _tweedie_deviance_numpy(yt, ys, sign * Fraction(1, 10**400))
+        # And an exact zero, however spelled, is still the Gaussian branch.
+        assert _tweedie_deviance_numpy(yt, ys, Fraction(0, 1)) == _tweedie_deviance_numpy(yt, ys, 0.0)
+
+    @pytest.mark.parametrize("power", [0.5, 0.0001, 0.9999])
+    def test_power_in_open_unit_interval_raises_on_both_paths(self, power):
+        y, mu = self._positive_data(41)
+        yt, ys = _as_kernel_input(y, mu)
+        with pytest.raises(ValueError):
+            mean_tweedie_deviance(yt, ys, power=power)
+        with pytest.raises(ValueError, match=r"not defined for power in \(0, 1\)"):
+            _tweedie_deviance_numpy(yt, ys, power)
+
+    @pytest.mark.parametrize("power", [np.nan, np.inf, -np.inf, "1.5", None, True],
+                             ids=["nan", "inf", "-inf", "str", "None", "bool"])
+    def test_invalid_power_raises(self, power):
+        """Rejected here; scikit-learn's validate_params rejects nan/inf/str/None but
+        accepts True as a Real (and computes Poisson). A bool power is nonsense, so this
+        kernel rejects it — one of the inputs the CHANGELOG lists as now failing. None of
+        these may fall through to a branch (inf used to reach `else: p >= 2` and score 0.0)."""
+        y, mu = self._positive_data(43)
+        with pytest.raises(ValueError, match="finite real power"):
+            _tweedie_deviance_numpy(*_as_kernel_input(y, mu), power)
+
+    # ── input validation the oracle did via check_array; ours must keep raising ──
+    def test_empty_input_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            _tweedie_deviance_numpy(np.array([]), np.array([]), 1.5)
+
+    def test_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="different lengths"):
+            _tweedie_deviance_numpy(np.array([1., 2., 3.]), np.array([1., 2.]), 1.5)
+
+    def test_column_shaped_input_raises(self):
+        with pytest.raises(ValueError, match="must be 1-D"):
+            _tweedie_deviance_numpy(np.array([1., 2.]), np.array([[1.], [2.]]), 1.5)
+
+    @pytest.mark.parametrize("power", [-1, 0, 1, 1.5, 2, 3])
+    def test_nan_input_raises(self, power):
+        with pytest.raises(ValueError, match="must be finite"):
+            _tweedie_deviance_numpy(np.array([1., np.nan, 3.]), np.array([1., 2., 3.]), power)
+
+    def test_inf_prediction_raises_at_power_three(self):
+        """inf**(1-p) and inf**(2-p) are both 0 for p=3, so an unchecked inf produced a
+        finite, plausible, wrong value."""
+        with pytest.raises(ValueError, match="must be finite"):
+            _tweedie_deviance_numpy(np.array([1., 2., 3., .5]), np.array([1.5, np.inf, 2.5, .7]), 3)
+
+    @pytest.mark.parametrize("arr", [
+        np.array([1.5 + 1j, 2.5, 2.5, 3.5]),
+        np.array(["1.5", "2.5", "2.5", "3.5"]),
+        np.array([1, 2, 2, 3], dtype="m8[D]"),
+        np.array([1.5, 2.5, None, 3.5], dtype=object),
+    ], ids=["complex", "string", "timedelta", "object"])
+    def test_non_real_dtype_raises(self, arr):
+        """timedelta64 subclasses np.signedinteger; it scored days as numbers before the
+        dtype check moved to `kind in "iuf"`."""
+        with pytest.raises(ValueError, match="real-numeric"):
+            _tweedie_deviance_numpy(np.array([1., 2., 3., 4.]), arr, 1.5)
 
 
 # ---------------------------------------------------------------------------
@@ -1227,6 +1753,31 @@ class TestPearsonGreen:
         assert calculate_pearson_native(y_true, y_pred) == pytest.approx(-1.0)
 
 
+class TestAPAndMTDPublicKernelsRed:
+    """The dispatched kernels raise as `_guard_shapes` and the numpy kernels do —
+    behaviour that came from scikit-learn's check_array until 2026-09-18."""
+
+    def test_ap_row_mismatch_raises(self):
+        with pytest.raises(ValueError, match="Row mismatch"):
+            calculate_ap_native(np.array([1., 0., 1.]), np.array([[.9], [.1]]))
+
+    def test_mtd_row_mismatch_raises(self):
+        with pytest.raises(ValueError, match="Row mismatch"):
+            calculate_mtd_native(np.array([1., 2., 3.]), np.array([[1.], [2.]]), power=1.5)
+
+    def test_ap_non_binary_truth_raises(self):
+        with pytest.raises(ValueError, match="binary y_true"):
+            calculate_ap_native(np.array([0., 3., 0., 7.]), np.array([[.1], [.4], [.35], [.8]]))
+
+    def test_mtd_domain_error_names_the_offender(self):
+        with pytest.raises(ValueError, match=r"power=1\.5 can only be used on .* Offending y_pred: 0\.0 at index 1\.$"):
+            calculate_mtd_native(np.array([1., 2., 3.]), np.array([[1.], [0.], [2.]]), power=1.5)
+
+    def test_mtd_invalid_power_raises(self):
+        with pytest.raises(ValueError, match="finite real power"):
+            calculate_mtd_native(np.array([1., 2.]), np.array([[1.], [2.]]), power=float("inf"))
+
+
 class TestMeanPredictionShapeGuardRed:
     """C-32: y_hat_bar must guard like every sibling kernel, not succeed silently."""
 
@@ -1250,3 +1801,145 @@ class TestMeanPredictionShapeGuardRed:
         )
         y_pred = np.array([[1.0, 2.0], [3.0, 4.0]])
         assert calculate_mean_prediction_native(np.zeros(2), y_pred) == pytest.approx(2.5)
+
+
+# ---------------------------------------------------------------------------
+# Level-0 import purity (ADR-011; register C-05; epic #66, story #64)
+# ---------------------------------------------------------------------------
+
+class TestLevelZeroImportPurity:
+    """ADR-011 is an allowlist: Level 0 imports numpy, scipy and the standard library,
+    nothing else, and never the Level-1 module. Until 2026-09-18 the kernels imported
+    `sklearn.metrics`, which imports pandas eagerly, so every module of this package put
+    pandas in `sys.modules` — the "zero knowledge of external data frameworks" claim was
+    true of the source and false of the interpreter (C-05).
+
+    Three guards, because an audit showed two half-guards leave a seam. The static one
+    walks every import statement — top-level or lazy — in each Level-0 module, requires
+    its root to be allowed, forbids importing the Level-1 module (`metric_frame`) from
+    the pure modules, and forbids dynamic-import machinery (`__import__`,
+    `importlib.import_module`, `exec`) outright, since a call-time import spelled as a
+    call is invisible to an AST walk over import statements. The dynamic one imports the
+    package in a fresh interpreter AND exercises a kernel of each kind and one full
+    evaluation, then asserts that neither pandas nor scikit-learn was loaded; it is
+    meaningful only if both are installed and not loaded, so it fails, not skips, when
+    they are missing. The third pins the declaration: scikit-learn is in the dev group
+    only.
+    """
+
+    _PURE_LEVEL_0 = ["evaluation_frame", "native_evaluator", "metric_catalog", "native_metric_calculators"]
+    # ADR-011 §Layering: "No external imports except numpy and scipy". The package's own
+    # modules are allowed by name below, not by root, so intra-package topology is checked.
+    _ALLOWED_EXTERNAL = {"numpy", "scipy"}
+    _LEVEL_1_MODULES = {"metric_frame"}
+    # evaluation_report.py is Level 0 by the logging standard but carries two lazy
+    # Level-1 bridges by design (`to_dataframe` → pandas, deprecated and gone in 2.0.0;
+    # `to_metric_frame` → views_frames and metric_frame). Held to the same rule plus those.
+    _BRIDGE_EXTERNAL = {"pandas", "views_frames"}
+
+    @staticmethod
+    def _imports_of(module_name):
+        """(external roots, internal module names, dynamic-import call names) for a module."""
+        import ast
+        import importlib
+        import inspect
+
+        module = importlib.import_module(f"views_evaluation.evaluation.{module_name}")
+        tree = ast.parse(inspect.getsource(module))
+        external, internal, dynamic = set(), set(), set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    (internal if root == "views_evaluation" else external).add(alias.name.split(".")[-1] if root == "views_evaluation" else root)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level > 0 or (node.module or "").split(".")[0] == "views_evaluation":
+                    internal.add((node.module or "").split(".")[-1] or "<relative>")
+                    internal |= {alias.name for alias in node.names} if node.level > 0 else set()
+                elif node.module:
+                    external.add(node.module.split(".")[0])
+            elif isinstance(node, ast.Call):
+                fn = node.func
+                name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else None)
+                if name in {"__import__", "import_module", "exec", "eval"}:
+                    dynamic.add(name)
+        return external, internal, dynamic
+
+    @pytest.mark.parametrize("module_name", _PURE_LEVEL_0 + ["evaluation_report"])
+    def test_every_import_in_a_level_zero_module_is_allowed(self, module_name):
+        import sys
+        stdlib = sys.stdlib_module_names
+        external, internal, dynamic = self._imports_of(module_name)
+        allowed = self._ALLOWED_EXTERNAL | (self._BRIDGE_EXTERNAL if module_name == "evaluation_report" else set())
+        offending = sorted(r for r in external if r not in stdlib and r not in allowed)
+        assert not offending, (
+            f"{module_name} imports {offending}; Level 0 may import only the standard "
+            f"library, numpy and scipy (ADR-011; C-05)"
+        )
+        if module_name != "evaluation_report":
+            crossing = sorted(internal & self._LEVEL_1_MODULES)
+            assert not crossing, (
+                f"{module_name} imports Level-1 {crossing}; Level 0 must not depend on the "
+                f"emit layer (ADR-011 layering) — that would also make the core unimportable "
+                f"without the `frames` extra"
+            )
+        assert not dynamic, (
+            f"{module_name} uses {sorted(dynamic)}; dynamic imports are invisible to this "
+            f"guard and forbidden in Level 0"
+        )
+
+    def test_the_static_guard_is_not_vacuous(self):
+        """It must see numpy (an `import`) AND scipy (an `import from`) in the kernels,
+        or one of its two branches is scanning nothing."""
+        external, internal, _ = self._imports_of("native_metric_calculators")
+        assert {"numpy", "scipy"} <= external
+        external, internal, _ = self._imports_of("native_evaluator")
+        assert "evaluation_frame" in internal, "the internal-import branch sees nothing"
+
+    def test_the_allowlist_is_adr_011s(self):
+        """The declaration is the guard; an edit here must be a visible two-place change."""
+        assert self._ALLOWED_EXTERNAL == {"numpy", "scipy"}, "ADR-011: numpy and scipy only"
+
+    def test_scikit_learn_is_declared_dev_only(self):
+        import tomllib
+        from pathlib import Path
+        data = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+        runtime = data["tool"]["poetry"]["dependencies"]
+        dev = data["tool"]["poetry"]["group"]["dev"]["dependencies"]
+        assert "scikit-learn" not in runtime, "scikit-learn is back in the runtime dependencies (C-05)"
+        assert "scikit-learn" in dev, "scikit-learn must stay as the dev-only parity oracle"
+
+    def test_importing_and_exercising_the_package_loads_neither_pandas_nor_sklearn(self):
+        """Import-time AND call-time: a kernel that imported pandas only when called would
+        pass an import-only probe."""
+        import importlib.util
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        for dist, how in (("pandas", "the `dataframe` extra"), ("sklearn", "the dev group"),
+                          ("views_frames", "the `frames` extra")):
+            assert importlib.util.find_spec(dist) is not None, (
+                f"{dist} is not installed, so this guard cannot prove it is not loaded; "
+                f"install {how} (`poetry install --all-extras`)"
+            )
+        repo = Path(__file__).resolve().parents[1]
+        env = {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in (str(repo), os.environ.get("PYTHONPATH", "")) if p)}
+        script = """
+import sys, numpy as np
+import views_evaluation, views_evaluation.evaluation.metric_frame
+from views_evaluation import EvaluationFrame, NativeEvaluator
+from views_evaluation.evaluation.native_metric_calculators import calculate_ap_native, calculate_mtd_native
+calculate_ap_native(np.array([1., 0., 1.]), np.array([[.9], [.1], [.8]]))
+calculate_mtd_native(np.array([1., 2., 3.]), np.array([[1.5], [2.5], [2.5]]), power=1.5)
+ids = {'time': np.array([1, 1]), 'unit': np.array([1, 2]), 'origin': np.array([0, 0]), 'step': np.array([1, 1])}
+ef = EvaluationFrame(np.array([0., 1.]), np.array([[.1], [.9]]), ids, metadata={'target': 't'})
+NativeEvaluator({'steps': [1], 'regression_targets': ['t'], 'regression_point_metrics': ['MSE', 'MTD']}).evaluate(ef).to_metric_frame()
+print(sorted(m for m in ('pandas', 'sklearn') if m in sys.modules))
+"""
+        out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, cwd=repo, env=env)
+        assert out.returncode == 0, out.stderr
+        assert out.stdout.strip() == "[]", (
+            f"importing and exercising views_evaluation loaded {out.stdout.strip()} (ADR-011; C-05)"
+        )

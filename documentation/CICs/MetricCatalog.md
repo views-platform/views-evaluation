@@ -88,9 +88,10 @@ The catalog dispatches to metric kernels whose degenerate-input behaviour is rul
 |---|---|---|
 | `MCR_point` / `MCR_sample` | `mean(y_true) == 0` | **Documented sentinel** — `inf` if `mean(y_pred) > 0`, `nan` if both are 0. A zero-truth group is a property of conflict data, not a fault. |
 | `Pearson` | either series constant | **Documented sentinel** — `nan`. Same category as `MCR`: a constant series is a fact about the data (or, for a constant prediction series, a finding about the model — it is a baseline), not a broken invariant (C-22). |
+| `AP` | no positive label in the group | **Documented sentinel** — `nan`, warning suppressed. Average precision is undefined without a positive; a group with none is a fact about the data (ADR-015 R9, decided 2026-09-18). scikit-learn's `0.0` convention was inherited until the numpy kernel replaced it. |
 | `Ignorance` | observation outside the configured `bins` | **Raises**, naming the value and the range. Here the *configuration* is wrong — the profile's bins do not cover the target's domain — so this is a fault, not a data property (C-27, C-28a). |
 
-The dividing line is **fault vs data property**, not whether the returned number "is an answer". `MCR` and `Pearson` sit together because both degenerate cases are caused by data with no variation; `Ignorance` is separate because a mis-scoped bin range is a configuration error.
+The dividing line is **fault vs data property**, not whether the returned number "is an answer". `MCR`, `Pearson` and `AP` sit together because their degenerate cases are caused by data with no variation; `Ignorance` is separate because a mis-scoped bin range is a configuration error.
 
 A raise here propagates to the entire `evaluate()` call — every metric, every schema. Before ruling that a degenerate case must raise, check which legitimate workflow that makes impossible. Ruling on `Pearson` was reversed on exactly this point: it aborted any evaluation of a constant baseline, which ADR-041 requires as routine.
 

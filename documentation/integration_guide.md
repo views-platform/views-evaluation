@@ -26,7 +26,7 @@ The library is a pure-math evaluation engine with two core components:
   ┌───────────────────▼───────────────────────────┐
   │        EvaluationReport (Results)              │
   │  Framework-agnostic results container;        │
-  │  exposes to_dict(), to_dataframe(),           │
+  │  exposes to_dict(), to_metric_frame(),        │
   │  get_schema_results()                          │
   └───────────────────────────────────────────────┘
 ```
@@ -133,9 +133,12 @@ report = evaluator.evaluate(ef)
 
 # --- 4. Access results ---
 print(report.to_dict())                    # full nested dict
-print(report.to_dataframe('step'))         # step-wise DataFrame
-print(report.to_dataframe('month'))        # month-wise DataFrame
-print(report.to_dataframe('time_series'))  # sequence-wise DataFrame
+schemas = report.to_dict()['schemas']
+print(schemas['step'])                     # step-wise: {'step01': {'MSE': ..., ...}, ...}
+print(schemas['month'])                    # month-wise
+print(schemas['time_series'])              # sequence-wise
+# Need a DataFrame? Build it in the caller:
+#   pd.DataFrame.from_dict(schemas['step'], orient='index')
 ```
 
 ### 2.6. The `legacy_compatibility` Flag
@@ -158,10 +161,8 @@ report.pred_type     # str: 'point' or 'sample'
 report.to_dict()     # {'target': ..., 'task': ..., 'pred_type': ...,
                      #  'schemas': {'month': {...}, 'time_series': {...}, 'step': {...}}}
 
-report.to_dataframe('month')        # pd.DataFrame, index = group keys
-report.to_dataframe('time_series')  # pd.DataFrame
-report.to_dataframe('step')         # pd.DataFrame
-report.to_dataframe('raw')          # passthrough to internal results dict
+report.to_dataframe(schema)         # DEPRECATED, removed in 2.0.0 — use
+                                    # to_dict()['schemas'][schema]; emits DeprecationWarning
 
 report.get_schema_results('month')  # dict mapping key → typed metrics dataclass
 ```

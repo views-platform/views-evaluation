@@ -3,8 +3,13 @@ Direct unit tests for EvaluationReport.
 
 Structured per ADR-020 (Red/Beige/Green):
   GREEN — construction, to_dict, get_schema_results, to_dataframe for all four task/type combos
-  BEIGE — empty schema, multiple metrics per group, raw schema passthrough
+  BEIGE — empty schema, multiple metrics per group, raw schema passthrough, the
+          to_dataframe() DeprecationWarning (one per call, attributed to the caller)
   RED   — unknown schema key, invalid task/pred_type combination
+
+The no-pandas fail-loud case for to_dataframe() (C-44) lives in
+tests/test_adversarial_inputs.py: this module import-skips on pandas, so it could never
+run here in the one environment that case describes.
 """
 import pytest
 pd = pytest.importorskip("pandas")
@@ -112,24 +117,28 @@ class TestEvaluationReportGreen:
 
     def test_to_dataframe_returns_dataframe_with_correct_shape(self):
         report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        df = report.to_dataframe('month')
+        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
+            df = report.to_dataframe('month')
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 2  # month100 and month101
 
     def test_to_dataframe_index_matches_group_keys(self):
         report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        df = report.to_dataframe('month')
+        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
+            df = report.to_dataframe('month')
         assert set(df.index.tolist()) == {'month100', 'month101'}
 
     def test_to_dataframe_time_series_schema(self):
         report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        df = report.to_dataframe('time_series')
+        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
+            df = report.to_dataframe('time_series')
         assert isinstance(df, pd.DataFrame)
         assert 'ts00' in df.index
 
     def test_to_dataframe_step_schema(self):
         report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
-        df = report.to_dataframe('step')
+        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
+            df = report.to_dataframe('step')
         assert isinstance(df, pd.DataFrame)
         assert 'step01' in df.index
 
@@ -143,7 +152,8 @@ class TestEvaluationReportBeige:
     def test_to_dataframe_empty_schema_returns_empty_dataframe(self):
         results = {'month': {}, 'time_series': {}, 'step': {}}
         report = EvaluationReport('t', 'regression', 'point', results)
-        df = report.to_dataframe('month')
+        with pytest.warns(DeprecationWarning):  # deprecated; these tests go in 2.0.0
+            df = report.to_dataframe('month')
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 0
 
@@ -163,6 +173,37 @@ class TestEvaluationReportBeige:
         assert schema['month100'].MSE == 1.0
         assert schema['month100'].RMSLE == 0.5
 
+    def test_to_dataframe_emits_exactly_one_deprecation_warning_naming_the_replacement(self):
+        """ADR-022 §2: the warning ships one release before the removal (S3, #69).
+        `to_dict()` is the replacement and `2.0.0` the removal version; both are in the
+        text so a consumer reading the warning knows what to do and by when."""
+        import warnings
+        report = EvaluationReport('t', 'regression', 'point', {
+            'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            df = report.to_dataframe('month')
+            assert len(w) == 1, [str(x.message) for x in w]
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "to_dict()['schemas'][schema]" in str(w[0].message) and "2.0.0" in str(w[0].message)
+            # stacklevel=2: the warning is attributed to the CALLER's file, which is what
+            # makes it visible under CPython's default `default::DeprecationWarning:__main__`
+            # filter for a script consumer. stacklevel=1 would attribute it to the library
+            # and every default-filtered consumer would see nothing.
+            assert w[0].filename == __file__
+        assert "MSE" in df.columns
+
+    def test_evaluation_dict_to_dataframe_warns_when_called_directly(self):
+        """The helper is reachable on a dataclass from get_schema_results(); a direct
+        caller must get the deprecation too (it goes in 2.0.0 with to_dataframe)."""
+        report = EvaluationReport('t', 'regression', 'point', {
+            'month': {'month100': {'MSE': 42.0}}, 'time_series': {}, 'step': {}})
+        mapped = report.get_schema_results('month')
+        cls = type(mapped['month100'])
+        with pytest.warns(DeprecationWarning, match="2.0.0"):
+            df = cls.evaluation_dict_to_dataframe(mapped)
+        assert "MSE" in df.columns
+
     def test_to_dataframe_raw_returns_internal_results_dict_with_deprecation(self):
         """schema='raw' is a deprecated passthrough to the raw results dict."""
         import warnings
@@ -173,9 +214,12 @@ class TestEvaluationReportBeige:
             raw = report.to_dataframe('raw')
             assert len(w) == 1
             assert issubclass(w[0].category, DeprecationWarning)
-            assert "to_dict()" in str(w[0].message)
+            # The raw path's replacement is the whole schemas dict, not one schema.
+            assert "to_dict()['schemas'] in" in str(w[0].message)
         assert 'month' in raw
         assert raw['month']['month100']['MSE'] == 42.0
+        # Identity, as documented: the same object as to_dict()['schemas'], not a copy.
+        assert raw is report.to_dict()['schemas']
 
     def test_all_four_task_pred_type_combinations_resolve_correctly(self):
         """get_schema_results must not raise for any valid (task, pred_type) pair."""
@@ -217,7 +261,8 @@ class TestEvaluationReportRed:
     def test_to_dataframe_unknown_schema_raises_key_error(self):
         report = EvaluationReport('t', 'regression', 'point', _regression_point_results())
         with pytest.raises(KeyError):
-            report.to_dataframe('nonexistent_schema')
+            with pytest.warns(DeprecationWarning):
+                report.to_dataframe('nonexistent_schema')
 
     def test_invalid_task_type_raises_on_get_schema_results(self):
         """An unrecognised (task, pred_type) pair must fail at lookup time."""

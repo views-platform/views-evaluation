@@ -15,6 +15,7 @@ import tempfile
 
 import numpy as np
 import pytest
+from pathlib import Path
 
 pytest.importorskip("views_frames")
 
@@ -264,7 +265,7 @@ class TestToMetricFrameBeige:
         assert isinstance(mf.metadata.scoring_code_version, str)
         assert mf.metadata.scoring_code_version
 
-    def test_scoring_code_version_identifies_the_code_that_ran(self, monkeypatch):
+    def test_scoring_code_version_identifies_the_code_that_ran(self):
         """C-25: a bare version cannot distinguish the tree from the last install.
 
         `importlib.metadata` reports the *installed distribution*, not the executing
@@ -273,27 +274,44 @@ class TestToMetricFrameBeige:
         dist-info at 0.5.0, emitting frames stamped `0.5.0` from 1.0.0 code.
 
         The previous version of this test asserted only that the stamp was a non-empty
-        string, so it was satisfied by exactly the wrong answer.
+        string, so it was satisfied by exactly the wrong answer. It then decided
+        skip-vs-assert from where *this test file* lives; it now decides from where the
+        *imported module* lives, because an installed copy imported while this checkout
+        is on disk must stamp a bare version (C-39), not this checkout's SHA.
         """
         import subprocess
         from pathlib import Path
         from views_evaluation.evaluation import metric_frame as mf_mod
 
+        module_root = Path(mf_mod.__file__).resolve().parents[2]
+        repo_root = Path(__file__).resolve().parents[1]
+        stamp = mf_mod.default_scoring_code_version()
+        if module_root != repo_root:
+            assert hasattr(mf_mod, "_read_head_sha"), (
+                f"the imported module at {module_root} predates the C-39 fix — a stale "
+                f"installed copy is being tested instead of this checkout"
+            )
+            assert stamp and "+g" not in stamp, (
+                f"the imported module is an installed copy at {module_root}, which must "
+                f"stamp a bare version (C-39), got {stamp!r}"
+            )
+            return
+
         head = subprocess.run(
-            ["git", "rev-parse", "--short=7", "HEAD"],
-            capture_output=True, text=True, cwd=Path(__file__).parent,
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=module_root,
         ).stdout.strip()
         if not head:
-            pytest.skip("not running from a git worktree")
-
-        stamp = mf_mod.default_scoring_code_version()
-        assert stamp and stamp.endswith(f"+g{head}"), (
-            f"stamp {stamp!r} does not identify the running code (HEAD {head}). A bare "
+            pytest.skip("not running from a git checkout")
+        assert stamp and stamp.endswith(f"+g{head[:7]}"), (
+            f"stamp {stamp!r} does not identify the running code (HEAD {head[:7]}). A bare "
             f"version here is the C-25 defect: it is indistinguishable from a stale one."
         )
 
     def test_scoring_code_version_is_bare_when_there_is_no_worktree(self, monkeypatch):
-        """A wheel install has no `.git` and correctly stamps a bare version.
+        """When no SHA can be attributed to this checkout, the stamp is the bare version.
+
+        This stubs the SHA reader; the layouts that make it return None (a wheel, wherever
+        it lives; a vendored copy) are exercised in `TestSourceGitShaBoundary*`.
 
         That is a property of how the package was installed, not a failure — ADR-015's
         fault-versus-data-property test — so it must not raise and must not invent a SHA.
@@ -478,6 +496,96 @@ class TestMetricFrameMetadata:
 # why the report was empty.
 # ---------------------------------------------------------------------------
 
+class TestSentinelGroupsInTheMeanRow:
+    """ADR-015 R9 / R1 / R2: a group carrying a sentinel `nan` is excluded from the
+    cross-group `mean` row, so an empty classification group neither drags AP toward
+    zero nor poisons the aggregate."""
+
+    def test_nan_ap_group_is_excluded_from_the_mean(self):
+        results = {
+            "month": {"month100": {"AP": float("nan")}, "month101": {"AP": 0.8}, "month102": {"AP": 0.6}},
+            "time_series": {}, "step": {},
+        }
+        mf = EvaluationReport("t", "classification", "point", results).to_metric_frame()
+        mean_rows = (mf.identifiers["group_id"] == MEAN_GROUP_ID) & (mf.identifiers["metric"] == "AP")
+        assert mf.values[mean_rows].ravel().tolist() == pytest.approx([0.7], abs=1e-6)
+        empty = (mf.identifiers["group_id"] == "month100") & (mf.identifiers["metric"] == "AP")
+        assert empty.sum() == 1, "the sentinel row must be CARRIED, not omitted (R9 set omission aside)"
+        assert np.isnan(mf.values[empty]).all()
+
+
+class TestAllSentinelFrameBeige:
+    """ADR-015 R6 amended 2026-09-18: a frame whose every value is a sentinel emits (it
+    is a data property, and raising would abort a constant baseline scored on Pearson —
+    the R2 reversal) but leaves a WARNING on the emit path, because before R9 such an
+    evaluation at least emitted scikit-learn's warnings and now it would be silent."""
+
+    def test_all_nan_frame_emits_and_warns(self, caplog):
+        results = {"month": {"m1": {"AP": float("nan")}, "m2": {"AP": float("nan")}}, "time_series": {}, "step": {}}
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            mf = EvaluationReport("t", "classification", "point", results).to_metric_frame()
+        assert mf.n_rows == 3 and np.isnan(mf.values).all()
+        assert any("every value is a sentinel" in r.message for r in caplog.records)
+
+    def test_a_frame_with_one_real_value_does_not_warn(self, caplog):
+        results = {"month": {"m1": {"AP": float("nan")}, "m2": {"AP": 0.5}}, "time_series": {}, "step": {}}
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            EvaluationReport("t", "classification", "point", results).to_metric_frame()
+        assert not [r for r in caplog.records if "sentinel" in r.message]
+
+    def test_the_condition_is_every_value_not_the_last_one(self, caplog):
+        """Two metrics: the first all-nan, the second real. Its mean row is the last
+        value emitted, so a last-value check would (wrongly) stay silent on the reverse
+        ordering and warn on this one. Neither may warn; only an ALL-nan frame does."""
+        for nan_metric, real_metric in (("AP", "Brier_cls_point"), ("Brier_cls_point", "AP")):
+            caplog.clear()
+            # Emit order follows insertion: when the all-nan metric is inserted SECOND its
+            # mean row is the last value emitted, so a last-value check would warn here
+            # while every earlier value is real.
+            results = {"month": {"m1": {real_metric: 0.4, nan_metric: float("nan")},
+                                 "m2": {real_metric: 0.6, nan_metric: float("nan")}},
+                       "time_series": {}, "step": {}}
+            with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+                EvaluationReport("t", "classification", "point", results).to_metric_frame()
+            assert not [r for r in caplog.records if "sentinel" in r.message], (nan_metric, real_metric)
+
+    def test_inf_is_a_statement_not_a_sentinel(self, caplog):
+        """R1: MCR's `inf` (predicted conflict where none occurred) is an interpretable
+        calibration statement, not "no answer". A frame of nan and inf has an answer in
+        it and must not warn; the mean row carries the inf."""
+        results = {"month": {"m1": {"MCR_point": float("nan")}, "m2": {"MCR_point": float("inf")}}, "time_series": {}, "step": {}}
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            mf = EvaluationReport("t", "regression", "point", results).to_metric_frame()
+        assert not [r for r in caplog.records if "sentinel" in r.message]
+        mean = mf.values[mf.identifiers["group_id"] == MEAN_GROUP_ID]
+        assert np.isinf(mean).all()
+
+    def test_the_warning_is_on_the_emit_path_logger(self, caplog):
+        results = {"month": {"m1": {"AP": float("nan")}}, "time_series": {}, "step": {}}
+        with caplog.at_level(logging.WARNING):
+            EvaluationReport("t", "classification", "point", results).to_metric_frame()
+        hits = [r for r in caplog.records if "sentinel" in r.message]
+        assert hits and all(r.name == "views_evaluation.evaluation.metric_frame" for r in hits), (
+            "logging standard §5.1: the emit path logs under the metric_frame logger"
+        )
+
+    def test_a_none_value_still_coerces_to_nan_as_it_did_in_1_0_0(self, caplog):
+        """1.0.0 coerced a `None` metric value to nan through the float32 cast. The
+        all-sentinel gate must run on the coerced array, not the raw list: `np.isnan(None)`
+        raises TypeError, so a gate placed before the cast would turn a value that used
+        to emit into a crash — and only when the `None` happened to be tested."""
+        for results in (
+            {"month": {"m1": {"AP": None}, "m2": {"AP": 0.5}}, "time_series": {}, "step": {}},
+            {"month": {"m1": {"AP": None}}, "time_series": {}, "step": {}},
+        ):
+            caplog.clear()
+            with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+                mf = EvaluationReport("t", "classification", "point", results).to_metric_frame()
+            assert np.isnan(mf.values[0, 0])
+        # The second report is all-nan after coercion and must still warn.
+        assert any("every value is a sentinel" in r.message for r in caplog.records)
+
+
 class TestVacuousEmitRed:
 
     def test_report_with_no_metric_values_raises(self):
@@ -527,3 +635,337 @@ class TestVacuousEmitRed:
         ids = {axis: np.asarray([], dtype=str) for axis in AXES}
         mf = MetricFrame(np.zeros((0, 1), dtype=np.float32), ids)
         assert mf.n_rows == 0
+
+
+# ---------------------------------------------------------------------------
+# C-39: the provenance SHA must come from THIS repository's checkout or not at all
+# ---------------------------------------------------------------------------
+
+_OWN_PYPROJECT = '[tool.poetry]\nname = "views_evaluation"\n'
+# A consumer's pyproject that *mentions* this package in unrelated tables — a dependency
+# line and an import-linter contract named after it — but does not declare it.
+_CONSUMER_PYPROJECT = (
+    '[project]\nname = "views-reporting"\n'
+    'dependencies = ["views_evaluation>=1.0.0"]\n'
+    '[[tool.importlinter.contracts]]\nname = "views_evaluation"\n'
+)
+
+
+def _fake_package_file(root):
+    """The path `metric_frame.py` would have if this repository's checkout were `root`.
+
+    Anchored to the module's real path relative to the REPOSITORY root (the directory
+    holding `pyproject.toml`), not to the package's parent: under a `src/` layout the
+    package's parent is `src/`, the fixture would be unchanged, and the Green test would
+    stay green while `_source_git_sha`'s `parents[2]` had silently become `src/` and every
+    editable install stamped bare. Anchored here, the fixture moves with the layout and
+    the Green test turns red.
+    """
+    from views_evaluation.evaluation import metric_frame as mf_mod
+
+    repo_root = Path(__file__).resolve().parents[1]
+    assert (repo_root / "pyproject.toml").exists(), repo_root
+    rel = Path(mf_mod.__file__).resolve().relative_to(repo_root)
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+    return path
+
+
+def _git_dir(root, head, refs=None, packed=None):
+    """Build a `.git` directory: HEAD content, loose refs {ref: sha}, optional packed-refs."""
+    (root / ".git").mkdir(parents=True, exist_ok=True)
+    (root / ".git" / "HEAD").write_text(head + "\n")
+    for ref, sha in (refs or {}).items():
+        p = root / ".git" / ref
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(sha + "\n")
+    if packed is not None:
+        (root / ".git" / "packed-refs").write_text(packed)
+    return root / ".git"
+
+
+class TestSourceGitShaBoundaryRed:
+    """Register C-39. The bound has two halves — no parent walk, and a name gate — and a
+    Red test for each, so a mutant that restores the walk or loosens the gate fails."""
+
+    def test_wheel_inside_consumer_checkout_stamps_no_sha(self, tmp_path, monkeypatch):
+        """uv's default `.venv` sits below the consumer's `.git` AND its pyproject."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        consumer = tmp_path / "consumer"
+        _git_dir(consumer, "e15f298aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        (consumer / "pyproject.toml").write_text(_CONSUMER_PYPROJECT)
+        site = consumer / ".venv" / "lib" / "python3.11" / "site-packages"
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(site)))
+
+        assert mf_mod._source_git_sha() is None, (
+            "the walker found the CONSUMER's .git and would stamp e15f298 as this "
+            "library's version — register C-39"
+        )
+
+    def test_vendored_copy_in_consumer_checkout_stamps_no_sha(self, tmp_path, monkeypatch):
+        """The package directory directly under a consumer's root: `.git` and
+        `pyproject.toml` are both at parents[2], and only the name gate says no."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        consumer = tmp_path / "consumer"
+        _git_dir(consumer, "e15f298aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        (consumer / "pyproject.toml").write_text(_CONSUMER_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(consumer)))
+
+        assert mf_mod._source_git_sha() is None
+
+    def test_unreadable_git_state_logs_and_stamps_bare(self, tmp_path, monkeypatch, caplog):
+        """A `.git` that is ours but yields no commit is a fault, not a data property: the
+        stamp is bare AND a WARNING is left (ADR-013, logging standard §5.1)."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/alias", refs={"refs/heads/alias": "ref: refs/heads/main"})
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            assert mf_mod._source_git_sha() is None
+        assert any("no commit could be read" in r.message for r in caplog.records), (
+            "a symbolic-ref chain must not be truncated into a garbage stamp, and must be logged"
+        )
+
+    def test_missing_head_logs_and_stamps_bare(self, tmp_path, monkeypatch, caplog):
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        (repo / ".git").mkdir(parents=True)  # no HEAD at all
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            assert mf_mod._source_git_sha() is None
+        assert any(
+            r.levelno == logging.WARNING and "no commit could be read" in r.message
+            for r in caplog.records
+        ), "a missing HEAD in our own .git is a fault and must be logged, not classified as a wheel"
+
+    def test_scalar_project_or_tool_key_reads_as_not_ours(self, tmp_path, monkeypatch, caplog):
+        """`project = "x"` (or `[tool] poetry = 1`) is a valid TOML document with a
+        scalar where a table is expected. Chained `.get()` raised AttributeError, which
+        the fault tuple did not catch, so `to_metric_frame()` crashed on a malformed
+        NEIGHBOUR file. It is not this distribution's pyproject: bare, and silent."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "cafebabe000000000000000000000000000000000")
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+        for text in ('project = "x"\n', '[tool]\npoetry = 1\n', '[project]\nname = 7\n'):
+            (repo / "pyproject.toml").write_text(text)
+            caplog.clear()
+            with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+                assert mf_mod._source_git_sha() is None, text
+            assert not caplog.records, text
+
+    @pytest.mark.parametrize("layout", ["main-repo", "main-repo-no-HEAD", "worktree-common-only", "worktree-own-only"])
+    def test_reftable_ref_storage_is_named_in_the_warning(self, layout, tmp_path, monkeypatch, caplog):
+        """git 2.45+ `--ref-format=reftable` keeps refs in `.git/reftable/`, with no
+        loose ref and no `packed-refs`. Not parsed here: bare stamp and a WARNING that
+        says reftable, not "unborn branch" — whichever of the worktree's own dir or the
+        common dir holds the table, and even when HEAD is missing too (the format is
+        the more useful thing to name, so it is checked first)."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        if layout.startswith("main-repo"):
+            _git_dir(repo, "ref: refs/heads/main")
+            (repo / ".git" / "reftable").mkdir()
+            (repo / ".git" / "reftable" / "tables.list").write_text("")
+            if layout.endswith("no-HEAD"):
+                (repo / ".git" / "HEAD").unlink()
+        else:
+            main = tmp_path / "main"
+            _git_dir(main, "ref: refs/heads/main")
+            own = main / ".git" / "worktrees" / "wt"
+            own.mkdir(parents=True)
+            (own / "HEAD").write_text("ref: refs/heads/feature\n")
+            (own / "commondir").write_text("../..\n")
+            repo.mkdir()
+            (repo / ".git").write_text(f"gitdir: {own}\n")
+            table_home = main / ".git" if layout == "worktree-common-only" else own
+            (table_home / "reftable").mkdir()
+            (table_home / "reftable" / "tables.list").write_text("")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        with caplog.at_level(logging.WARNING, logger="views_evaluation.evaluation.metric_frame"):
+            assert mf_mod._source_git_sha() is None
+        # The tmp_path itself contains "reftable" (pytest names it after the test), so
+        # the check is on the exception text, not on a bare substring of the record.
+        assert any("stored in git's reftable format" in r.message for r in caplog.records), (
+            [r.message for r in caplog.records]
+        )
+
+
+    def test_wheel_inside_own_checkout_venv_stamps_no_sha(self, tmp_path, monkeypatch):
+        """A wheel copy under THIS repository's own `.venv` is still a wheel. A parent
+        walk that keeps the name gate would climb to the checkout, find a pyproject
+        that declares us, and stamp the checkout's SHA onto an installed copy."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main", refs={"refs/heads/main": "cafebabe000000000000000000000000000000000"})
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        site = repo / ".venv" / "lib" / "python3.11" / "site-packages"
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(site)))
+
+        assert mf_mod._source_git_sha() is None
+
+    def test_git_without_pyproject_is_silent(self, tmp_path, monkeypatch, caplog):
+        """`.git` present but no `pyproject.toml` beside it is not our checkout: None,
+        and — being a contracted data property, not a fault — no log record."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main", refs={"refs/heads/main": "cafebabe000000000000000000000000000000000"})
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        with caplog.at_level(logging.DEBUG, logger="views_evaluation.evaluation.metric_frame"):
+            assert mf_mod._source_git_sha() is None
+        assert not caplog.records
+
+
+class TestSourceGitShaBoundaryGreen:
+
+    def test_loose_ref_wins_over_a_stale_packed_ref(self, tmp_path, monkeypatch):
+        """git semantics: after `git pack-refs` and a later commit, the loose file is
+        current and the packed line is stale. Loose must be consulted first."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main",
+                 refs={"refs/heads/main": "bbbbbbb0000000000000000000000000000000000"},
+                 packed="# pack-refs with: peeled fully-peeled sorted\n"
+                        "aaaaaaa0000000000000000000000000000000000 refs/heads/main\n")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "bbbbbbb"
+
+    def test_packed_ref_is_matched_by_name_not_position(self, tmp_path, monkeypatch):
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/zeta",
+                 packed="# pack-refs with: peeled fully-peeled sorted\n"
+                        "1111111000000000000000000000000000000000 refs/heads/main\n"
+                        "2222222000000000000000000000000000000000 refs/heads/zeta\n")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "2222222"
+
+    def test_mixed_case_name_is_this_distribution(self, tmp_path, monkeypatch):
+        """PEP 503 normalisation is case-insensitive, not only separator-insensitive."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "0123456abcdef0123456abcdef0123456abcdef01")
+        (repo / "pyproject.toml").write_text('[project]\nname = "Views-Evaluation"\n')
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "0123456"
+
+    def test_every_read_is_utf8(self):
+        """TOML is UTF-8 by spec and git writes refs as bytes; a locale-dependent
+        `read_text()` would lose the SHA under a C or East-Asian code page. Asserted on
+        the source, since the process locale cannot be switched safely mid-suite."""
+        import inspect
+        import re as _re
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        for fn in (mf_mod._normalised_project_name, mf_mod._read_head_sha):
+            src = inspect.getsource(fn)
+            calls = _re.findall(r"\.read_text\(([^)]*)\)", src)
+            assert calls, f"{fn.__name__} has no read_text call to check"
+            for args in calls:
+                assert 'encoding="utf-8"' in args, (
+                    f"{fn.__name__}: read_text({args}) is locale-dependent; pass encoding=\"utf-8\""
+                )
+
+
+    def test_own_checkout_loose_ref_stamps_head(self, tmp_path, monkeypatch):
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main", refs={"refs/heads/main": "abcdef1234567890"})
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "abcdef1"
+
+    def test_own_checkout_packed_ref_stamps_head(self, tmp_path, monkeypatch):
+        """After `git pack-refs`/`git gc` the branch has no loose file."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "ref: refs/heads/main",
+                 packed="# pack-refs with: peeled fully-peeled sorted\n"
+                        "abc1234567890abcdef0000000000000000000000 refs/heads/main\n")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "abc1234"
+
+    def test_pep621_hyphenated_name_is_this_distribution(self, tmp_path, monkeypatch):
+        """`views-evaluation` and `views_evaluation` are the same distribution (PEP 503)."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        _git_dir(repo, "0123456abcdef0123456abcdef0123456abcdef01")
+        (repo / "pyproject.toml").write_text('[project]\nname = "views-evaluation"\n')
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "0123456"
+
+    def test_linked_worktree_on_a_branch_stamps_head(self, tmp_path, monkeypatch):
+        """`git worktree add ../wt -b feature`: `.git` is a file with an absolute gitdir,
+        HEAD is symbolic in the worktree's own dir, and the ref lives in the main
+        repository's dir named by `commondir`."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        main = tmp_path / "main"
+        _git_dir(main, "ref: refs/heads/main",
+                 refs={"refs/heads/main": "1111111111111111111111111111111111111111",
+                       "refs/heads/feature": "feedface1234567890feedface1234567890feed"})
+        wt_gitdir = main / ".git" / "worktrees" / "wt"
+        wt_gitdir.mkdir(parents=True)
+        (wt_gitdir / "HEAD").write_text("ref: refs/heads/feature\n")
+        (wt_gitdir / "commondir").write_text("../..\n")
+        wt = tmp_path / "wt"
+        wt.mkdir()
+        (wt / ".git").write_text(f"gitdir: {wt_gitdir}\n")
+        (wt / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(wt)))
+
+        assert mf_mod._source_git_sha() == "feedfac"
+
+
+class TestSourceGitShaBoundaryBeige:
+
+    def test_submodule_relative_gitdir_resolves_against_the_git_file(self, tmp_path, monkeypatch):
+        """A `git submodule update` clone has a `.git` *file* with a relative `gitdir:`
+        and a detached (raw-SHA) HEAD; the path is relative to that file, not to
+        wherever the process happens to be running."""
+        from views_evaluation.evaluation import metric_frame as mf_mod
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").write_text("gitdir: ../real.git\n")
+        (repo / "pyproject.toml").write_text(_OWN_PYPROJECT)
+        (tmp_path / "real.git").mkdir()
+        (tmp_path / "real.git" / "HEAD").write_text("1234567deadbeef\n")
+        # Two levels down, so a cwd-relative "../real.git" does NOT exist by accident.
+        elsewhere = tmp_path / "elsewhere" / "deeper"
+        elsewhere.mkdir(parents=True)
+        monkeypatch.chdir(elsewhere)
+        monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
+
+        assert mf_mod._source_git_sha() == "1234567"

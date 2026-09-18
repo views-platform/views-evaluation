@@ -117,9 +117,10 @@ evaluator = NativeEvaluator(config)
 report = evaluator.evaluate(ef)
 
 # 3. Access results
-report.to_dataframe("step")          # pd.DataFrame
-report.to_dict()                     # nested dict
+report.to_dict()                     # {'target', 'task', 'pred_type', 'schemas': {'step': {...}, ...}}
 report.get_schema_results("month")   # typed metrics dataclass
+# to_dataframe() is deprecated and removed in 2.0.0; build a DataFrame from
+# to_dict()['schemas'][schema] in the caller if you need one.
 ```
 
 > For the full walkthrough including input formatting and sample evaluation, see [`documentation/integration_guide.md`](documentation/integration_guide.md).
@@ -259,7 +260,7 @@ pip install views_evaluation
 The library follows a strict three-layer architecture (ADR-011):
 
 ```
-Level 0 — Pure Core (NumPy + SciPy + sklearn; no dataframe libraries)
+Level 0 — Pure Core (NumPy + SciPy; no dataframe libraries)
   EvaluationFrame            Canonical data container (y_true, y_pred, identifiers)
   NativeEvaluator            Stateless evaluation engine (month/sequence/step schemas)
   MetricCatalog              Genome registry mapping metrics → functions + required params
@@ -267,7 +268,7 @@ Level 0 — Pure Core (NumPy + SciPy + sklearn; no dataframe libraries)
   Profiles                   Named hyperparameter sets (base, hydranet_ucdp, ...)
 
 Level 1 — Bridge / Emit
-  EvaluationReport      Results container with dict / DataFrame / MetricFrame export
+  EvaluationReport      Results container with dict / MetricFrame export (DataFrame export deprecated)
   MetricFrame           Typed, provenance-stamped evaluation-of-record (views-frames ADR-020)
 
 Level 2 — Orchestration

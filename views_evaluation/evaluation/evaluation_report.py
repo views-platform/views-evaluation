@@ -63,23 +63,55 @@ class EvaluationReport:
     def to_dataframe(self, schema: str):
         """
         Converts a specific schema's results into a Pandas DataFrame.
-        If schema='raw', returns the dictionary of mapped metrics dataclasses.
+        If schema='raw', returns the internal results dict — the same object as
+        ``to_dict()['schemas']``; do not mutate it.
+
+        **Deprecated; removed in 2.0.0** (ADR-022 §2; register C-40, C-44). Build a
+        DataFrame in the caller from ``to_dict()['schemas'][schema]`` instead:
+        ``pd.DataFrame.from_dict(report.to_dict()['schemas'][schema], orient='index')``
+        carries the same values. It is not byte-identical: this method orders columns by
+        dataclass field, drops any column that is NaN in every group (C-40), and keeps a
+        group with no metrics as a NaN row; the recipe orders columns as the metrics were
+        configured, keeps every column, and omits an empty group.
         """
+        # One warning on every call, whatever the schema: the `raw` passthrough used to
+        # carry its own; it is folded in here so a caller sees exactly one.
+        replacement = "to_dict()['schemas']" if schema == "raw" else "to_dict()['schemas'][schema]"
+        warnings.warn(
+            f"EvaluationReport.to_dataframe() is deprecated and will be removed in 2.0.0. "
+            f"Build a DataFrame from {replacement} in the caller.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if schema == "raw":
-            warnings.warn(
-                "to_dataframe(schema='raw') is deprecated. Use to_dict()['schemas'] instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
             return self._results
-            
+
+        # Gate on find_spec so the helpful error fires only when the extra is truly
+        # absent; a genuine import error inside pandas then propagates loudly. Until
+        # 2026-09-17 this was a bare `import pandas` that surfaced as
+        # `ModuleNotFoundError: No module named 'pandas'` with no mention of the extra
+        # (register C-44). Raised as ModuleNotFoundError — the type the bare import
+        # raised — so no `except ModuleNotFoundError` caller changes behaviour (ADR-022
+        # §1 counts raised types as public surface). No log: this path computes a value
+        # in memory and Level 0 does not log (logging standard §5.1); only the
+        # `to_metric_frame()` emit path below does.
+        import importlib.util
+        if importlib.util.find_spec("pandas") is None:
+            raise ModuleNotFoundError(
+                "EvaluationReport.to_dataframe() requires the optional 'pandas' "
+                "dependency. Install it with: pip install views-evaluation[dataframe]",
+                name="pandas",
+            )
         import pandas as pd
         mapped_results = self.get_schema_results(schema)
         if not mapped_results:
             return pd.DataFrame()
         
         metrics_cls = self._get_metrics_cls()
-        return metrics_cls.evaluation_dict_to_dataframe(mapped_results)
+        # The helper warns on its own for direct callers; this call already has.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return metrics_cls.evaluation_dict_to_dataframe(mapped_results)
 
 
     def to_metric_frame(
@@ -101,15 +133,19 @@ class EvaluationReport:
 
         A Level-1 bridge: it flattens the nested per-group results into rows keyed by
         ``(eval_type, target, metric, group_id, partition, level)`` and attaches provenance.
-        ``to_dict()``/``to_dataframe()`` are unaffected — this is purely additive.
+        ``to_dict()`` is unaffected — this is purely additive. (``to_dataframe()`` is
+        deprecated and goes in 2.0.0.)
 
         For each schema (month/time_series/step) present, one row is emitted per
         (group_id, metric), PLUS a cross-group aggregate row with ``group_id="mean"`` carrying
         the ``nanmean`` over the groups that reported that metric (the value views-reporting
-        matches on). In the normal emit path the denominator is every group in the schema,
-        because NativeEvaluator computes the same metric set for every group; a metric present
-        in only some groups would be averaged over just those. Schema names are mapped to the
-        consumer-facing ``eval_type`` spelling via ``SCHEMA_TO_EVAL_TYPE``.
+        matches on). The denominator is every group that reported a number: a group
+        carrying `nan` (MCR, Pearson or AP on degenerate input, ADR-015 R1/R2/R9) is
+        excluded, and a metric present in only some groups is averaged over just those.
+        `inf` is not `nan`: MCR's `inf` (predicted conflict where none occurred, R1) is a
+        calibration statement, `nanmean` keeps it, and the mean row reads `inf`. Schema
+        names are mapped to the consumer-facing ``eval_type`` spelling via
+        ``SCHEMA_TO_EVAL_TYPE``.
 
         Provenance is split per ADR-020 (register C-47): generic identity goes in the reused
         ``views_frames.FrameMetadata``; ``scoring_code_version`` and ``evaluation_timestamp``
@@ -212,7 +248,24 @@ class EvaluationReport:
             logging.getLogger("views_evaluation.evaluation.metric_frame").error(err_msg)
             raise ValueError(err_msg)
 
+        # ADR-015 R6, amended 2026-09-18: a frame in which EVERY value is a sentinel —
+        # every group of every metric degenerate — is structurally valid and persists,
+        # but it records nothing while looking complete. Raising here would abort a
+        # legitimate workflow (a constant baseline scored only on Pearson), which is
+        # the R2 reversal; so it logs at WARNING on the emit path and emits.
+        # Tested on the coerced array, not the raw list: a `None` value coerces to
+        # nan under float32 exactly as it did in 1.0.0, and `np.isnan(None)` would
+        # have raised TypeError before the coercion could happen.
         values_arr = np.asarray(values, dtype=np.float32).reshape(-1, 1)
+        if np.isnan(values_arr).all():
+            import logging
+            logging.getLogger("views_evaluation.evaluation.metric_frame").warning(
+                "to_metric_frame(): every value is a sentinel (nan) — no metric produced "
+                "a number for any group. Target='%s', task='%s', pred_type='%s'. The frame "
+                "is emitted, but an evaluation that scores nothing usually means the truth "
+                "column is degenerate (all zeros, or constant) or the wrong column was passed.",
+                self.target, self.task, self.pred_type,
+            )
         identifiers = {axis: np.asarray(columns[axis], dtype=str) for axis in AXES}
 
         metadata = MetricFrameMetadata(

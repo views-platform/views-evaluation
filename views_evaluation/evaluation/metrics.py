@@ -94,6 +94,16 @@ class BaseEvaluationMetrics:
             >>> evaluation_df = EvaluationMetrics.evaluation_dict_to_dataframe(evaluation_dict)
 
         """
+        # Deprecated with EvaluationReport.to_dataframe(); removed in 2.0.0 (epic #66).
+        # Reachable directly on a dataclass returned by get_schema_results(), so it warns
+        # too. The import stays bare: the only guarded entry is to_dataframe().
+        import warnings
+        warnings.warn(
+            "evaluation_dict_to_dataframe() is deprecated and will be removed in 2.0.0. "
+            "Build a DataFrame from EvaluationReport.to_dict()['schemas'][schema] instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         import pandas as pd
         df = pd.DataFrame.from_dict(evaluation_dict, orient='index')
         return df.loc[:, df.notna().any()]
