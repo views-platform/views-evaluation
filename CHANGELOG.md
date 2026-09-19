@@ -17,7 +17,23 @@ provided they were announced here.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **The `frames` extra no longer excludes views-frames 2.x** (`>=1.10.2,<3`, was `<2`).
+  Reported by views-pipeline-core's 3.3.0 range review (#91): views-frames 2.0.0 has been
+  published since 2026-08-18 and this cap, carried into any environment that requests the
+  extra, excluded it. What this changes is this package's own contract only — a consumer
+  whose own bounds exclude views-frames 2.x must widen those too before it resolves.
+  Measured before widening: the full suite (at 2.0.0's count) on views-frames 1.10.2,
+  1.11.0 and 2.0.0, and a `MetricFrame` saved under either major loads under the other
+  with identical rows and values. Safe because this package's only runtime import from
+  views-frames is the `FrameMetadata` dataclass (its tests also call the envelope contract
+  `views_frames.conformance.assert_frame_envelope`, whose body is unchanged between the
+  majors); views-frames 2.0.0's ADR-028 changes (index type, read-only `.values`,
+  `map_estimate` refusals) never reach it. Guards now pin the declared range and that
+  import surface, and CI runs the whole suite on the range's floor as well as on the
+  resolved version, asserting the resolved one is the 2.x end. Nothing changes in what
+  this package emits; MINOR under ADR-022 §5.
 
 ---
 

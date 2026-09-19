@@ -969,3 +969,52 @@ class TestSourceGitShaBoundaryBeige:
         monkeypatch.setattr(mf_mod, "__file__", str(_fake_package_file(repo)))
 
         assert mf_mod._source_git_sha() == "1234567"
+
+
+
+class TestViewsFramesSurface:
+    """The `frames` extra admits two views-frames majors (`>=1.10.2,<3`, #91). That is
+    safe only because this package's runtime surface into views-frames is one name,
+    `FrameMetadata`, used as a plain dataclass: six keyword fields, `to_dict` (omitting
+    None), `from_dict` (ignoring keys it does not own, which `MetricFrame.load` relies
+    on), default construction. views-frames 2.0.0's ADR-028 changes (a frame's index
+    type, read-only `.values`, `map_estimate` refusals) never reach it. Measured
+    2026-09-19: the full suite (at its 2.0.0 count, before these tests) green on 1.10.2,
+    1.11.0 and 2.0.0, and a frame saved
+    under either major loads under the other. The declared range and the one-name
+    import surface are pinned in tests/test_falsification_extras_actually_installed.py
+    (outside this module's import-skip); this class pins the BEHAVIOUR, against
+    whichever views-frames is installed."""
+
+    def test_installed_views_frames_is_inside_the_declared_range(self):
+        """Not `major in (1, 2)`: that is a third copy of the ceiling and admits a
+        below-floor release (1.9.0 passed it). The declared specifier is the one source."""
+        import importlib.metadata as md
+        from packaging.specifiers import SpecifierSet
+        from tests.test_falsification_extras_actually_installed import _views_frames_specifier
+        installed = md.version("views-frames")
+        assert SpecifierSet(_views_frames_specifier()).contains(installed, prereleases=True), (
+            f"views-frames {installed} is outside the declared range; measure before widening"
+        )
+
+    def test_frame_metadata_offers_the_surface_this_package_uses(self):
+        """Behavioural, against the installed major: the six keyword fields
+        `to_metric_frame` passes; default construction (reached through
+        `MetricFrame(..., metadata=None)` → `default_factory=FrameMetadata`); `to_dict`
+        omitting None; `from_dict` ignoring the keys `MetricFrameMetadata.to_dict()`
+        adds beside the generic ones (`schema_version`, `scoring_code_version`,
+        `evaluation_timestamp`) — which is what `MetricFrame.load()` hands it — and an
+        int timestamp surviving the round trip as an int, not a float that compares equal."""
+        fm = FrameMetadata(model="m", run_type="test", timestamp=1758153600, seed=7, run_id="r", data_version="v")
+        assert FrameMetadata.from_dict(fm.to_dict()) == fm
+        back = FrameMetadata.from_dict({**fm.to_dict(), "schema_version": "1.0.0", "scoring_code_version": "2.1.0",
+                                        "evaluation_timestamp": "2026-09-19T00:00:00"})
+        assert back == fm, "from_dict must ignore the MetricFrameMetadata-owned keys load() passes through"
+        assert type(back.timestamp) is int
+        assert FrameMetadata().to_dict() == {}, "to_dict must omit None so metadata.json keeps its shape"
+        assert FrameMetadata(model="m").to_dict() == {"model": "m"}
+        # None, not falsy: `seed=0` and `timestamp=0` are values and must survive the
+        # trip, or a run seeded 0 would load with `seed=None` (guard audit, 2026-09-19).
+        zero = FrameMetadata(model="m", run_type="t", timestamp=0, seed=0, run_id="", data_version="")
+        assert FrameMetadata.from_dict(zero.to_dict()) == zero
+        assert zero.to_dict()["seed"] == 0 and zero.to_dict()["timestamp"] == 0
