@@ -127,6 +127,7 @@ This policy is checked at two points:
 - [ ] Does the version bump match the change class (rule 5)?
 - [ ] Do the release notes list every breaking change with its migration?
 - [ ] Does `MetricFrame`'s format or axis vocabulary change? If so, has it been agreed with views-reporting and views-pipeline-core?
+- [ ] Has any dependency this package caps (`numpy`, `scipy`, `views-frames`) published a release outside the declared range since the last release? If so, is the cap measured and deliberate, or stale? *(Added 2026-09-19, #91: the `frames` extra's `<2` cap outlived views-frames 2.0.0 by a month and was noticed by a consumer, not by a release of ours.)*
 
 ## Consequences
 

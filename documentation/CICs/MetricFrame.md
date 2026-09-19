@@ -42,7 +42,7 @@ It is a string-keyed value object — **not** a spatiotemporal `(time, unit)` fr
 - **`identifiers`**: dict containing exactly the keys in `AXES`, each a 1-D length-`N` array of strings.
 - **`metadata`**: optional `MetricFrameMetadata`; defaults to an empty one.
 - **Assumes** the caller has already decided what belongs in the frame. Construction is a structural gate, not a semantic one.
-- **Requires** the optional `views-frames` dependency (`pip install views-evaluation[frames]`). The module is import-gated in `views_evaluation/__init__.py` on `find_spec`, so the core API stays importable without it (ADR-011 minimal core).
+- **Requires** the optional `views-frames` dependency (`pip install views-evaluation[frames]`), any version in `>=1.10.2,<3` — both majors measured 2026-09-19 (#91). The module is import-gated in `views_evaluation/__init__.py` on `find_spec`, so the core API stays importable without it (ADR-011 minimal core). This package's only runtime import from views-frames is the `FrameMetadata` dataclass (six keyword fields, `to_dict`, `from_dict`); its second dependency is the envelope contract `views_frames.conformance.assert_frame_envelope`, called by the tests, whose body is unchanged between the majors although views-frames moved its `CONFORMANCE_FLOOR` to 2.0.0. `tests/test_falsification_extras_actually_installed.py::TestViewsFramesRange` pins the range and the one-name import surface, `tests/test_metric_frame.py::TestViewsFramesSurface` pins `FrameMetadata`'s behaviour on the installed major, and CI runs the whole suite on the range's floor as well as on the resolved version.
 
 ---
 
