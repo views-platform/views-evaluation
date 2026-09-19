@@ -78,8 +78,12 @@ jobs:
     # into silence. Without this step a partial install silently shrinks the suite
     # and CI still reports green. Guarded by
     # tests/test_falsification_extras_actually_installed.py.
+    # Also asserts the resolver did NOT land in the floor's major: the floor step below
+    # covers that end, so this leg must cover the other. Read from pyproject through the
+    # one reader, not a literal. A deliberate false red: if every release above the
+    # floor's major were yanked, this fails loudly rather than silently testing 1.x twice.
     - name: Verify optional extras are installed
-      run: poetry run python -c "import views_frames, importlib.metadata as m; v = m.version('views-frames'); print('resolved views-frames', v); assert v.split('.')[0] != '1', 'the resolver picked the floor major; the 2.x end of the range would go untested'"
+      run: poetry run python -c "import views_frames, importlib.metadata as m; from tests.test_falsification_extras_actually_installed import _views_frames_specifier; from packaging.specifiers import SpecifierSet; v = m.version('views-frames'); spec = SpecifierSet(_views_frames_specifier()); floor = min(str(s.version) for s in spec if s.operator == '>='); print('resolved views-frames', v, 'declared', spec, 'floor', floor); assert spec.contains(v), 'resolved outside the declared range'; assert v.split('.')[0] != floor.split('.')[0], 'the resolver picked the floor major; the other end of the range would go untested'"
 
     - name: Run tests
       run: |
@@ -87,19 +91,22 @@ jobs:
         poetry run pytest tests/
 
     # The `frames` extra admits two views-frames majors (>=1.10.2,<3; #91). The step
-    # above runs on whatever the resolver picks (asserted to be the 2.x end in the
-    # verify step), so the FLOOR would be untested. This reads the floor from
-    # pyproject.toml (one source, no literal to drift), pins it, and runs the whole
-    # suite on it. Nothing after this step touches Python, so nothing is restored;
+    # above runs on whatever the resolver picks (asserted not to be the floor's major
+    # in the verify step), so the FLOOR would be untested. This reads the floor through
+    # the ONE reader the guards use (no second parser, no literal to drift), pins it
+    # with `--no-deps` so pip cannot move other pins, proves the environment consistent
+    # and the module importable, and runs the whole suite on it. Nothing after this
+    # step touches Python, so nothing is restored;
     # a later Python-touching step must reinstall the extras first (the held workflow
     # text forces that review). Guarded by the held workflow text.
     - name: Run the suite on the views-frames floor
       run: |
         set -e
-        FLOOR=$(poetry run python -c "import tomllib, re; d = tomllib.load(open('pyproject.toml', 'rb')); p = d.get('project', {}); e = [x for x in p.get('dependencies', []) + sum(p.get('optional-dependencies', {}).values(), []) if x.startswith('views-frames')]; spec = re.sub(r'^views-frames(\[[^\]]*\])?', '', e[0]) if e else d['tool']['poetry']['dependencies']['views-frames']['version']; print([s for s in spec.replace(' ', '').split(',') if s.startswith('>=')][0][2:])")
+        FLOOR=$(poetry run python -c "from tests.test_falsification_extras_actually_installed import _views_frames_specifier; from packaging.specifiers import SpecifierSet; print(min(str(s.version) for s in SpecifierSet(_views_frames_specifier()) if s.operator == '>='))")
         echo "views-frames floor from pyproject.toml: $FLOOR"
-        poetry run pip install --quiet "views-frames==$FLOOR"
-        poetry run python -c "import importlib.metadata as m, sys; assert m.version('views-frames') == sys.argv[1], m.version('views-frames')" "$FLOOR"
+        poetry run pip install --quiet "views-frames==$FLOOR" --no-deps
+        poetry run pip check
+        poetry run python -c "import views_frames, importlib.metadata as m, sys; from views_frames import FrameMetadata; assert m.version('views-frames') == sys.argv[1], m.version('views-frames')" "$FLOOR"
         poetry run pytest tests/ -q
 
     # Structural documentation checks (CIC references, cross-ADR integrity, unfilled

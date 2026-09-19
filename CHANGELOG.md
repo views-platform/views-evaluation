@@ -17,6 +17,18 @@ provided they were announced here.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [2.1.0] — 2026-09-19
+
+One constraint changes: the `frames` extra no longer caps views-frames below 2.0.0. The
+rest of the release is the guards and CI legs that make that measured, and a sixth item
+on the ADR-022 §7 release checklist so a stale cap is noticed at a release rather than by
+a consumer. Nothing this package emits changes. Issue #91, reported by views-pipeline-core's
+3.3.0 range review.
+
 ### Changed
 
 - **The `frames` extra no longer excludes views-frames 2.x** (`>=1.10.2,<3`, was `<2`).
@@ -34,6 +46,40 @@ provided they were announced here.
   import surface, and CI runs the whole suite on the range's floor as well as on the
   resolved version, asserting the resolved one is the 2.x end. Nothing changes in what
   this package emits; MINOR under ADR-022 §5.
+
+### Release checklist (ADR-022 §7)
+
+- [x] **Does this release do anything rule 2 governs — remove an `__all__` symbol, remove
+  a supported config key, narrow an accepted input, or change a raised exception type?
+  If so, did a `DeprecationWarning` ship at least one release ago?** No. One dependency
+  constraint widens; no symbol, key, input or exception type changes.
+- [x] **Does this release make previously-accepted input fail? If so, are the release
+  notes explicit, and have known consumers been notified?** No input changes. The one
+  consumer that requests the `frames` extra, views-reporting, was notified **before the
+  tag** on 2026-09-19 (views-platform/views-reporting#289, comment 5738670537); the
+  comment records what their own views-frames bound was when observed. views-pipeline-core
+  filed #91.
+- [x] **Does the version bump match the change class (rule 5)?** `2.0.0` → `2.1.0`,
+  MINOR. §1 does not count dependency ranges as public API; widening one removes an
+  exclusion and breaks nothing that resolved before.
+- [x] **Do the release notes list every breaking change with its migration?** There is
+  no breaking change.
+- [x] **Does `MetricFrame`'s format or axis vocabulary change? If so, has it been agreed
+  with views-reporting and views-pipeline-core?** No. Measured: a frame saved under
+  views-frames 1.10.2 loads under 2.0.0 and the reverse, identically; CI runs the whole
+  suite on both ends of the range.
+- [x] **Has any dependency this package caps published a release outside the declared
+  range since the last release? If so, is the cap measured and deliberate, or stale?**
+  This is the release that answers "stale" for views-frames and fixes it. Working the
+  item honestly for the rest: **numpy `<2.0.0` is stale.** Measured 2026-09-19 with
+  `pip install --dry-run --only-binary=:all:`: on Python 3.13 and 3.14, both inside our
+  declared `>=3.11,<3.15`, no numpy wheel satisfies `<2.0.0`, so this package cannot be
+  installed from wheels there (3.11 and 3.12 resolve). scipy 1.18 (2026-06-19) requires
+  numpy ≥ 2, so under our cap the resolver silently freezes scipy at 1.17.x. Not fixed in
+  this release — lifting the cap means measuring numpy 2.x — and tracked as #93 with
+  register C-41 re-tiered; until then, Python 3.13/3.14 users need a numpy 1.26 built from
+  source. `python <3.15`: 3.15.0 final is due 2026-10-01; #93 covers it. Dev group:
+  `pandas <3` has releases above it; dev-only, no consumer effect.
 
 ---
 
