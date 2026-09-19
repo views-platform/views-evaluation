@@ -24,6 +24,7 @@ Do not "fix" a failure here by relaxing the assertion: it means real coverage ha
 dark, or the proof that it has not is no longer a proof.
 """
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,28 @@ def _strip_comment(s):
     return "".join(out).rstrip()
 
 
+# Every way an executed command's failure can be prevented from failing the job. Each
+# was confirmed to defeat an earlier version of a guard here. Module-level so every
+# step-reading guard applies the same list (the floor-step guard had two of these).
+_SUPPRESSED = (
+    r"\|\|",                 # `|| true`, `|| :`, `|| echo skip` — any fallback
+    r"^\s*set \+(e|o\s+errexit)",   # errexit disabled
+    r"^\s*if\s|;\s*then\b",  # wrapped in a conditional that swallows status
+    r"&\s*$",                 # backgrounded
+    r";\s*exit\s+0",          # status discarded
+    r"^\s*exit\s+0\s*$",       # status discarded, on its own line
+    r";\s*(true|:)\s*$",       # status replaced
+    r"&\s*wait\s*$",          # backgrounded, then waited on — `wait` exits 0
+    # Nine more, each proven to exit 0 under `bash -e` by the 2.1.0 guard audit:
+    r"\|\s*\w",                # piped into anything: no pipefail, the pipe's status wins
+    r"\bset\s+\+\S*e\b",       # `set +e`, `set +xe`, `set -e; set +e` — errexit off, anywhere on the line
+    r"^\s*exit\b",             # `exit 0;`, `exit 00`, bare `exit` — own-line exit of any spelling
+    r"^\s*(echo|printf)\b.*\$\(",  # `echo $(cmd)`: the substitution's status is discarded
+    r"\bwhile\s+!",             # `while ! cmd; do break; done`
+    r"&\s*\)",                  # `(cmd &)`: backgrounded inside a subshell
+)
+
+
 def _views_frames_specifier():
     """The declared views-frames version specifier, from either pyproject layout —
     PEP 621 FIRST, as `_extras_table` reads it and as poetry >= 2 does, so a stale
@@ -115,19 +138,33 @@ def _views_frames_specifier():
     `python = ">=3.12"` key or a `; python_version` marker leaves the extra unresolved
     on the 3.11 runner with the specifier text unchanged."""
     import tomllib
+    from packaging.requirements import Requirement
     data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
     project = data.get("project", {})
+
+    def canonical(name):
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+    # EVERY declaration, then exactly one: a second views-frames entry (another extra,
+    # a hard `[project] dependencies` line, a duplicate in one list) narrows the range
+    # the resolver applies while a first-match reader kept returning the first (guard
+    # audit, 2026-09-19). Poetry-table keys are canonicalised as poetry does.
+    found = []
     for entry in project.get("dependencies", []) + sum(project.get("optional-dependencies", {}).values(), []):
-        if re.match(r"views-frames\b", entry):
-            assert ";" not in entry, f"views-frames carries an environment marker: {entry!r}"
-            return re.sub(r"^views-frames(?:\[[^\]]*\])?\s*", "", entry).replace(" ", "")
-    poetry = data.get("tool", {}).get("poetry", {}).get("dependencies", {}).get("views-frames")
-    if isinstance(poetry, dict):
-        assert set(poetry) <= {"version", "optional"}, f"views-frames poetry entry carries extra keys: {sorted(poetry)}"
-        return poetry["version"].replace(" ", "")
-    if isinstance(poetry, str):
-        return poetry.replace(" ", "")
-    raise AssertionError("views-frames is not declared in pyproject.toml")
+        req = Requirement(entry)  # PEP 508, parenthesised form included — what poetry 2 writes
+        if canonical(req.name) == "views-frames":
+            assert req.marker is None, f"views-frames carries an environment marker: {entry!r}"
+            found.append(str(req.specifier))
+    for key, value in data.get("tool", {}).get("poetry", {}).get("dependencies", {}).items():
+        if canonical(key) != "views-frames":
+            continue
+        if isinstance(value, dict):
+            assert set(value) <= {"version", "optional"}, f"views-frames poetry entry carries extra keys: {sorted(value)}"
+            found.append(value["version"].replace(" ", ""))
+        else:
+            found.append(str(value).replace(" ", ""))
+    assert len(found) == 1, f"views-frames must be declared exactly once; found {found}"
+    return found[0]
 
 
 class TestViewsFramesRange:
@@ -146,31 +183,77 @@ class TestViewsFramesRange:
         )
 
     def test_the_ci_floor_step_derives_the_floor_from_pyproject(self):
-        """The floor step must read the floor from pyproject.toml and carry no version
-        literal of its own — a hand-copied `1.10.2` in the step (there were two) is a
-        second source that a floor raise can miss. Comment-stripped, so a commented-out
-        line cannot satisfy it."""
+        """The floor step must read the floor through the one specifier reader, carry no
+        version literal of its own (a hand-copied `1.10.2` is a second source a floor
+        raise can miss), and run install → check → import proof → whole suite in that
+        order with no way to suppress a failure. Deliberately strict about spelling:
+        a heredoc derivation or `--no-deps` on another line is a red build until this
+        guard is updated with it, because the held workflow text would be too."""
         steps = _workflow_steps(WORKFLOW.read_text(encoding="utf-8"))
         floor = [s for s in steps if "floor" in s["name"].lower()]
         assert len(floor) == 1, [s["name"] for s in steps]
         lines = _significant_lines(floor[0]["run"])
         run = "\n".join(lines)
-        # The derivation reads pyproject.toml with tomllib and names views-frames; a
-        # literal `FLOOR=1.10.2` beside an `echo ... pyproject.toml` satisfied a
-        # substring check (guard audit, 2026-09-19).
-        derivation = [line for line in lines if line.startswith("FLOOR=")]
-        assert len(derivation) == 1 and "tomllib" in derivation[0] and "pyproject.toml" in derivation[0], derivation
-        # Both layouts must key on views-frames and on nothing else: a derivation from
-        # the numpy entry still mentioned 'views-frames' in its PEP 621 branch.
-        assert re.findall(r"\['([\w-]+)'\]\['version'\]", derivation[0]) == ["views-frames"], derivation
-        assert "startswith('views-frames')" in derivation[0], derivation
-        assert "views-frames==$FLOOR" in run, run
+        # ONE reader: the step must obtain the floor by calling `_views_frames_specifier`
+        # from this module, not by a second inline parser (a second reader shipped with
+        # measured divergences from the first; release review 2026-09-19). A literal
+        # carrying the right tokens in a comment passed a token check, so the check is
+        # on the call, and the helper itself is exercised on a fixture below.
+        # Structural, in order: derivation → install → check → import proof → pytest,
+        # each identified by content, FLOOR assigned exactly once. A substring check
+        # was satisfied by the right tokens in the wrong place — an echo, a comment
+        # inside the `-c` quotes, an `export FLOOR=1.10.2` after the real derivation,
+        # an import that ran before the install (guard audit, 2026-09-19).
+        assignments = [line for line in lines if re.search(r"\bFLOOR=", line)]
+        assert len(assignments) == 1 and lines.index(assignments[0]) == 1, assignments  # right after `set -e`
+        derivation = assignments[0]
+        assert derivation.startswith("FLOOR=$(poetry run python -c "), derivation
+        assert "_views_frames_specifier()" in derivation and "print(min(" in derivation, derivation
+        assert not re.search(r"print\(\s*['\"]", derivation), "the derivation prints a literal, not the helper's result"
+
+        def index_of(predicate, what):
+            hits = [i for i, line in enumerate(lines) if predicate(line)]
+            assert len(hits) == 1, f"{what}: expected exactly one line, got {hits}"
+            return hits[0]
+
+        i_install = index_of(lambda line: line == 'poetry run pip install --quiet "views-frames==$FLOOR" --no-deps', "install with --no-deps")
+        i_check = index_of(lambda line: line == "poetry run pip check", "pip check")
+        i_proof = index_of(lambda line: line.startswith('poetry run python -c "import views_frames')
+                           and "assert m.version('views-frames') == sys.argv[1]" in line and line.endswith('"$FLOOR"'),
+                           "import proof pinned to FLOOR")
+        i_pytest = index_of(lambda line: line == "poetry run pytest tests/ -q", "whole suite")
+        assert 1 < i_install < i_check < i_proof < i_pytest == len(lines) - 1, [i_install, i_check, i_proof, i_pytest, len(lines)]
         assert not re.search(r"views-frames==\d", run), "the floor step hard-codes a version"
-        # The suite command exactly: `-k`, `--ignore`, `--deselect`, `|| true` all
-        # passed a `pytest tests/` prefix check.
-        assert "poetry run pytest tests/ -q" in lines, lines
-        assert not re.search(r"\|\||;\s*(true|:)\s*$", run, re.M), "a suppressed exit in the floor step"
-        assert not re.search(r"^\s*continue-on-error", floor[0].get("raw", ""), re.M)
+        for pattern in _SUPPRESSED:
+            assert not re.search(pattern, run, re.M), f"a suppressed exit in the floor step: {pattern!r}"
+        assert not floor[0]["continue_on_error"], "the floor step carries `continue-on-error:` or `if:`"
+        assert "PYTEST_ADDOPTS" not in WORKFLOW.read_text(encoding="utf-8"), "an env var can narrow the suite behind the exact command"
+
+    def test_the_specifier_helper_reads_every_layout_it_claims_to(self, monkeypatch, tmp_path):
+        """The helper on fixtures: the poetry dict, the poetry string, and the PEP 508
+        parenthesised form poetry 2 writes into `[project.optional-dependencies]` —
+        which a regex reader turned into `'(>=1.10.2'` (release review, 2026-09-19).
+        And the floor the CI step derives from it."""
+        cases = {
+            'views-frames = {version = ">=9.9.9,<10", optional = true}\n[tool.poetry.extras]\nframes = ["views-frames"]\n':
+                ">=9.9.9,<10",
+            '[tool.poetry.dependencies]\nviews-frames = ">= 9.9.9, <10"\n': ">=9.9.9,<10",
+            '[project]\nname = "x"\n[project.optional-dependencies]\nframes = ["views-frames (>=9.9.9,<10)"]\n': "<10,>=9.9.9",
+            '[project]\nname = "x"\n[project.optional-dependencies]\nframes = ["views-frames-reconcile>=1", "views-frames>=9.9.9,<10"]\n': "<10,>=9.9.9",
+        }
+        from packaging.specifiers import SpecifierSet
+        for text, expected in cases.items():
+            if not text.startswith("["):
+                text = "[tool.poetry.dependencies]\n" + text
+            p = tmp_path / "pyproject.toml"
+            p.write_text(text, encoding="utf-8")
+            monkeypatch.setattr(sys.modules[__name__], "PYPROJECT", p)
+            assert SpecifierSet(_views_frames_specifier()) == SpecifierSet(expected), text
+            floor = min(str(s.version) for s in SpecifierSet(_views_frames_specifier()) if s.operator == ">=")
+            assert floor == "9.9.9"
+        p.write_text('[project]\nname = "x"\ndependencies = ["views-frames>=9.9.9,<10; python_version >= \'3.12\'"]\n', encoding="utf-8")
+        with pytest.raises(AssertionError, match="environment marker"):
+            _views_frames_specifier()
 
     def test_the_only_name_imported_from_views_frames_is_frame_metadata(self):
         """AST over every package file: `from views_frames import X`, `import
@@ -325,17 +408,7 @@ class TestCiProvesExtrasWereInstalled:
         # the standard "unbreak the flaky step" edit, and it leaves the guard green
         # while disabling the check entirely. That is register C-37's vacuity shape
         # reproduced inside the test written to close it.
-        # Every way an executed command's failure can be prevented from failing the job.
-        # Each was confirmed to defeat an earlier version of this guard.
-        SUPPRESSED = (
-            r"\|\|",                 # `|| true`, `|| :`, `|| echo skip` — any fallback
-            r"^\s*set \+(e|o\s+errexit)",   # errexit disabled
-            r"^\s*if\s|;\s*then\b",  # wrapped in a conditional that swallows status
-            r"&\s*$",                 # backgrounded
-            r";\s*exit\s+0",          # status discarded
-            r";\s*(true|:)\s*$",       # status replaced
-            r"&\s*wait\s*$",          # backgrounded, then waited on — `wait` exits 0
-        )
+        SUPPRESSED = _SUPPRESSED
         # This list is defence-in-depth: TestPublishGateIsReal holds every workflow file
         # to a known-good text, which is what catches an evasion this list does not name.
 
@@ -576,7 +649,7 @@ jobs:
         PY
         poetry install --all-extras
     - name: Verify optional extras are installed
-      run: poetry run python -c "import views_frames, importlib.metadata as m; v = m.version('views-frames'); print('resolved views-frames', v); assert v.split('.')[0] != '1', 'the resolver picked the floor major; the 2.x end of the range would go untested'"
+      run: poetry run python -c "import views_frames, importlib.metadata as m; from tests.test_falsification_extras_actually_installed import _views_frames_specifier; from packaging.specifiers import SpecifierSet; v = m.version('views-frames'); spec = SpecifierSet(_views_frames_specifier()); floor = min(str(s.version) for s in spec if s.operator == '>='); print('resolved views-frames', v, 'declared', spec, 'floor', floor); assert spec.contains(v), 'resolved outside the declared range'; assert v.split('.')[0] != floor.split('.')[0], 'the resolver picked the floor major; the other end of the range would go untested'"
     - name: Run tests
       run: |
         set -e
@@ -584,10 +657,11 @@ jobs:
     - name: Run the suite on the views-frames floor
       run: |
         set -e
-        FLOOR=$(poetry run python -c "import tomllib, re; d = tomllib.load(open('pyproject.toml', 'rb')); p = d.get('project', {}); e = [x for x in p.get('dependencies', []) + sum(p.get('optional-dependencies', {}).values(), []) if x.startswith('views-frames')]; spec = re.sub(r'^views-frames(\[[^\]]*\])?', '', e[0]) if e else d['tool']['poetry']['dependencies']['views-frames']['version']; print([s for s in spec.replace(' ', '').split(',') if s.startswith('>=')][0][2:])")
+        FLOOR=$(poetry run python -c "from tests.test_falsification_extras_actually_installed import _views_frames_specifier; from packaging.specifiers import SpecifierSet; print(min(str(s.version) for s in SpecifierSet(_views_frames_specifier()) if s.operator == '>='))")
         echo "views-frames floor from pyproject.toml: $FLOOR"
-        poetry run pip install --quiet "views-frames==$FLOOR"
-        poetry run python -c "import importlib.metadata as m, sys; assert m.version('views-frames') == sys.argv[1], m.version('views-frames')" "$FLOOR"
+        poetry run pip install --quiet "views-frames==$FLOOR" --no-deps
+        poetry run pip check
+        poetry run python -c "import views_frames, importlib.metadata as m, sys; from views_frames import FrameMetadata; assert m.version('views-frames') == sys.argv[1], m.version('views-frames')" "$FLOOR"
         poetry run pytest tests/ -q
     - name: Validate documentation consistency
       run: bash documentation/validate_docs.sh
